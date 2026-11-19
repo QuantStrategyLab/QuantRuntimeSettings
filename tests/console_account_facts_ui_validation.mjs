@@ -345,6 +345,17 @@ try {
     ok(lbConfiguredTotals.length === 1 && lbConfiguredTotals[0].currency === "USD"
       && lbConfiguredTotals[0].netAssets === "100" && lbConfiguredTotals[0].cashBalance === "-20",
       "available-only currencies cannot create empty platform asset totals or change native cash");
+    // 15a. Management cohort (Q5): a stamped row is a sum member only as a known
+    // managed account; no frontend sum may bypass unavailable server totals.
+    const stampedRow = (status, evidence = "known") => ({ ...lbConfigured, management_status: status, evidence_state: evidence, management_revision: 2 });
+    ok(ui.lib.platformCurrencyTotals([stampedRow("managed")], 1).length === 1, "a known managed row still sums");
+    ok(ui.lib.platformCurrencyTotals([stampedRow("unknown", "unknown")], 1).length === 0, "unknown membership forms no platform sum");
+    ok(ui.lib.platformCurrencyTotals([stampedRow("managed", "conflict")], 1).length === 0, "conflicting evidence forms no platform sum");
+    ok(ui.lib.platformCurrencyTotals([stampedRow("managed", "stale")], 1).length === 0, "stale evidence forms no platform sum");
+    ok(ui.lib.platformCurrencyTotals([stampedRow("management_disabled")], 1).length === 0, "a known disabled row alone leaves no sum");
+    const withDisabled = ui.lib.platformCurrencyTotals([stampedRow("managed"), { ...stampedRow("management_disabled"), balances: [{ currency: "USD", net_assets: "900", total_cash: "0" }] }], 2);
+    ok(withDisabled.length === 1 && withDisabled[0].netAssets === "100" && withDisabled[0].expected === 1, "a known disabled row is a clean exclusion, never summed");
+    ok(ui.lib.platformCurrencyTotals([stampedRow("managed"), stampedRow("unknown", "unknown")], 2).length === 0, "one unknown member blocks the whole platform sum");
     ok(ui.card(language, lbConfigured, "ready").includes(language === "zh" ? "可用现金 · HKD" : "Available cash · HKD"),
       "native available cash still appears on its account card");
     const unverifiedOnly = ui.platform(language, [lbLive], 1, "ready");
@@ -427,6 +438,21 @@ try {
     ok(!hasCoverage(aliasGroup) && aliasGroup.includes(`${s.total} · USD`), "producer-known duplicate aliases count once in coverage");
     ok(!aliasGroup.includes('data-state="facts.identity_unverified"'), "a canonical included row keeps the shared card amounts");
     ok((aliasGroup.match(/USD 1,234\.56/g) || []).length === 2, "the amount appears once on the card and once in the total");
+
+    // 18c-bis. Management membership gating in PlatformFactsSummary & AccountGroups:
+    // unknown non-paper management status blocks platform sums while keeping card
+    // balances visible; known disabled/outside rows yield platform_no_managed_accounts.
+    const mgmtUnknownRow = { ...baseFact(), account_key: "ibkr-mgmt-unknown", management_status: "unknown", evidence_state: "unknown", management_revision: null };
+    const mgmtUnknownHtml = ui.platform(language, [{ ...baseFact(), management_status: "managed", evidence_state: "known", management_revision: 1 }, mgmtUnknownRow], 2, "ready");
+    ok(withheldState(mgmtUnknownHtml, "facts.platform_management_unknown"),
+      "unknown non-paper management status hides platform total behind explicit state");
+    const mgmtDisabledRow = { ...baseFact(), account_key: "ibkr-mgmt-off", management_status: "management_disabled", evidence_state: "known", management_revision: 2 };
+    const mgmtDisabledHtml = ui.platform(language, [mgmtDisabledRow], 1, "ready");
+    ok(withheldState(mgmtDisabledHtml, "facts.platform_no_managed_accounts"),
+      "all-disabled non-paper rows render no-managed-accounts state cleanly");
+    const mgmtCardHtml = ui.groups(language, [dirRow("ibkr-mgmt-unknown")], null, { rows: [mgmtUnknownRow], phase: "ready" });
+    ok(mgmtCardHtml.includes('data-management-status="unknown"') && mgmtCardHtml.includes("USD 1,234.56"),
+      "card surfaces management badge while preserving raw balances");
 
     // 18d. Known built-in IBKR titles follow the language switch; arbitrary
     // custom aliases and generic tickers are never translated.

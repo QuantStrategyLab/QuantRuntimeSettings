@@ -71,6 +71,114 @@ assert.equal((await executionStatsResponse([{ ...option, platform: "ibkr" }],
 assert.equal((await executionStatsResponse([{ ...option, platform: "ibkr" }],
   { scope: option.key, range: "ALL", today: "2026-10-25" }, {}, rangeDeps)).rows.length, 2);
 
+// B02: one physical execution seen in two reports (different report_ref) is one
+// execution; a supplemental field merges; a genuine disagreement stays visible.
+{
+  const sib = (key, rows) => ({ option: { ...option, key, platform: "ibkr" },
+    source: { coverage: "reported_executions", reports: [{ observed_at: payload.observed_at, period: payload.period }], records: rows } });
+  const a = sib("syn-a", [{ ...record, report_ref: "r".repeat(64), commission: null }]);
+  const b = sib("syn-b", [{ ...record, report_ref: "s".repeat(64), commission: "1.00" }]);
+  const run = async (items, groupOf) => executionStatsResponse(items.map(item => item.option),
+    { scope: "all", range: "ALL", today: "2026-10-25", groupOf }, {},
+    { executions: async opt => items.find(item => item.option.key === opt.key).source, json: body => body });
+  const same = await run([a, b], () => "g1");
+  assert.equal(same.reported_execution_count, 1, "two compatible reports of one execution count once");
+  assert.equal(same.rows[0].commission, "1.00", "the compatible supplemental field merges");
+  const apart = await run([a, b], option => option.key);
+  assert.equal(apart.reported_execution_count, 2, "separate physical groups stay separate");
+  const clash = sib("syn-b", [{ ...record, report_ref: "s".repeat(64), price: "999.99" }]);
+  assert.equal((await run([a, clash], () => "g1")).reported_execution_count, 2, "a genuine conflict is not merged away");
+
+  // Permutations of repeated conflicting versions and optional-field ambiguity
+  // yield identical deduplicated/merged totals, per-currency and side counts.
+  const perms = list => list.length <= 1 ? [list] : list.flatMap((x, i) => perms([...list.slice(0, i), ...list.slice(i + 1)]).map(rest => [x, ...rest]));
+  const v1 = sib("p-1", [{ ...record, report_ref: "1".repeat(64), price: "100.25", commission: null }]);
+  const v2a = sib("p-2", [{ ...record, report_ref: "2".repeat(64), price: "999.99", commission: null }]);
+  const v2b = sib("p-3", [{ ...record, report_ref: "3".repeat(64), price: "999.99", commission: "1.00" }]);
+  for (const order of perms([v1, v2a, v2b])) {
+    const out = await run(order, () => "g1");
+    assert.equal(out.reported_execution_count, 2, "repeated conflicting version counts once");
+    assert.deepEqual(out.per_currency, [{ currency: "USD", reported_execution_count: 2, buy_execution_count: 0, sell_execution_count: 2 }]);
+    assert.deepEqual(out.rows.map(r => [r.price, r.commission]), [["100.25", null], ["999.99", "1.00"]]);
+    assert.equal(out.coverage.length, 3);
+  }
+  const optA = sib("o-1", [{ ...record, side: "BUY", report_ref: "4".repeat(64), commission: null, taxes: "0.10" }]);
+  const optA2 = sib("o-4", [{ ...record, side: "BUY", report_ref: "5".repeat(64), commission: null, taxes: "0.10" }]);
+  const optB = sib("o-2", [{ ...record, side: "BUY", report_ref: "6".repeat(64), commission: "1.00", taxes: null }]);
+  const optC = sib("o-3", [{ ...record, side: "BUY", report_ref: "7".repeat(64), commission: "2.00", taxes: null }]);
+  let baselineOpt = null;
+  for (const order of perms([optA, optB, optC])) {
+    const out = await run([...order, optA2], () => "g1");
+    assert.equal(out.reported_execution_count, 3);
+    assert.deepEqual(out.per_currency, [{ currency: "USD", reported_execution_count: 3, buy_execution_count: 3, sell_execution_count: 0 }]);
+    const signature = out.rows.map(r => [r.commission, r.taxes]);
+    if (!baselineOpt) baselineOpt = signature;
+    else assert.deepEqual(signature, baselineOpt, "optional-field conflict outcome invariant across permutations");
+  }
+
+  // Unique compatibility across conflicting versions: a partial observation
+  // matching only one version supplements it without creating a third count,
+  // while ambiguous partials stay separate.
+  const u1 = sib("u-1", [{ ...record, side: "BUY", report_ref: "a".repeat(64), commission: "1.00", taxes: "0.10" }]);
+  const u2 = sib("u-2", [{ ...record, side: "BUY", report_ref: "b".repeat(64), commission: "2.00", taxes: "0.20" }]);
+  const uPart = sib("u-3", [{ ...record, side: "BUY", report_ref: "c".repeat(64), commission: "1.00", taxes: null }]);
+  for (const order of perms([u1, u2, uPart])) {
+    const out = await run(order, () => "g1");
+    assert.equal(out.reported_execution_count, 2);
+    assert.deepEqual(out.per_currency, [{ currency: "USD", reported_execution_count: 2, buy_execution_count: 2, sell_execution_count: 0 }]);
+    assert.deepEqual(out.rows.map(r => [r.commission, r.taxes]), [["1.00", "0.10"], ["2.00", "0.20"]]);
+    assert.equal(out.coverage.length, 3);
+  }
+  const u1Part = sib("u-1p", [{ ...record, side: "BUY", report_ref: "d".repeat(64), commission: "1.00", taxes: null }]);
+  const uPart2 = sib("u-3p", [{ ...record, side: "BUY", report_ref: "e".repeat(64), commission: null, taxes: "0.10" }]);
+  for (const order of perms([u1Part, uPart2, u2])) {
+    const out = await run(order, () => "g1");
+    assert.equal(out.reported_execution_count, 2);
+    assert.deepEqual(out.rows.map(r => [r.commission, r.taxes]), [["1.00", "0.10"], ["2.00", "0.20"]]);
+  }
+  const uAmbig = sib("u-4", [{ ...record, side: "BUY", report_ref: "f".repeat(64), commission: null, taxes: null, time_zone: "UTC" }]);
+  const uAmbigRepeat = sib("u-5", [{ ...record, side: "BUY", report_ref: "9".repeat(64), commission: null, taxes: null, time_zone: "UTC" }]);
+  const mixed = await run([u1, u2, uPart, uAmbig, uAmbigRepeat], () => "g1");
+  assert.equal(mixed.reported_execution_count, 3);
+  assert.deepEqual(mixed.rows.map(r => [r.commission, r.taxes, r.time_zone]), [[null, null, "UTC"], ["1.00", "0.10", null], ["2.00", "0.20", null]]);
+
+  // Two uniquely attributable partials pointing to opposite conflicting versions
+  // must not form a partial-only maximal clique across any of the 24 orders.
+  const u2Part = sib("u-6", [{ ...record, side: "BUY", report_ref: "8".repeat(64), commission: null, taxes: "0.20" }]);
+  for (const order of perms([u1, u2, uPart, u2Part])) {
+    const out = await run(order, () => "g1");
+    assert.equal(out.reported_execution_count, 2);
+    assert.deepEqual(out.per_currency, [{ currency: "USD", reported_execution_count: 2, buy_execution_count: 2, sell_execution_count: 0 }]);
+    assert.deepEqual(out.rows.map(r => [r.commission, r.taxes]), [["1.00", "0.10"], ["2.00", "0.20"]]);
+    assert.equal(out.coverage.length, 4);
+  }
+  // Same-version pair of partials + conflicting full version, and mixed with
+  // repeated ambiguous observations, both retain exact counts and rows.
+  const u1PartTaxes = sib("u-7", [{ ...record, side: "BUY", report_ref: "0".repeat(64), commission: null, taxes: "0.10" }]);
+  for (const order of perms([u1, u2, uPart, u1PartTaxes])) {
+    const out = await run(order, () => "g1");
+    assert.equal(out.reported_execution_count, 2);
+    assert.deepEqual(out.per_currency, [{ currency: "USD", reported_execution_count: 2, buy_execution_count: 2, sell_execution_count: 0 }]);
+  }
+  const mixedBoth = await run([u1, u2, uPart, u2Part, uAmbig, uAmbigRepeat], () => "g1");
+  assert.equal(mixedBoth.reported_execution_count, 3);
+  assert.deepEqual(mixedBoth.per_currency, [{ currency: "USD", reported_execution_count: 3, buy_execution_count: 3, sell_execution_count: 0 }]);
+  assert.deepEqual(mixedBoth.rows.map(r => [r.commission, r.taxes, r.time_zone]), [[null, null, "UTC"], ["1.00", "0.10", null], ["2.00", "0.20", null]]);
+
+  // Two distinct mutually compatible ambiguous observations where one strictly
+  // extends the other must both stay separate across all 24 report orders.
+  const uAmbigShort = sib("u-8", [{ ...record, side: "BUY", report_ref: "7".repeat(64), commission: null, taxes: null, local_time: null, time_zone: "UTC" }]);
+  for (const order of perms([u1, u2, uAmbigShort, uAmbig])) {
+    const out = await run(order, () => "g1");
+    assert.equal(out.reported_execution_count, 4);
+    assert.deepEqual(out.per_currency, [{ currency: "USD", reported_execution_count: 4, buy_execution_count: 4, sell_execution_count: 0 }]);
+    assert.equal(out.coverage.length, 4);
+  }
+  assert.equal((await run([u1, u2, uAmbigShort], () => "g1")).reported_execution_count, 3);
+  assert.equal((await run([u1, u2, uAmbig], () => "g1")).reported_execution_count, 3);
+  assert.equal((await run([u1, u2, uPart, u2Part, uAmbigShort, uAmbig, uAmbigRepeat], () => "g1")).reported_execution_count, 4);
+}
+
 const settings = { SESSION_SECRET: "synthetic-session", ALLOWED_GITHUB_LOGINS: "synthetic-reader",
   ACCOUNT_FACTS_READ_MODEL_ENABLED: "true", IBKR_ACCOUNT_FACTS_SYNC_TOKEN: "synthetic-ibkr-token",
   SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN: "synthetic-other-token" };

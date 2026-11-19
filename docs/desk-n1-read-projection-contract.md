@@ -186,8 +186,17 @@ readbacks, credentials and alert-delivery routes intact.
   2024-08-31 6M → 2024-02-29; 2025-08-31 6M → 2025-02-28; 2025-03-31 1M → 2025-02-28.
 - `history.retention_days = 366`; `first_date`/`truncated_by` come from real
   stored coverage. A window before retention/inception is partial.
-- Sources: stored account-facts snapshots and stored daily history (existing
-  `account_facts_history_read`) through the existing builders.
+- Sources: saved account options and stored account-facts snapshots (with the
+  shared [account mapping authority](account-mapping-authority.md) management
+  cohort read over the physically read-only `account_management_read` preamble
+  path `/internal/account-management-read`, dispatched before `initializeStorage`)
+  plus stored daily history (existing `account_facts_history_read`) through the
+  existing builders.
+- When management cohort metadata is present, the live non-paper cohort is
+  restricted to known `managed` non-paper accounts. Any unknown non-paper
+  management status maps onto the frozen Desk vocabulary as
+  `coverage_incomplete` (yielding `status: "unavailable"`, never `partial`), and
+  a known empty managed live cohort maps to `no_non_paper_accounts`.
 - `equity` (indexed to 100 at the first qualified point, `drawdown_ratio` from
   the running peak, `gap_semantics: break_before_observation`) is offered only
   for an identity-bound, single-currency, complete cohort with known external
@@ -210,7 +219,11 @@ readbacks, credentials and alert-delivery routes intact.
   `mixed_currency`, `excluded_reasons: [fx_unavailable]`, display-only USD
   convention. Missing accounts make the totals partial. Aggregatability does
   not decide freshness: a mixed-currency cohort keeps these unavailable totals
-  while `freshness` still reports its displayed observations (below).
+  while `freshness` still reports its displayed observations (below). When
+  management cohort metadata is present, non-paper totals include only known
+  `managed` non-paper accounts; `management_status_unknown` yields
+  `status: "unavailable"` with `coverage_incomplete` (never `partial`), and a
+  known empty managed live cohort maps to `no_non_paper_accounts`.
 - A stored daily record counts as covered only when its source coverage is
   complete (fresh or stale alike); a stale, incomplete record is never a
   verified empty tape or a counted run.
@@ -262,9 +275,11 @@ readbacks, credentials and alert-delivery routes intact.
 - The five handlers call no PUT/POST/write/dispatch/scheduler/readback-create or
   provider-collection function. The only Durable Object commands they can
   reach are the existing read-only `account_facts_list`,
-  `account_facts_history_read` and `credential_maintenance_read` (existing POST
-  RPC transport); the Worker wrapper rejects any other command. Tests inject
-  fakes that throw on any write and assert zero such calls.
+  `account_facts_history_read`, `credential_maintenance_read` (existing POST
+  RPC transport), and the physically read-only preamble path
+  `account_management_read` (`/internal/account-management-read`, dispatched
+  before `initializeStorage`); the Worker wrapper rejects any other command.
+  Tests inject fakes that throw on any write and assert zero such calls.
 - Baseline delta ([ADR 0002](adr/0002-observation-and-identity-boundaries.md)):
   the boundary above is the Worker's command allowlist, not the full request
   lifecycle. Each of the five routes reaches the `RuntimeInstances` Durable

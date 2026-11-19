@@ -10,6 +10,45 @@ import { inbox } from "./inbox.js";
 import { deskDelivery } from "./desk_delivery.js";
 export { inbox } from "./inbox.js";
 
+// Settings history order: newest first, then id, then source, then occurrence
+// within the verified window so the ordering key is total.
+const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
+const compareNumber = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
+const historyOrder = (left, right) => compareText(right.time, left.time)
+  || compareText(left.id, right.id)
+  || compareText(left.source, right.source)
+  || (left.occ !== undefined && right.occ !== undefined ? compareNumber(left.occ, right.occ) : 0);
+const HISTORY_CURSOR = /^h1\.[A-Za-z0-9_-]{1,2048}$/;
+const encodeHistoryCursor = payload => `h1.${btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(payload)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
+const decodeHistoryCursor = text => JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), char => char.charCodeAt(0))));
+// The first page's stable version: an insertion-sequence high-water mark and
+// row count per append-only source, and a full-content digest of the bounded
+// legacy log's ordered first-read window with its length and initial
+// availability (`d` is absent on an older descriptor, which cannot prove the
+// window and expires on continuation).
+const sourceMark = value => value && Number.isSafeInteger(value.hwm) && Number.isSafeInteger(value.count) && value.hwm >= 0 && value.count >= 0;
+const validHistorySnapshot = value => Boolean(value) && sourceMark(value.journal) && sourceMark(value.approvals)
+  && value.legacy && (value.legacy.d === undefined ? (value.legacy.h === null || /^[0-9a-f]{16}$/.test(value.legacy.h)) : /^[0-9a-f]{32}$/.test(value.legacy.d))
+  && Number.isSafeInteger(value.legacy.n) && value.legacy.n >= 0 && typeof value.legacy.ok === "boolean";
+// Digest of the ordered window (entries in stored order), its length and its availability.
+async function legacyWindowDigest(entries, ok) {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([ok, entries.length, entries])));
+  return [...new Uint8Array(bytes)].slice(0, 16).map(byte => byte.toString(16).padStart(2, "0")).join("");
+}
+function historyPageQuery(url) {
+  const limit = Number(url.searchParams.get("limit") || 25);
+  const cursor = url.searchParams.get("cursor") || "";
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || (cursor && !HISTORY_CURSOR.test(cursor))) throw new Error("invalid_pagination");
+  if (!cursor) return { limit, cursor: null };
+  let payload;
+  try { payload = decodeHistoryCursor(cursor.slice(3)); } catch { throw new Error("invalid_pagination"); }
+  if (!payload || ["a", "t", "i", "s"].some(field => typeof payload[field] !== "string")
+    || (Object.hasOwn(payload, "o") && (!Number.isSafeInteger(payload.o) || payload.o < 0))
+    || !validHistorySnapshot(payload.v)) throw new Error("invalid_pagination");
+  return { limit, cursor: { a: payload.a, snapshot: payload.v, key: { time: payload.t, id: payload.i, source: payload.s,
+    ...(Object.hasOwn(payload, "o") ? { occ: payload.o } : {}) } } };
+}
+
 export async function consoleApiResponse(request, env, deps) {
   const { json, readSession, command } = deps;
   const url = new URL(request.url),
@@ -43,7 +82,7 @@ export async function consoleApiResponse(request, env, deps) {
   }
   let page;
   try {
-    page = pageQuery(url);
+    page = path === "/api/account-settings/history" ? historyPageQuery(url) : pageQuery(url);
   } catch {
     return json({ ok: false, error: "invalid_pagination" }, 400);
   }
@@ -152,8 +191,58 @@ export async function consoleApiResponse(request, env, deps) {
         actor: session.login,
         platform: account.platform,
         key: account.key,
+        ...(page.cursor ? { snapshot: page.cursor.snapshot } : {}),
       });
-      const audit = await deps.audit(env);
+      const expired = () => json({ ok: false, error: "history_snapshot_expired" }, 409);
+      if (result.expired === true) return expired();
+      let audit = [];
+      let auditStatus = {
+        status: "partial",
+        unavailable_reason: "bounded_audit_log",
+      };
+      try {
+        const loaded = await deps.audit(env);
+        if (Array.isArray(loaded)) {
+          audit = loaded;
+        } else {
+          auditStatus = {
+            status: "unavailable",
+            unavailable_reason: "stored_records_unreadable",
+          };
+        }
+      } catch {
+        auditStatus = {
+          status: "unavailable",
+          unavailable_reason: "stored_records_unreadable",
+        };
+      }
+      // The bounded legacy log is newest-first: the first read pins its whole
+      // ordered window and initial availability. A continuation keeps the
+      // pinned availability and, for a readable non-empty window, only the
+      // original suffix, which must match the pinned content as a whole; a
+      // prepend leaves it intact, while a replaced, evicted or unreadable
+      // window means the pinned version is gone.
+      const legacyOk = auditStatus.status === "partial";
+      let legacy;
+      if (!page.cursor) {
+        legacy = { d: await legacyWindowDigest(legacyOk ? audit : [], legacyOk), n: legacyOk ? audit.length : 0, ok: legacyOk };
+      } else {
+        legacy = page.cursor.snapshot.legacy;
+        if (legacy.d === undefined) return expired();
+        if (!legacy.ok) {
+          audit = [];
+          auditStatus = { status: "unavailable", unavailable_reason: "stored_records_unreadable" };
+        } else if (legacy.n === 0) {
+          audit = [];
+          auditStatus = { status: "partial", unavailable_reason: "bounded_audit_log" };
+        } else {
+          if (!legacyOk || audit.length < legacy.n) return expired();
+          const original = audit.slice(audit.length - legacy.n);
+          if (await legacyWindowDigest(original, true) !== legacy.d) return expired();
+          audit = original;
+          auditStatus = { status: "partial", unavailable_reason: "bounded_audit_log" };
+        }
+      }
       const saves = audit.filter(
         (row) =>
           row.action === "save_account_settings" &&
@@ -161,46 +250,85 @@ export async function consoleApiResponse(request, env, deps) {
           row.key === account.key &&
           Number.isInteger(row.draft_revision),
       );
-      const items = await Promise.all(
+      const managementChanges = Array.isArray(result.management_changes)
+        ? result.management_changes
+        : [];
+      const entries = (await Promise.all(
         [
-          ...saves.map((row) => ({
+          ...saves.map((row, occ) => ({
             id: `draft:${account.platform}:${account.key}:${row.draft_revision}:${row.ts}`,
             event: "draft_saved",
             time: row.ts,
             actor: row.login,
             draft_revision: row.draft_revision ?? null,
             source: "bounded_audit_log",
+            occ,
           })),
-          ...result.approvals.map((row) => ({
+          ...(result.approvals || []).map((row) => ({
             id: row.request_key || `approval:${account.platform}:${account.key}:${row.draft_revision}:${row.approved_at}`,
             event: "approved",
             time: row.approved_at,
             actor: row.approved_by,
             draft_revision: row.draft_revision,
             source: "profile_application",
+            occ: 0,
           })),
-        ].map(async (row) => {
-          const { actor, ...rest } = row;
-          return { ...rest, short_id: shortId(rest.id, "CH"), actor_alias: await actorAlias(actor) };
+          ...managementChanges.map((row) => ({
+            id: row.event_id,
+            event: "account_management_change",
+            time: row.occurred_at,
+            actor: row.actor,
+            draft_revision: row.draft_revision ?? null,
+            management_revision: row.new_applied_revision ?? null,
+            old_management_revision: row.old_applied_revision ?? null,
+            old_management_enabled:
+              row.old_management_enabled === 1
+                ? true
+                : row.old_management_enabled === 0
+                  ? false
+                  : null,
+            new_management_enabled: row.new_management_enabled === 1,
+            change_ref: row.event_id,
+            source: "account_management_change",
+            occ: 0,
+          })),
+        ].map(async ({ actor, occ, ...rest }) => {
+          const item = { ...rest, short_id: shortId(rest.id, "CH"), actor_alias: await actorAlias(actor) };
+          return { item, key: { time: item.time, id: item.id, source: item.source, occ } };
         }),
-      );
-      items.sort((a, b) => b.time.localeCompare(a.time));
+      )).sort((left, right) => historyOrder(left.key, right.key));
+      // A later page is the remainder of the first page's snapshot: membership
+      // is the pinned version of every source, and the last emitted ordering
+      // key only positions the traversal inside it.
+      const accountRef = `${account.platform}/${account.key}`;
+      if (page.cursor && page.cursor.a !== accountRef) return json({ ok: false, error: "invalid_pagination" }, 400);
+      if (page.cursor && page.cursor.key.occ === undefined) {
+        const matches = entries.filter(entry => entry.key.time === page.cursor.key.time
+          && entry.key.id === page.cursor.key.id && entry.key.source === page.cursor.key.source);
+        if (matches.length > 1) return expired();
+      }
+      const snapshot = page.cursor ? page.cursor.snapshot : { ...result.snapshot, legacy };
+      const remaining = entries.filter(entry => !page.cursor || historyOrder(page.cursor.key, entry.key) < 0);
+      const emitted = remaining.slice(0, page.limit);
+      const last = emitted.at(-1);
       return json({
         status: "partial",
         account_alias: account.key,
         platform: account.platform,
-        items: items.slice(page.offset, page.offset + page.limit),
-        next_cursor:
-          items.length > page.offset + page.limit
-            ? String(page.offset + page.limit)
-            : null,
-        coverage: "bounded_audit_log_and_profile_applications",
+        items: emitted.map(entry => entry.item),
+        next_cursor: remaining.length > emitted.length
+          ? encodeHistoryCursor({ a: accountRef, v: snapshot, t: last.key.time, i: last.key.id, s: last.key.source, o: last.key.occ })
+          : null,
+        coverage: "bounded_audit_log_and_durable_account_records",
         availability: {
-          draft_saved: {
-            status: "partial",
-            unavailable_reason: "bounded_audit_log",
-          },
+          draft_saved: auditStatus,
           approved: { status: "ok", unavailable_reason: null },
+          management_change: Array.isArray(result.management_changes)
+            ? { status: "ok", unavailable_reason: null }
+            : {
+                status: "unavailable",
+                unavailable_reason: "management_journal_unavailable",
+              },
           effect_verification: {
             status: "unavailable",
             unavailable_reason: "effect_verification_not_recorded",

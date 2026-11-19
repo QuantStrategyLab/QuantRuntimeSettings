@@ -19,6 +19,7 @@ import {
   projectAccountFactsHistoryCurrencies,
   projectAccountFactsHistoryPositions,
 } from "../../account_facts.js";
+import { managementCohort } from "../account_mapping/management_cohort.js";
 import { externalFlowEnabled, instant } from "./external_flow.js";
 
 // Rebuild the small fixed projection at the HTTP boundary; never spread DO data.
@@ -141,11 +142,15 @@ export async function accountFactsResponse(request, env, deps) {
   } catch (error) {
     return accountFactsErrorResponse(error);
   }
+  // Totals and coverage follow the live management cohort (the production
+  // wiring supplies `deps.managementReadback`); an unreadable readback is an
+  // all-unknown cohort, never an assumed one. Raw rows stay.
   const model = buildAccountFactsReadModel({
     accountOptions: accountConfig.options || {},
     bindings,
     storedByAccount,
     now: Date.now(),
+    management: deps.managementReadback ? managementCohort(await deps.managementReadback(env)) : null,
   });
   let declarations = null;
   try {

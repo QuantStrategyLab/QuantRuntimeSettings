@@ -273,6 +273,11 @@ export const REVIEWED = {
       "dispatchRuntimeStop", "dispatchBinanceResume"].map(target => [`${target}(request, env)`, 1]),
     // The read-only inventory route; its only dependency is the session reader.
     ["accountIdentityInventoryResponse(request, env, { readSession })", 1],
+    // The registered management readback route; its only dependency is the session reader.
+    ["accountManagementReadResponse(request, env, { readSession })", 1],
+    // Management apply and dormant policy provisioning: the session reader is the only dependency of the first, none for the second.
+    ["accountManagementApplyResponse(request, env, { readSession })", 1],
+    ["accountMappingPolicyResponse(request, env)", 1],
     ...["credentialMaintenanceResponse", "runtimeReadbackResponse", "auditEventsResponse", "reconciliationRecoveryControllerReadResponse",
       "binanceDetailArchiveResponse", "binanceDigestSnapshotResponse", "binanceWalletHistoryResponse", "runtimeDailyResponse",
       "accountFactsHistoryResponse", "accountDiagnosisResponse", "accountDiagnosisInternalResponse", "researchPromotionApplicationResponse",
@@ -297,6 +302,7 @@ export const REVIEWED = {
       history: (req, e) => accountFactsHistoryResponse(req, e, new URL(req.url)),
       binanceCurrent: binanceAccountFactsResponse,
       wallet: (req, e) => binanceWalletHistoryResponse(req, e, new URL(req.url)), benchmarks: marketBenchmarkResponse,
+      managementReadback: fetchManagementReadback,
     })`, 1],
     [`consoleApiResponse(request, env, {
       json, readSession: today ? readTodaySession : readSession, command: runtimeInstanceCommand,
@@ -304,7 +310,7 @@ export const REVIEWED = {
       settings: accountSettingsResponse, saveDraft: saveCombinedAccountDraft,
       owner: ownerDecisionQueueResponse, promotion: researchPromotionTicketsResponse,
       recovery: reconciliationRecoveryResponse, credential: (req, e) => credentialMaintenanceResponse(req, e, new URL("/api/credential-maintenance", req.url)),
-      audit: loadAuditLog,
+      audit: e => loadAuditLog(e, { preserveAvailability: true }),
       profiles: loadStrategyProfilesConfig, health: strategyHealthResponse,
       currentStrategies: (options, e) => readCurrentStrategies(options, e, ctx),
       dailyBindings: async e => runtimeDailyReadModelEnabled(e) ? runtimeDailyPublicBindings(e, (await (today ? readTodayOptions() : loadAccountOptionsConfig(e))).options, today ? readTodayRegistered : undefined) : [],
@@ -345,6 +351,8 @@ export const REVIEWED = {
       "syncStrategyHealthResponse", "syncStrategyProfilesResponse",
     ],
     "import:./application/account_identity_inventory/http.js": ["accountIdentityInventoryResponse"],
+    "import:./application/runtime_instances/account_management_readback.js": ["accountManagementReadResponse", "fetchManagementReadback"],
+    "import:./application/runtime_instances/account_management_http.js": ["accountManagementApplyResponse", "accountMappingPolicyResponse"],
     "import:./application/auth/login.js": ["finishLogin", "startLogin"],
     "import:./application/auth/session.js": ["readSession"],
     "import:./application/console_api/notification_receipts.js": ["readNotificationLog"],
@@ -390,11 +398,13 @@ export const REVIEWED = {
   // `inventoryResponse` (`inventorySections`).
   doPreamble: [
     "if (new URL(request.url).pathname === INVENTORY_DO_PATH) return inventoryResponse(request, this.inventory);",
+    "if (new URL(request.url).pathname === MANAGEMENT_READ_DO_PATH) return managementReadResponse(request, this.managementRead);",
     "this.initializeStorage();",
   ],
   doPreambleTargets: {
     "import:../account_identity_inventory/constants.js": ["INVENTORY_DO_PATH"],
     "import:../account_identity_inventory/http.js": ["inventoryResponse"],
+    "import:./account_management_readback.js": ["MANAGEMENT_READ_DO_PATH", "managementReadResponse"],
   },
   // `inventoryResponse(request, cap)`: its response helper, then one try
   // statement with this catch clause. The try block holds these statements,
@@ -1470,12 +1480,14 @@ function extractDurable(ts, file, reviewed, ctx) {
     report(`statement: preamble is not the reviewed inventory dispatch then storage initialization: ${excerpt(sf, preamble.find((statement, index) => canonical(ts, statement) !== expectedPreamble[index]) || fetch)}`);
   } else {
     for (const statement of preamble) covered.add(statement);
-    auditForwardTargets(ts, sf, fetch, [preamble[0]], reviewed.doPreambleTargets, message => report(message.replace(/^forward_target: /, "forward_target: inventory preamble: ")));
+    auditForwardTargets(ts, sf, fetch, preamble.slice(0, -1), reviewed.doPreambleTargets, message => report(message.replace(/^forward_target: /, "forward_target: inventory preamble: ")));
     const found = guardSurface(report, () => inventorySections(ts, file, reviewed));
     if (found) {
       add("action:account_identity_inventory", "inventory path");
       ctx.sections.set("action:account_identity_inventory", found);
     }
+    // The fixed management read path: one observation, no sections.
+    add("action:account_management_read", "management read path");
   }
   const body = [dispatch];
   const level = templates("RuntimeInstances.fetch", reviewed.doFetch);

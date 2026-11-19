@@ -1,14 +1,23 @@
-import type { AccountFactsAccount } from "../api/contracts";
-import { useT } from "../i18n";
+import type {
+  AccountFactsAccount,
+  AccountFactsAssetCoverage,
+  ManagementEvidenceState,
+  ManagementStatusCode,
+} from "../api/contracts";
+import { useLanguage, useT } from "../i18n";
 import { usePrefs } from "../app/context";
 import {
   accountFactDisplay,
+  decidePlatformCohortFromRows,
   factEnvironment,
   formatMoneyText,
   isPaperFact,
   isReadableFact,
   platformCurrencyTotals,
+  rowManagementDisposition,
+  type PlatformCohortDecision,
 } from "../lib/accountFacts";
+import { managementEvidenceText, managementStatusText } from "../lib/accountManagementText";
 import { maskedAmount } from "../lib/format";
 import { AsOfStamp, Badge, Skeleton } from "./primitives";
 import "./account-facts.css";
@@ -46,7 +55,81 @@ const SHORT_STATE = new Set([
   "state.not_connected",
   "state.no_data",
   "state.unknown_status",
+  "facts.platform_management_unknown",
+  "facts.platform_no_managed_accounts",
 ]);
+
+/** Compact management membership badge for account cards using pinned bilingual text. */
+export function ManagementStatusBadge({
+  status,
+  evidenceState = "known",
+}: {
+  status: ManagementStatusCode;
+  evidenceState?: ManagementEvidenceState;
+}) {
+  const language = useLanguage();
+  const statusLabel = managementStatusText(status, language);
+  const evidenceLabel = managementEvidenceText(evidenceState, language);
+  const tone = evidenceState === "conflict"
+    ? "error"
+    : status === "managed"
+      ? (evidenceState === "stale" ? "warn" : "ok")
+      : status === "management_disabled"
+        ? "warn"
+        : "unknown";
+  return (
+    <span className="management-badges" data-management-status={status} data-evidence-state={evidenceState}>
+      <Badge tone={tone}>{statusLabel}</Badge>
+      {evidenceLabel && (
+        <Badge tone={evidenceState === "conflict" ? "error" : evidenceState === "stale" ? "warn" : "unknown"}>
+          {evidenceLabel}
+        </Badge>
+      )}
+    </span>
+  );
+}
+
+/** Cohort coverage banner for `account_facts.asset_coverage.management_*`. */
+export function AccountFactsManagementCoverageBar({ coverage }: { coverage?: AccountFactsAssetCoverage | null }) {
+  const t = useT();
+  if (!coverage?.management_scope || !coverage.management_counts) return null;
+  const counts = coverage.management_counts;
+  const complete = coverage.management_coverage_status === "complete";
+  return (
+    <div
+      className="card management-coverage-bar"
+      role="region"
+      aria-label={t("facts.management_coverage.title")}
+      data-management-coverage={coverage.management_coverage_status ?? "incomplete"}
+    >
+      <div className="management-coverage-head">
+        <strong>{t("facts.management_coverage.title")}</strong>
+        <Badge tone={complete ? "ok" : "warn"}>
+          {t(complete ? "facts.management_coverage.complete" : "facts.management_coverage.incomplete")}
+        </Badge>
+      </div>
+      <p className="card-note">
+        {t("facts.management_coverage.counts", {
+          managed: counts.managed_non_paper,
+          disabled: counts.management_disabled_non_paper,
+          outside: counts.not_under_management_non_paper,
+          unknown: counts.unknown_non_paper,
+          paper: counts.paper_excluded,
+          duplicates: counts.duplicate_deployments,
+          unresolved: counts.unresolved_deployments,
+        })}
+      </p>
+      {coverage.totals_status === "unavailable" && (coverage.totals_reason === "management_status_unknown" || coverage.totals_reason === "no_managed_non_paper_accounts") && (
+        <p className="accounts-inline-note error" data-state={`facts.${coverage.totals_reason}`}>
+          {t(coverage.totals_reason === "management_status_unknown"
+            ? "facts.platform_management_unknown"
+            : "facts.platform_no_managed_accounts")}
+        </p>
+      )}
+      <p className="card-note">{t("facts.management_coverage.raw_preserved")}</p>
+    </div>
+  );
+}
 
 /**
  * One short state plus an em dash. Exact conflict/identity state is exposed as
@@ -144,29 +227,44 @@ export function AccountFactsAmounts({ fact, phase, conflict = false, ambiguous =
  * valuation date — everything else stays an observed subtotal or an honest
  * state, never a complete platform total.
  */
-export function PlatformFactsSummary({ rows, expected, phase }: {
+export function PlatformFactsSummary({ rows, expected, phase, cohort }: {
   rows: AccountFactsAccount[];
   expected: number;
   phase: FactsPhase;
+  cohort?: PlatformCohortDecision;
 }) {
   const t = useT();
   if (phase === "loading") return <div className="account-facts"><Skeleton height={14} /></div>;
   if (phase === "error") return <FactsStateRow label={t("facts.platform_total_live")} stateKey="state.read_failed" />;
-  const totals = platformCurrencyTotals(rows, expected);
+  const decision = cohort ?? decidePlatformCohortFromRows(rows, expected);
+  const totals = decision.managementUnknown || decision.allExcludedByManagement
+    ? []
+    : platformCurrencyTotals(rows, expected, decision);
   if (!totals.length) {
     // Empty totals in the live口径: paper-only scopes are an honest no-data,
     // while readable non-paper rows without any verified identity are an
-    // identity problem, never a sum.
-    const nonPaper = rows.filter(row => !isPaperFact(row));
+    // identity problem, never a sum. Full-cohort disposition decides both
+    // unknown veto and known-empty before checking matched facts rows.
+    const entries = rows.map(row => ({ row, disposition: rowManagementDisposition(row) }));
+    const hasStamped = decision.hasStamped;
+    const anyManagementUnknown = decision.managementUnknown;
+    const allExcludedByManagement = decision.allExcludedByManagement;
+    const nonPaper = hasStamped
+      ? entries.filter(entry => entry.disposition !== "paper").map(entry => entry.row)
+      : rows.filter(row => !isPaperFact(row));
     const anyVerified = nonPaper.some(row => isReadableFact(row) && row.aggregation_status === "included");
     const anyReadable = nonPaper.some(isReadableFact);
-    const stateKey = !rows.length
+    const stateKey = !rows.length && !anyManagementUnknown
       ? "state.not_connected"
-      : anyVerified
-        ? "state.no_data"
-        : anyReadable
-          ? "facts.platform_identity_unverified"
-          : "state.no_data";
+      : anyManagementUnknown
+        ? "facts.platform_management_unknown"
+        : allExcludedByManagement
+          ? "facts.platform_no_managed_accounts"
+          : anyVerified
+            ? "state.no_data"
+            : anyReadable
+              ? "facts.platform_identity_unverified"
+              : "state.no_data";
     // The full verification workflow stays available on the Accounts page; the
     // summary itself only reports the unresolved identity state.
     return <FactsStateRow label={t("facts.platform_total_live")} stateKey={stateKey} />;

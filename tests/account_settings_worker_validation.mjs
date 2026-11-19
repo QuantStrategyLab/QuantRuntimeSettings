@@ -5,6 +5,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { enrollSyntheticManagement, miniflareRuntimeInstances } from "./helpers/account_management_enrollment.mjs";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
 
 for (const [env, observed, reason] of [
@@ -185,7 +186,12 @@ function account(key) {
     default_strategy_profile: "russell_top50_leader_rotation",
   };
 }
-const accountOptions = { longbridge: [account("hk"), account("sg")] };
+// hk and sg stay certifiable throughout. A retained identity change or a
+// declared environment disagreement fails an account closed for processing
+// for good (it is never acknowledged back into eligibility), so the
+// scenarios that change an identity or declare a disagreeing environment run
+// on their own synthetic accounts.
+const accountOptions = { longbridge: [account("hk"), account("sg"), account("decl"), account("flip"), account("race"), account("riskhk"), account("risksg")] };
 const bindings = {
   SESSION_SECRET: "account-settings-fixture-session",
   ALLOWED_GITHUB_LOGINS: "settings-admin,settings-viewer",
@@ -363,6 +369,9 @@ assert.equal((await call("/api/admin/runtime-instances", {
   method: "POST",
   body: { action: "initialize", expected_revision: 0, confirm: "IMPORT_EXISTING_CONFIG" },
 })).status, 200);
+// Processing admission needs a provisioned policy and applied management.
+const runtimeInstances = await miniflareRuntimeInstances(mf);
+await enrollSyntheticManagement(runtimeInstances);
 const hkSettings = await call("/api/account-settings?platform=longbridge&key=hk");
 assert.equal(hkSettings.status, 200);
 assert.equal(hkSettings.body.effective.strategy_profile.status, "unknown");
@@ -381,13 +390,14 @@ assert.equal(hkSettings.body.no_order, true);
 assert.equal(hkSettings.body.execution_authority_granted, false);
 assert.equal(hkSettings.body.risk.preference, "BALANCED_COMPOUNDING");
 assert.equal(hkSettings.body.declaration.status, "empty");
-const declared = await call("/api/account-settings", { method:"POST", body:{ platform:"longbridge", key:"hk", identity:hkSettings.body.identity, expected_declaration_revision:0, declaration:{environment:"live",account_type:"margin"} } });
+const declSettings = await call("/api/account-settings?platform=longbridge&key=decl");
+const declared = await call("/api/account-settings", { method:"POST", body:{ platform:"longbridge", key:"decl", identity:declSettings.body.identity, expected_declaration_revision:0, declaration:{environment:"live",account_type:"margin"} } });
 assert.equal(declared.status,200);
 assert.equal(declared.body.declaration.source,"user_declared");
-const declarationReadback = await call("/api/account-settings?platform=longbridge&key=hk");
+const declarationReadback = await call("/api/account-settings?platform=longbridge&key=decl");
 assert.deepEqual(declarationReadback.body.declaration,{status:"current",revision:1,environment:"live",account_type:"margin",source:"user_declared"});
 assert.equal(declarationReadback.body.effective.broker_environment.value,"paper");
-const staleDeclaration = await call("/api/account-settings", { method:"POST", body:{ platform:"longbridge",key:"hk",identity:hkSettings.body.identity,expected_declaration_revision:0,declaration:{environment:null,account_type:null} } });
+const staleDeclaration = await call("/api/account-settings", { method:"POST", body:{ platform:"longbridge",key:"decl",identity:declSettings.body.identity,expected_declaration_revision:0,declaration:{environment:null,account_type:null} } });
 assert.equal(staleDeclaration.status,409);
 const sgDeclaration = await call("/api/account-settings?platform=longbridge&key=sg");
 assert.equal(sgDeclaration.body.declaration.status,"empty");
@@ -476,12 +486,15 @@ assert.equal(staleRisk.status, 409);
 assert.equal(staleRisk.body.error, "risk_profile_revision_conflict");
 assert.equal((await call("/api/account-settings?platform=longbridge&key=hk")).body.risk.preference, "BALANCED_COMPOUNDING");
 
+const flipDeclarationBase = await call("/api/account-settings?platform=longbridge&key=flip");
+assert.equal((await call("/api/account-settings", { method:"POST", body:{ platform:"longbridge", key:"flip", identity:flipDeclarationBase.body.identity, expected_declaration_revision:0, declaration:{environment:"paper",account_type:"margin"} } })).status, 200);
+const flipBefore = await call("/api/account-settings?platform=longbridge&key=flip");
 const namedDraft = await call("/api/account-settings", {
   method: "POST",
   body: {
-    platform: "longbridge", key: "hk",
-    expected_draft_revision: hkAfterSg.body.draft.revision,
-    identity: hkAfterSg.body.identity,
+    platform: "longbridge", key: "flip",
+    expected_draft_revision: flipBefore.body.draft.revision,
+    identity: flipBefore.body.identity,
     overrides: { strategy_profile: "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve" },
   },
 });
@@ -494,12 +507,12 @@ const identityChange = await call("/api/admin/runtime-instances", {
     action: "set_broker_environment",
     expected_revision: instanceBeforeIdentity.body.revision,
     platform: "longbridge",
-    key: "hk",
+    key: "flip",
     broker_environment: "live",
   },
 });
 assert.equal(identityChange.status, 200);
-const conflicted = await call("/api/account-settings?platform=longbridge&key=hk");
+const conflicted = await call("/api/account-settings?platform=longbridge&key=flip");
 assert.equal(conflicted.body.draft.status, "identity_conflict");
 assert.equal(conflicted.body.declaration.status, "identity_conflict");
 assert.equal(conflicted.body.declaration.environment, null);
@@ -510,7 +523,7 @@ assert.equal(conflicted.body.identity.broker_environment, "live");
 const staleIdentity = await call("/api/account-settings", {
   method: "POST",
   body: {
-    platform: "longbridge", key: "hk",
+    platform: "longbridge", key: "flip",
     expected_draft_revision: conflicted.body.draft.revision,
     identity: namedDraft.body.identity,
     overrides: { strategy_profile: "should-not-apply" },
@@ -518,13 +531,13 @@ const staleIdentity = await call("/api/account-settings", {
 });
 assert.equal(staleIdentity.status, 409);
 assert.equal(staleIdentity.body.error, "account_settings_identity_conflict");
-const retained = await call("/api/account-settings?platform=longbridge&key=hk");
+const retained = await call("/api/account-settings?platform=longbridge&key=flip");
 assert.equal(retained.body.draft.status, "identity_conflict");
 assert.equal(retained.body.draft.overrides.strategy_profile, "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve");
-const hkConfig = (await call("/api/admin/runtime-instances")).body.instances.find((item) => item.key === "hk").config;
-assert.equal(hkConfig.default_strategy_profile, "russell_top50_leader_rotation");
-assert.equal(JSON.stringify(hkConfig).includes("soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve"), false);
-assert.equal(JSON.stringify(hkConfig).includes("should-not-apply"), false);
+const flipConfig = (await call("/api/admin/runtime-instances")).body.instances.find((item) => item.key === "flip").config;
+assert.equal(flipConfig.default_strategy_profile, "russell_top50_leader_rotation");
+assert.equal(JSON.stringify(flipConfig).includes("soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve"), false);
+assert.equal(JSON.stringify(flipConfig).includes("should-not-apply"), false);
 
 const liveNamespace = await mf.getDurableObjectNamespace("STRATEGY_SWITCH_RUNTIME_INSTANCES");
 const liveKv = await mf.getKVNamespace("STRATEGY_SWITCH_CONFIG");
@@ -566,13 +579,13 @@ assert.equal(afterReplaceRace.body.bindings.find((item) => item.scope_id === "lo
 assert.equal(afterReplaceRace.body.bindings.find((item) => item.scope_id === "longbridge--hk").profile_selection.risk_preference, "BALANCED_COMPOUNDING");
 
 const draftLatch = openLatch();
-const draftRead = await call("/api/account-settings?platform=longbridge&key=sg");
+const draftRead = await call("/api/account-settings?platform=longbridge&key=race");
 const draftEnv = { ...bindings, STRATEGY_SWITCH_CONFIG: liveKv, STRATEGY_SWITCH_RUNTIME_INSTANCES: wrapNamespace(liveNamespace, "account_settings_save", draftLatch) };
 let draftPending = worker.fetch(new Request("https://switch.example/api/account-settings", {
   method: "POST",
   headers: { Cookie: adminCookie, Origin: "https://switch.example", "Content-Type": "application/json" },
   body: JSON.stringify({
-    platform: "longbridge", key: "sg",
+    platform: "longbridge", key: "race",
     expected_draft_revision: draftRead.body.draft.revision,
     identity: draftRead.body.identity,
     overrides: { strategy_profile: "russell_top50_leader_rotation" },
@@ -587,7 +600,7 @@ try {
       action: "set_broker_environment",
       expected_revision: instances.body.revision,
       platform: "longbridge",
-      key: "sg",
+      key: "race",
       broker_environment: "live",
     },
   });
@@ -601,9 +614,9 @@ try {
   draftLatch.release();
   if (draftPending) await draftPending.catch(() => {});
 }
-const sgAfterRace = await call("/api/account-settings?platform=longbridge&key=sg");
-assert.equal(sgAfterRace.body.draft.status, "empty");
-assert.equal(sgAfterRace.body.draft.overrides.strategy_profile, undefined);
+const raceAfterRace = await call("/api/account-settings?platform=longbridge&key=race");
+assert.equal(raceAfterRace.body.draft.status, "empty");
+assert.equal(raceAfterRace.body.draft.overrides.strategy_profile, undefined);
 
 const failingStore = new Map();
 const failingKv = {
@@ -721,19 +734,20 @@ async function raceRiskWrite(accountKey, body, nextEnvironment) {
     if (pending) await pending.catch(() => {});
   }
 }
-await raceRiskWrite("hk", {
-  platform: "longbridge", key: "hk",
-  identity: hkBound.body.identity,
-  expected_risk_revision: hkBound.body.risk.revision,
+const riskHkBound = await call("/api/account-settings?platform=longbridge&key=riskhk");
+await raceRiskWrite("riskhk", {
+  platform: "longbridge", key: "riskhk",
+  identity: riskHkBound.body.identity,
+  expected_risk_revision: riskHkBound.body.risk.revision,
   risk_preference: "GROWTH_COMPOUNDING",
-}, "paper");
-const sgAfterSetRace = await call("/api/account-settings?platform=longbridge&key=sg");
-await raceRiskWrite("sg", {
-  platform: "longbridge", key: "sg",
+}, "live");
+const sgAfterSetRace = await call("/api/account-settings?platform=longbridge&key=risksg");
+await raceRiskWrite("risksg", {
+  platform: "longbridge", key: "risksg",
   identity: sgAfterSetRace.body.identity,
   expected_risk_revision: sgAfterSetRace.body.risk.revision,
   risk_preference: null,
-}, "paper");
+}, "live");
 assert.equal((await call("/api/account-settings?platform=longbridge&key=hk")).body.risk.preference, "BALANCED_COMPOUNDING");
 assert.equal((await call("/api/account-settings?platform=longbridge&key=sg")).body.risk.preference, "CAPITAL_PRESERVATION");
 
@@ -1242,8 +1256,11 @@ const optionOnlyAck = await call("/api/account-settings", {
     overrides: { option_overlay_enabled: true },
   },
 });
-assert.equal(optionOnlyAck.status, 400);
-assert.equal(optionOnlyAck.body.error, "account_settings_option_rejected");
+// The flipped environment changed the settings identity: the account is no longer a
+// certified management member, so the generic admission denial now precedes the
+// option validation (the object would deny it at commit as well).
+assert.equal(optionOnlyAck.status, 409);
+assert.equal(optionOnlyAck.body.error, "management_status_unknown");
 const afterOptionReject = await call("/api/account-settings?platform=longbridge&key=sg");
 assert.equal(afterOptionReject.body.draft.revision, conflictedSettings.body.draft.revision);
 assert.equal(afterOptionReject.body.draft.status, "identity_conflict");
@@ -1308,6 +1325,7 @@ async function knownCall(endpoint, body) {
   return { status: response.status, body: await response.json() };
 }
 assert.equal((await knownCall("/api/admin/runtime-instances", { action: "initialize", expected_revision: 0, confirm: "IMPORT_EXISTING_CONFIG" })).status, 200);
+await enrollSyntheticManagement(await miniflareRuntimeInstances(knownMf));
 dcaFetches.length = 0;
 const known = await knownCall("/api/account-settings?platform=longbridge&key=sg");
 assert.equal(known.status, 200);
@@ -1619,6 +1637,7 @@ async function profileApplicationDo(action, fields = {}) {
 assert.equal((await profileApplicationCall("/api/admin/runtime-instances", {
   method: "POST", body: { action: "initialize", expected_revision: 0, confirm: "IMPORT_EXISTING_CONFIG" },
 })).status, 200);
+await enrollSyntheticManagement(await miniflareRuntimeInstances(profileApplicationMf));
 assert.equal((await profileApplicationCall("/api/account-settings/profile-application/approve", {
   method: "POST", cookie: null, body: {},
 })).status, 401);
@@ -1783,7 +1802,8 @@ for (const [label, config] of [
   const rejected = await profileApplicationOidcStreamCall(await profileApplicationOidcToken(), body, { namespace: scopeMismatchNamespace });
   assert.equal(rejected.status, 409, `${label} must reject before claim`);
   assert.equal(rejected.body.error, "account_settings_profile_application_target_conflict");
-  assert.deepEqual(commands, ["account_settings_profile_application_lookup", "account_settings_read"],
+  // The advisory admission preflight is one read of the management readback.
+  assert.deepEqual(commands, ["account_settings_profile_application_lookup", "account_management_read", "account_settings_read"],
     `${label} must not invoke the DO claim action`);
   const stillApproved = await profileApplicationDo("account_settings_profile_application_lookup", {
     request_key: hkClaim.request_key,
@@ -2022,23 +2042,27 @@ const reboundSgDraft = await profileApplicationCall("/api/account-settings", {
     overrides: { strategy_profile: "synthetic_other_profile" },
   },
 });
-assert.equal(reboundSgDraft.status, 200);
+// A changed identity is never acknowledged back into processing
+// eligibility: the rebinding draft and any fresh approval fail closed.
+assert.equal(reboundSgDraft.status, 409);
+assert.equal(reboundSgDraft.body.error, "management_status_unknown");
 const identityReboundApproval = await profileApplicationCall("/api/account-settings/profile-application/approve", {
   method: "POST",
   body: {
     platform: "longbridge", key: "sg",
     request_key: "00000000-0000-4000-8000-000000000044",
-    identity: reboundSgDraft.body.identity,
-    expected_instance_revision: reboundSgDraft.body.instance_revision,
-    expected_draft_revision: reboundSgDraft.body.draft.revision,
+    identity: reboundSgSettings.body.identity,
+    expected_instance_revision: reboundSgSettings.body.instance_revision,
+    expected_draft_revision: reboundSgSettings.body.draft.revision,
     old_profile: "synthetic_current_profile", new_profile: "synthetic_other_profile",
   },
 });
-assert.equal(identityReboundApproval.status, 200, "identity/revision drift also releases only a stale unclaimed approval");
-const invalidatedByIdentityDrift = await profileApplicationDo("account_settings_profile_application_lookup", {
+assert.equal(identityReboundApproval.status, 409, "identity drift admits no fresh approval");
+assert.ok(["account_settings_profile_application_draft_conflict", "management_status_unknown"].includes(identityReboundApproval.body.error));
+const retainedAfterIdentityDrift = await profileApplicationDo("account_settings_profile_application_lookup", {
   request_key: rebasedSgRequest.request_key,
 });
-assert.equal(invalidatedByIdentityDrift.body.application.status, "invalidated");
+assert.equal(retainedAfterIdentityDrift.body.application.status, "approved", "the old approval stays readable as history");
 const driftedInstanceClaim = await profileApplicationDo("account_settings_profile_application_claim", {
   ...sgClaim,
   request_key: rebasedSgRequest.request_key,

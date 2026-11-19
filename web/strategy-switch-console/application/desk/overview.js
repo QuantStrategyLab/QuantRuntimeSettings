@@ -147,11 +147,25 @@ const EXCLUDED = {
   coverage_incomplete: "coverage_incomplete",
   duplicate_account_mapping: "coverage_incomplete",
   no_non_paper_accounts: "no_non_paper_accounts",
+  // The management cohort reasons map onto the frozen Desk vocabulary.
+  management_status_unknown: "coverage_incomplete",
+  no_managed_non_paper_accounts: "no_non_paper_accounts",
 };
+
+// Under a management-aware model the live cohort is the known-managed
+// non-paper accounts; a model built without a cohort keeps the older scope.
+const managedLive = (model, target) => {
+  const row = factsRowFor(model, target);
+  return row?.management_disposition !== undefined
+    ? row.management_disposition === "managed"
+    : (row?.management_status === "managed" && row.evidence_state === "known");
+};
+const managementAware = facts => facts.ok && typeof facts.model?.asset_coverage?.management_scope === "string";
 
 /** Non-paper cohort size and how many of its members carry a fresh, bound stored observation. */
 function cohortObservations({ targets, facts }) {
-  const cohort = targets.filter(target => nonPaper(target, facts.ok ? factsRowFor(facts.model, target) : null));
+  const cohort = targets.filter(target => nonPaper(target, facts.ok ? factsRowFor(facts.model, target) : null)
+    && (!managementAware(facts) || managedLive(facts.model, target)));
   const included = facts.ok ? cohort.filter(target => {
     const row = factsRowFor(facts.model, target);
     return row?.binding_status === "bound" && row.data_status === "fresh" && factsObservedAt(row) !== null;
@@ -171,6 +185,11 @@ export function overviewTotals({ targets, facts, now }) {
       coverage: coverage("unavailable", 0, total || null, ["read_failed"]) } };
   }
   const aggregate = facts.model.totals || { status: "unavailable", reason: "coverage_incomplete", by_currency: [] };
+  // Unknown management membership is no total at all: never a partial sum.
+  if (aggregate.reason === "management_status_unknown") {
+    return { reporting: "USD", totals: { ...base, status: "unavailable", excluded_reasons: ["coverage_incomplete"],
+      coverage: coverage("unavailable", 0, total || null, ["coverage_incomplete"]) } };
+  }
   if (aggregate.status === "by_currency" && aggregate.by_currency.length === 1 && included === total && total > 0) {
     return { reporting: aggregate.by_currency[0].currency, totals: { ...base, status: "complete", excluded_reasons: [],
       nav: aggregate.by_currency[0].net_assets, coverage: coverage("complete", included, total) } };

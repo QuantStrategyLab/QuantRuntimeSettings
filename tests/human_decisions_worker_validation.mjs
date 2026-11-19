@@ -8,6 +8,7 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import worker, { __test } from "./helpers/directory_worker.mjs";
 import actualWorker from "../web/strategy-switch-console/worker.js";
+import { enrollSyntheticManagement, miniflareRuntimeInstances } from "./helpers/account_management_enrollment.mjs";
 
 const require = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
 const { Miniflare } = require(process.env.QRT_MINIFLARE_MODULE || "miniflare");
@@ -324,6 +325,8 @@ try {
   assert.equal(dualAccepted.body.intent.decision, "keep_parked");
 
   assert.equal((await call("/api/admin/runtime-instances", { method: "POST", body: { action: "initialize", expected_revision: 0, confirm: "IMPORT_EXISTING_CONFIG" } })).status, 200);
+  // Processing admission needs a provisioned policy and applied management.
+  await enrollSyntheticManagement(await miniflareRuntimeInstances(mf));
   const ticket = promotionTicket(`rpt_${"8".repeat(64)}`);
   assert.equal((await syncPromotion(ticket)).status, 200);
   const accepted = await call("/api/research-promotion-decisions", { method: "POST", body: {
@@ -687,6 +690,9 @@ try {
   const receiptOptions = { ...options, kvPersist: await mkdtemp(join(tmpdir(), "qrt-receipt-kv-")), durableObjectsPersist: await mkdtemp(join(tmpdir(), "qrt-human-receipts-")) };
   mf = new Miniflare(receiptOptions);
   await initializeDirectory(mf);
+  // The promotion acceptance below is processing admission.
+  assert.equal((await call("/api/admin/runtime-instances", { method: "POST", body: { action: "initialize", expected_revision: 0, confirm: "IMPORT_EXISTING_CONFIG" } })).status, 200);
+  await enrollSyntheticManagement(await miniflareRuntimeInstances(mf));
   const paths = { owner: "/api/owner-decisions", recovery: "/api/reconciliation-recovery", promotion: "/api/research-promotion-tickets" };
   const exactPath = (receipt) => `${paths[receipt.kind]}?${new URLSearchParams({ decision_subject_id: receipt.subject_id, decision_material_sha256: receipt.material_sha256 })}`;
   const durableReceipts = [];

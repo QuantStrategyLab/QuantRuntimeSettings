@@ -26,10 +26,15 @@ import { RotationError } from "../../secretRotationStepUp.js";
 import { accountFactsIdentityDates } from "../account_facts/read.js";
 import { runtimeInstanceConflict } from "./command.js";
 import { projectAccountManagement } from "./mapping_projection.js";
+import {
+  applyManagementDraft, initializeAccountManagement, managementBinding, processingDenial, readManagementSnapshot, replaceMappingPolicy,
+  requireProcessingAdmission, resolveManagement, saveManagementDraft,
+} from "./account_management.js";
 import { deskErrorResponse } from "../desk/http.js";
 import { binanceDetailCommand } from "../../binance_detail_archive.js";
 import { INVENTORY_DO_PATH } from "../account_identity_inventory/constants.js";
 import { inventoryCapability, inventoryResponse } from "../account_identity_inventory/http.js";
+import { MANAGEMENT_READ_DO_PATH, managementReadCapability, managementReadResponse, managementSettingsView } from "./account_management_readback.js";
 import {
   ACCOUNT_FACTS_FUTURE_SKEW_MS,
   ACCOUNT_FACTS_HISTORY_MAX_DAYS,
@@ -63,8 +68,10 @@ import {
 import { BROKER_ENVIRONMENTS } from "../../account_options_schema.js";
 import { RISK_TIER_POLICY_BINDINGS } from "../console_api/risk_tiers.js";
 import {
+  ACCOUNT_OPTIONS_KEY,
   ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_KEY,
   AUDIT_EVENTS_MAX_ROWS,
+  accountOptionMatchesInputs,
   HK_STOP_REQUEST_ID,
   HK_STOP_TARGET_ID,
   RISK_PROFILE_PREFERENCES,
@@ -80,6 +87,7 @@ import {
   hkStopSourceIdentity,
   isDcaProfile,
   json,
+  normalizeAccountOptionsPayload,
   normalizeControlPlaneIdentifier,
   promotionMaterialReviewBinding,
   promotionReviewBindingsMatch,
@@ -113,6 +121,7 @@ export class RuntimeInstances {
     this.rotationEnv = env;
     this.storageInitialized = false;
     this.inventory = inventoryCapability(ctx.storage, crypto.randomUUID());
+    this.managementRead = managementReadCapability(ctx.storage);
     this.deskReadbacks = new DeskReadbackStore(ctx.storage, async (id, actor) => {
       const state = this.read();
       const target = readbackTargets({ options: runtimeInstanceAccountOptions(state.instances), revision: state.revision }).find(target => target.id === id);
@@ -233,6 +242,7 @@ export class RuntimeInstances {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`);
+    try { sql.exec("ALTER TABLE research_promotion_applications ADD COLUMN management_binding_json TEXT"); } catch { /* already present */ }
     // A rejected application is a terminal record, but an explicitly
     // re-qualified user request may create a new attempt. Keep history while
     // deduplicating all still-active/uncertain attempts.
@@ -389,6 +399,7 @@ export class RuntimeInstances {
     for (const column of ["source_identity_sha256", "runtime_identity_sha256", "result_json", "stopped_at"]) {
       try { sql.exec(`ALTER TABLE hk_stop_request ADD COLUMN ${column} TEXT`); } catch { /* already present */ }
     }
+    initializeAccountManagement(sql);
     this.storageInitialized = true;
   }
 
@@ -1581,7 +1592,59 @@ export class RuntimeInstances {
     if (command.action === "account_settings_profile_application_lookup") return this.readAccountSettingsProfileApplication(command);
     if (command.action === "account_settings_profile_application_approve") return this.approveAccountSettingsProfileApplication(command);
     if (command.action === "account_settings_profile_application_claim") return this.claimAccountSettingsProfileApplication(command);
+    if (command.action === "account_mapping_policy_replace") return replaceMappingPolicy(this.sql, command);
+    if (command.action === "account_management_draft_save") return saveManagementDraft(this.sql, this.read(), command);
+    if (command.action === "account_management_apply") return applyManagementDraft(this.sql, this.read(), command);
+    // Read-only: the same local admission every processing entrance re-resolves, with no write.
+    if (command.action === "account_management_admission_check") {
+      if (typeof command.platform !== "string" || typeof command.key !== "string") throw new HttpError("management_request_invalid", 400);
+      this.requireManagementAdmission(command.platform, command.key);
+      return { ok: true, admitted: true };
+    }
     throw new HttpError("unsupported_account_settings_action", 400);
+  }
+
+  // Processing admission of one deployment, re-resolved from local storage
+  // inside the caller's transaction. A typed denial throws before any write.
+  requireManagementAdmission(platform, key, state = this.read()) {
+    return requireProcessingAdmission(this.sql, state, platform, key);
+  }
+
+  managementDenialFor(platform, key, state = this.read()) {
+    return processingDenial(resolveManagement(readManagementSnapshot(this.sql, state), platform, key));
+  }
+
+  // Current denial, or `management_state_changed` when the admitted group or
+  // applied revision drifted (an intervening disable/enable included) or the
+  // record carries no verifiable binding.
+  applicationManagementDenial(row, state) {
+    const resolution = resolveManagement(readManagementSnapshot(this.sql, state), row.platform_id, row.account_key);
+    const denial = processingDenial(resolution);
+    if (denial) return denial;
+    let bound = null;
+    try { bound = JSON.parse(row.management_binding_json); } catch { bound = null; }
+    if (!bound || typeof bound !== "object" || bound.membership_json !== resolution.membership_json
+      || bound.applied_revision !== (resolution.applied ? resolution.applied.revision : 0)) return "management_state_changed";
+    return null;
+  }
+
+  // Default sync writes processing configuration: its one matched deployment
+  // is admitted first; several matches pick no winner.
+  requireSyncDefaultsAdmission(state, inputs) {
+    const platform = inputs?.platform;
+    const options = Object.entries(normalizeAccountOptionsPayload(runtimeInstanceAccountOptions(state.instances), ACCOUNT_OPTIONS_KEY))
+      .filter(([name]) => name === platform).flatMap(([, list]) => list);
+    const matched = options.filter(option => accountOptionMatchesInputs(option, inputs));
+    if (matched.length > 1) throw new HttpError("management_sync_target_ambiguous", 409);
+    if (matched.length === 1) this.requireManagementAdmission(platform, matched[0].key, state);
+  }
+
+  // The existing deployments a risk binding target names. A target naming
+  // none or several resolves no deployment and admits nothing.
+  requireRiskTargetAdmission(platform, targetName, state = this.read()) {
+    const matches = state.instances.filter(item => item.kind === "existing" && item.platform === platform && item.config?.target_name === targetName);
+    if (matches.length !== 1) throw new HttpError("management_status_unknown", 409);
+    this.requireManagementAdmission(platform, matches[0].key, state);
   }
 
   ensureRiskProfileAuthority(legacy) {
@@ -1661,6 +1724,16 @@ export class RuntimeInstances {
     if (!Array.isArray(command.bindings)) throw new HttpError("invalid_risk_profile_binding", 400);
     for (const binding of command.bindings) this.assertStoredRiskBinding(binding, options);
     const bindings = [...command.bindings].sort((left, right) => left.scope_id.localeCompare(right.scope_id));
+    // Every changed scope is admitted before any write: one denial rejects the whole replacement.
+    const stored = new Map(this.storedRiskBindings(row).map(binding => [binding?.scope_id, binding]));
+    const next = new Map(bindings.map(binding => [binding.scope_id, binding]));
+    const state = this.read();
+    for (const scopeId of new Set([...stored.keys(), ...next.keys()])) {
+      const before = stored.get(scopeId), after = next.get(scopeId);
+      if (before !== undefined && after !== undefined && canonicalResearchTaskJson(before) === canonicalResearchTaskJson(after)) continue;
+      const target = after || before;
+      this.requireRiskTargetAdmission(target?.platform, target?.target_name, state);
+    }
     return this.writeRiskProfileAuthority(row, bindings);
   }
 
@@ -1671,6 +1744,7 @@ export class RuntimeInstances {
     if (!riskProfileBindingTargets(options).some((target) => target.platform === command.platform && target.target_name === command.target_name)) {
       throw new HttpError("risk_profile_binding_target_not_configured", 409);
     }
+    this.requireRiskTargetAdmission(command.platform, command.target_name);
     const scopeId = riskProfileScopeId(command.platform, command.target_name);
     const current = this.storedRiskBindings(row).filter((binding) => binding.scope_id !== scopeId);
     if (command.risk_change === "clear") return this.writeRiskProfileAuthority(row, current);
@@ -1749,6 +1823,7 @@ export class RuntimeInstances {
       enabled: item.enabled,
       identity,
       config: item.config,
+      management: managementSettingsView(resolveManagement(readManagementSnapshot(this.sql, state), item.platform, item.key)),
       draft: this.accountSettingDraftView(item, identity),
       declaration: this.accountSettingDeclaration(item, identity),
       risk: {
@@ -1808,6 +1883,17 @@ export class RuntimeInstances {
     const hasRisk = Object.prototype.hasOwnProperty.call(command, "risk_change");
     const hasDeclaration = Object.prototype.hasOwnProperty.call(command, "declaration");
     if (!hasDraft && !hasRisk && !hasDeclaration) throw new HttpError("account_settings_change_required", 400);
+    // Strategy/parameter drafts and risk changes are processing configuration;
+    // a declaration alone is an observation and stays available.
+    if (hasDraft || hasRisk) {
+      if (!command.identity || Array.isArray(command.identity) || typeof command.identity !== "object") {
+        throw new HttpError("account_settings_identity_required", 400);
+      }
+      if (canonicalResearchTaskJson(command.identity) !== canonicalResearchTaskJson(identity)) {
+        throw new HttpError("account_settings_identity_conflict", 409);
+      }
+      this.requireManagementAdmission(item.platform, item.key);
+    }
     if (hasDeclaration) this.saveAccountSettingDeclaration(item, identity, command);
     if (hasDraft) this.saveAccountSettingDraft(item, identity, command);
     if (hasRisk) {
@@ -1880,6 +1966,8 @@ export class RuntimeInstances {
     const oldProfile = accountSettingsProfileName(command.old_profile);
     const newProfile = accountSettingsProfileName(command.new_profile);
     if (!oldProfile || !newProfile || oldProfile === newProfile) throw new HttpError("account_settings_profile_application_profile_invalid", 400);
+    // Fresh and replayed approvals alike need current processing authority.
+    this.requireManagementAdmission(command.platform, command.key);
 
     const existing = this.sql.exec("SELECT * FROM account_setting_profile_application WHERE request_key = ?", requestKey).toArray()[0];
     if (existing) {
@@ -1974,6 +2062,8 @@ export class RuntimeInstances {
       && command.current_profile === row.old_profile
       && command.runtime_target_enabled === false;
     if (!boundRequest) throw new HttpError("account_settings_profile_application_conflict", 409);
+    // A claim, including its replay, needs current processing authority.
+    this.requireManagementAdmission(row.platform, row.account_key);
     if (row.status === "claimed") {
       if (row.workflow_run_id !== workflowRunId || row.workflow_run_attempt !== workflowRunAttempt) {
         throw new HttpError("account_settings_profile_application_already_claimed", 409);
@@ -2300,6 +2390,7 @@ export class RuntimeInstances {
 
   async fetch(request) {
     if (new URL(request.url).pathname === INVENTORY_DO_PATH) return inventoryResponse(request, this.inventory);
+    if (new URL(request.url).pathname === MANAGEMENT_READ_DO_PATH) return managementReadResponse(request, this.managementRead);
     this.initializeStorage();
     try {
       if (new URL(request.url).pathname === DIRECTORY_PATH) {
@@ -2417,6 +2508,7 @@ export class RuntimeInstances {
             }
             after = item;
           } else if (command.action === "sync_defaults") {
+            this.requireSyncDefaultsAdmission(state, command.inputs);
             const current = runtimeInstanceAccountOptions(state.instances);
             const update = updateAccountOptionsDefaultStrategy(current, command.inputs);
             changed = update.changed;
@@ -2619,6 +2711,11 @@ export class RuntimeInstances {
           SELECT 'credential_rotation', 'credential', 'ibkr_flex', '', action, actor,
             occurred_at, operation_id, outcome, 'credential_rotation:' || event_id
           FROM credential_rotation_audit
+          UNION ALL
+          SELECT 'account_management_change', 'account_management', platform || ':' || account_key, '',
+            'account_management_change', actor, strftime('%Y-%m-%dT%H:%M:%fZ', occurred_at),
+            event_id, result, 'account_management_change:' || event_id
+          FROM account_management_change
         ) SELECT * FROM events WHERE occurred_at <= ?
           AND (? IS NULL OR occurred_at < ? OR (occurred_at = ? AND event_id > ?))
         ORDER BY occurred_at DESC, event_id ASC LIMIT ?`, snapshot,
@@ -2631,16 +2728,61 @@ export class RuntimeInstances {
     }
     if (command.action === "console_settings_history") {
       this.existingAccountInstance(command.platform, command.key);
-      return { approvals: this.sql.exec("SELECT request_key, status, identity_json, instance_revision, old_profile, new_profile, approved_at, approved_by, draft_revision FROM account_setting_profile_application WHERE platform = ? AND account_key = ? ORDER BY approved_at DESC", command.platform, command.key).toArray() };
+      // Membership is a stable version of the first read: each append-only
+      // source is bounded by the insertion sequence (rowid) captured with the
+      // first page, so an append, equal-time or backdated, never joins a
+      // later page. A pinned sequence whose prefix no longer holds the pinned
+      // row count has expired.
+      const pin = command.snapshot ?? null;
+      const mark = table => this.sql.exec(`SELECT COALESCE(MAX(rowid), 0) AS hwm FROM ${table}`).toArray()[0].hwm;
+      const countTo = (table, hwm) => this.sql.exec(`SELECT COUNT(*) AS n FROM ${table} WHERE rowid <= ?`, hwm).toArray()[0].n;
+      const sources = { journal: "account_management_change", approvals: "account_setting_profile_application" };
+      const snapshot = {};
+      for (const [name, table] of Object.entries(sources)) {
+        if (pin) {
+          const { hwm, count } = pin[name] || {};
+          if (!Number.isSafeInteger(hwm) || !Number.isSafeInteger(count) || hwm < 0 || count < 0) throw new HttpError("invalid_pagination", 400);
+          if (countTo(table, hwm) !== count) return { expired: true };
+          snapshot[name] = { hwm, count };
+        } else {
+          const hwm = mark(table);
+          snapshot[name] = { hwm, count: countTo(table, hwm) };
+        }
+      }
+      const approvals = this.sql.exec("SELECT request_key, status, identity_json, instance_revision, old_profile, new_profile, approved_at, approved_by, draft_revision FROM account_setting_profile_application WHERE platform = ? AND account_key = ? AND rowid <= ? ORDER BY approved_at DESC", command.platform, command.key, snapshot.approvals.hwm).toArray();
+      const changes = this.sql.exec("SELECT event_id, occurred_at, actor, platform, account_key, members_json, policy_revision, instance_revision, draft_revision, old_applied_revision, new_applied_revision, old_management_enabled, new_management_enabled, result FROM account_management_change WHERE rowid <= ? ORDER BY occurred_at DESC, event_id ASC", snapshot.journal.hwm).toArray()
+        .filter(row => {
+          if (row.platform === command.platform && row.account_key === command.key) return true;
+          try {
+            const members = JSON.parse(row.members_json);
+            return Array.isArray(members) && members.some(member => member?.platform === command.platform && member?.legacy_key === command.key);
+          } catch { return false; }
+        });
+      return { approvals, management_changes: changes, snapshot };
     }
     const drafts = this.sql.exec("SELECT platform, account_key, overrides_json, updated_at FROM account_setting_draft").toArray();
     const approvals = this.sql.exec("SELECT platform, account_key, MAX(approved_at) AS approved_at FROM account_setting_profile_application GROUP BY platform, account_key").toArray();
+    const managementLatest = new Map();
+    for (const row of this.sql.exec("SELECT occurred_at, platform, account_key, members_json FROM account_management_change").toArray()) {
+      const ids = new Set([`${row.platform}:${row.account_key}`]);
+      try {
+        const members = JSON.parse(row.members_json);
+        if (Array.isArray(members)) for (const member of members) {
+          if (typeof member?.platform === "string" && typeof member?.legacy_key === "string") ids.add(`${member.platform}:${member.legacy_key}`);
+        }
+      } catch { /* unreadable members_json leaves direct addressing only */ }
+      for (const id of ids) {
+        const prev = managementLatest.get(id);
+        if (!prev || row.occurred_at > prev) managementLatest.set(id, row.occurred_at);
+      }
+    }
     return { rows: this.read().instances.map(item => {
       const draft = drafts.find(row => row.platform === item.platform && row.account_key === item.key);
       const approval = approvals.find(row => row.platform === item.platform && row.account_key === item.key);
+      const mgmtAt = managementLatest.get(`${item.platform}:${item.key}`) || null;
       return { platform: item.platform, account_key: item.key,
         pending_draft_count: draft ? new Set(Object.keys(JSON.parse(draft.overrides_json)).map(field => field.startsWith("dca_") ? "dca" : field.startsWith("reserved_") ? "cash" : field)).size : 0,
-        last_change_at: [draft?.updated_at, approval?.approved_at, item.updated_at].filter(Boolean).sort().at(-1) || null,
+        last_change_at: [draft?.updated_at, approval?.approved_at, mgmtAt, item.updated_at].filter(Boolean).sort().at(-1) || null,
       };
     }) };
   }
@@ -2907,6 +3049,12 @@ export class RuntimeInstances {
         throw new HttpError("human_decision_review_binding_unqualified", 409);
       }
     };
+    // A promotion acceptance selects an account for processing; a replay
+    // of one needs the same current authority as a fresh decision.
+    if (kind === "promotion" && actionName === "accept") {
+      const selected = command.payload?.selected_account;
+      this.requireManagementAdmission(selected?.platform, selected?.key);
+    }
     const byRequest = this.sql.exec("SELECT * FROM human_decision_record WHERE request_key = ?", requestKey).toArray()[0];
     if (byRequest) {
       if (byRequest.kind !== kind || byRequest.subject_id !== subjectId || byRequest.material_key !== materialKey || byRequest.action !== actionName || byRequest.target_json !== targetJson) {
@@ -3011,6 +3159,7 @@ export class RuntimeInstances {
           throw new HttpError("promotion_account_binding_conflict", 409);
         }
         const instances = this.read();
+        const admission = this.requireManagementAdmission(command.platform_id, command.account_key, instances);
         if (!instances.initialized || instances.revision !== Number(command.expected_revision) || !Number.isSafeInteger(decisionPayload.account_revision) || decisionPayload.account_revision !== instances.revision) {
           throw new HttpError("runtime_instance_revision_conflict", 409);
         }
@@ -3052,15 +3201,15 @@ export class RuntimeInstances {
             account_scope, account_selector, service_name, broker_environment, expected_revision,
             expected_strategy_profile, strategy_profile, candidate_id, config_sha256, source_commit,
             approved_ues_revision, desired_state, workflow_run_id, workflow_run_attempt, reason_code,
-            readback_json, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            readback_json, created_at, updated_at, management_binding_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           application.application_id, application.ticket_id, application.status, application.dispatch_state,
           application.claim_token, application.platform_id, application.account_key, application.account_scope,
           application.account_selector, application.service_name, application.broker_environment,
           application.expected_revision, application.expected_strategy_profile, application.strategy_profile,
           application.candidate_id, application.config_sha256, application.source_commit,
           application.approved_ues_revision, application.desired_state, null, null, application.reason_code,
-          null, application.created_at, application.updated_at,
+          null, application.created_at, application.updated_at, managementBinding(admission),
         );
         return { ok: true, created: true, application };
       }
@@ -3090,15 +3239,17 @@ export class RuntimeInstances {
           && String(config.broker_environment || "") === row.broker_environment
           && String(config.account_selector || "") === row.account_selector
           && String(config.service_name || "") === row.service_name;
-        const claimed = row.status === "approved" && ["pending", "sent", "unknown"].includes(row.dispatch_state)
+        const denial = this.applicationManagementDenial(row, state);
+        const claimable = row.status === "approved" && ["pending", "sent", "unknown"].includes(row.dispatch_state)
           && row.claim_token === command.claim_token && bindingStillMatches;
+        const claimed = claimable && !denial;
         if (claimed) {
           this.sql.exec(
             "UPDATE research_promotion_applications SET status = 'claimed', workflow_run_id = ?, workflow_run_attempt = ?, updated_at = ? WHERE application_id = ? AND status = 'approved'",
             command.workflow_run_id, command.workflow_run_attempt, command.updated_at, applicationId,
           );
         }
-        return { ok: true, claimed, reason: claimed ? "" : (bindingStillMatches ? "already_claimed_or_invalid_token" : "account_changed") };
+        return { ok: true, claimed, reason: claimed ? "" : claimable ? denial : (bindingStillMatches ? "already_claimed_or_invalid_token" : "account_changed") };
       }
       if (command.action === "application_result") {
         const sameRun = row.workflow_run_id === command.workflow_run_id
@@ -3124,6 +3275,10 @@ export class RuntimeInstances {
           if (!bindingStillMatches) {
             effectiveStatus = "uncertain";
             effectiveReasonCode = "account_changed";
+          } else if (this.applicationManagementDenial(row, state)) {
+            // Retained as evidence; no current strategy install after a management change.
+            effectiveStatus = "uncertain";
+            effectiveReasonCode = "management_state_changed";
           } else {
             const before = structuredClone(instance);
             instance.config = { ...instance.config, default_strategy_profile: row.strategy_profile };

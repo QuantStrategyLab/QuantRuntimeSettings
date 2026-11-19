@@ -1,5 +1,8 @@
 import { AccountGroups, type AccountFactsView } from "../../components/AccountGroups";
+import { AccountFactsManagementCoverageBar } from "../../components/AccountFactsAmounts";
+import type { AccountFactsResponse } from "../../api/contracts";
 import { findAccount } from "../../lib/accountDirectory";
+import { responseManagementStamped } from "../../lib/accountFacts";
 import type { BinanceFactsView } from "../../lib/binanceWalletFacts";
 import { useState } from "react";
 import { getJson } from "../../api/client";
@@ -11,6 +14,19 @@ import { Badge, EmptyState, ErrorState, Skeleton } from "../../components/primit
 import { type ConsoleConfig } from "./helpers";
 import { AccountDetail } from "./AccountDetail";
 import "./accounts.css";
+
+/** Build the grouped facts view while preserving response-level stamped mode. */
+export function readyAccountFactsView(
+  response: AccountFactsResponse,
+  binance?: BinanceFactsView,
+): AccountFactsView {
+  return {
+    rows: response.accounts,
+    phase: "ready",
+    managementStamped: responseManagementStamped(response),
+    binance,
+  };
+}
 
 export default function AccountsPage({ account, tab }: { account: string | null; tab: string | null }) {
   const t = useT();
@@ -32,7 +48,7 @@ export default function AccountsPage({ account, tab }: { account: string | null;
     ? { phase: "ready", status: binanceState.data.report_status, report: binanceState.data.report }
     : { phase: binanceState.phase, status: null, report: null };
   const facts: AccountFactsView = factsState.phase === "ready"
-    ? { rows: factsState.data.accounts, phase: "ready", binance }
+    ? readyAccountFactsView(factsState.data, binance)
     : { rows: [], phase: factsState.phase, binance };
 
   const todayFailed =
@@ -75,6 +91,9 @@ export default function AccountsPage({ account, tab }: { account: string | null;
             {t("accounts.go_todos")}
           </button>
         </p>
+      )}
+      {!selected && factsState.phase === "ready" && (
+        <AccountFactsManagementCoverageBar coverage={factsState.data.asset_coverage} />
       )}
       <div className={`accounts-split${selected ? " detail-open" : ""}`}>
         <div className="accounts-list">{listBody}</div>

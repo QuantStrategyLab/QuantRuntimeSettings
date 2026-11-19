@@ -11,6 +11,7 @@ import { spawnSync } from "node:child_process";
 
 import worker, { __test } from "./helpers/directory_worker.mjs";
 import { DEFAULT_ACCOUNT_OPTIONS, RUNTIME_CATALOG_PROJECTION, PLATFORM_META } from "../web/strategy-switch-console/config.js";
+import { enrollSyntheticManagement } from "./helpers/account_management_enrollment.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const liveFrontendSrc = resolve(root, "web/strategy-switch-console/frontend/src");
@@ -687,13 +688,14 @@ const kvUnboundSyncResponse = await worker.fetch(
     STRATEGY_SWITCH_STRATEGY_PROFILES_JSON: JSON.stringify(strategyProfiles),
   },
 );
-assert.equal(kvUnboundSyncResponse.status, 200);
+// Default sync is processing admission: without the authority Durable
+// Object it fails closed instead of skipping.
+assert.equal(kvUnboundSyncResponse.status, 409);
 const kvUnboundSyncBody = await kvUnboundSyncResponse.json();
-assert.equal(kvUnboundSyncBody.ok, true);
+assert.equal(kvUnboundSyncBody.ok, false);
 assert.deepEqual(kvUnboundSyncBody.account_options_sync, {
   synced: false,
-  reason: "kv_not_bound",
-  skipped: true,
+  reason: "management_authority_unavailable",
 });
 
 const legacyContinuityKv = new Map([
@@ -735,46 +737,21 @@ const legacyContinuitySyncResponse = await worker.fetch(
   }),
   legacyContinuityEnv,
 );
-assert.equal(legacyContinuitySyncResponse.status, 200);
-const legacyContinuitySyncBody = await legacyContinuitySyncResponse.json();
-assert.equal(legacyContinuitySyncBody.ok, true);
-assert.equal(legacyContinuitySyncBody.legacy_continuity_account_registered, true);
-const registeredLegacyAccount = JSON.parse(legacyContinuityKv.get("account_options")).ibkr.find(
-  (option) => option.target_name === "legacy-ibkr-route",
-);
-assert.equal(registeredLegacyAccount.service_name, "interactive-brokers-legacy-ibkr-route-service");
-assert.deepEqual(registeredLegacyAccount.supported_domains, ["us_equity"]);
-assert.equal("plugin_mode" in registeredLegacyAccount, false);
-const repeatedLegacyContinuitySyncResponse = await worker.fetch(
-  new Request("https://switch.example/api/internal/sync-account-default", {
-    method: "POST",
-    headers: {
-      Authorization: "Bearer test-sync-token",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(legacyContinuityPayload),
-  }),
-  legacyContinuityEnv,
-);
-assert.equal(repeatedLegacyContinuitySyncResponse.status, 200);
-assert.equal((await repeatedLegacyContinuitySyncResponse.json()).legacy_continuity_account_registered, false);
-assert.equal(
-  JSON.parse(legacyContinuityKv.get("account_options")).ibkr.filter(
-    (option) => option.target_name === "legacy-ibkr-route",
-  ).length,
-  1,
-);
-const duplicateAliasResponse = await worker.fetch(
-  new Request("https://switch.example/api/internal/sync-account-default", {
-    method: "POST",
-    headers: { Authorization: "Bearer test-sync-token", "Content-Type": "application/json" },
-    body: JSON.stringify({ ...legacyContinuityPayload, target_name: "another-legacy-alias" }),
-  }), legacyContinuityEnv,
-);
-assert.equal(duplicateAliasResponse.status, 400);
-assert.equal(JSON.parse(legacyContinuityKv.get("account_options")).ibkr.some(
-  (option) => option.target_name === "another-legacy-alias",
-), false);
+// A KV-only legacy continuity registration is closed: no authority Durable
+// Object means no fallback registration or write.
+const accountOptionsBeforeLegacySync = legacyContinuityKv.get("account_options");
+assert.equal(legacyContinuitySyncResponse.status, 409);
+assert.equal((await legacyContinuitySyncResponse.json()).error, "runtime_instance_registration_requires_management");
+assert.equal(legacyContinuityKv.get("account_options"), accountOptionsBeforeLegacySync);
+const registeredLegacyAccount = {
+  key: "legacy-ibkr-route",
+  target_name: legacyContinuityPayload.target_name,
+  account_selector: legacyContinuityPayload.account_selector,
+  deployment_selector: legacyContinuityPayload.deployment_selector,
+  account_scope: legacyContinuityPayload.account_scope,
+  service_name: legacyContinuityPayload.service_name,
+  supported_domains: ["us_equity"],
+};
 const normalizedLegacyContinuityInputs = __test.normalizeSwitchInputs(legacyContinuityPayload);
 assert.doesNotThrow(() =>
   __test.assertStrategyAllowedForAccount(
@@ -1307,8 +1284,9 @@ const syncResult = await __test.syncDefaultStrategyForAccount(
   },
   { login: "synthetic-operator" },
 );
-assert.equal(syncResult.synced, true);
-// default_strategy_profile is no longer persisted to KV after switch
+// Without the authority Durable Object nothing is written to KV.
+assert.deepEqual(syncResult, { synced: false, reason: "management_authority_unavailable" });
+assert.equal(kvWrites.size, 0);
 
 const originalFetch = globalThis.fetch;
 globalThis.fetch = githubVariableListMock(async (url) => {
@@ -3957,6 +3935,30 @@ const previewEnvelope = __test.buildRiskEnvelopeView({ riskPreference: "BALANCED
 assert.equal(previewEnvelope.preference.label_zh, "均衡");
 assert.equal(previewEnvelope.scales.promotion_size_scale, 0.75);
 assert.equal(previewEnvelope.live_authority_granted, false);
+// A promotion acceptance is processing admission: it needs an initialized
+// authority store with a provisioned policy and applied management.
+const promotionRuntime = {
+  send: async command => { const response = await humanDecisionNamespace.get(humanDecisionNamespace.idFromName("runtime-instances")).fetch("https://runtime-instances/", { method: "POST", body: JSON.stringify(command) }); return { status: response.status, body: await response.json() }; },
+  read: async () => (await humanDecisionNamespace.get(humanDecisionNamespace.idFromName("runtime-instances")).fetch("https://runtime-instances/")).json(),
+};
+const promotionUninitialized = await worker.fetch(
+  new Request("https://switch.example/api/research-promotion-decisions", {
+    method: "POST",
+    headers: researchPromotionAdminHeaders,
+    body: JSON.stringify({
+      ticket_id: "promo-ticket-1",
+      decision: "accept",
+      expected_proposed_params: { lookback: 20 },
+      confirmation: { target_platform: "ibkr", execution_mode: "live", risk_profile: "BALANCED_COMPOUNDING" },
+      selected_account: { platform: "ibkr", key: "ibkr-primary" },
+    }),
+  }),
+  researchPromotionEnv,
+);
+assert.equal(promotionUninitialized.status, 409, "absent authority state fails the acceptance closed");
+assert.equal((await promotionUninitialized.json()).error, "management_status_unknown");
+assert.equal((await promotionRuntime.send({ action: "initialize", actor: "synthetic-admin", expected_revision: 0, account_options: accountOptions })).status, 200);
+await enrollSyntheticManagement(promotionRuntime);
 const promotionAccept = await worker.fetch(
   new Request("https://switch.example/api/research-promotion-decisions", {
     method: "POST",

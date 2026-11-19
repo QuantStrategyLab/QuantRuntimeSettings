@@ -1,0 +1,188 @@
+// The management cohort predicate shared by every aggregate (Q5): the
+// account-facts totals and coverage, the Desk and Console summaries and the
+// performance `scope=all` read. It is pure: it reads one registered live
+// readback (`qsl_account_management_readback.v1`) and answers, per deployment,
+// the physical group it belongs to, its management status and its evidence.
+//
+// A deployment the readback does not list, or any readback that is absent or
+// unreadable, is unknown. Unknown never becomes disabled, paper or zero.
+import { MANAGEMENT_STATUS } from "./policy.js";
+
+export const MANAGEMENT_READBACK_FORMAT = "qsl_account_management_readback.v1";
+export const MANAGEMENT_SCOPE = "managed_non_paper";
+
+const UNKNOWN_VIEW = Object.freeze({ management_status: MANAGEMENT_STATUS.UNKNOWN, evidence_state: "unknown", scope: "unknown", revision: null, group: null });
+const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
+const canonicalGroupKey = deployments => JSON.stringify(
+  [...(deployments || [])]
+    .map(item => [item.platform, item.key])
+    .sort((left, right) => compareText(left[0], right[0]) || compareText(left[1], right[1])),
+);
+
+// The deployment's view in a readback, or null when the readback does not list
+// it. `group` identifies the physical account the deployment belongs to; it is
+// null for a deployment no policy account claims or one claimed by multiple
+// accounts (an ambiguous owner cannot supply a physical group key).
+export function deploymentManagement(readback, platform, key) {
+  if (!readback || readback.format !== MANAGEMENT_READBACK_FORMAT) return null;
+  const claimants = [];
+  let targetOccurrences = 0;
+  for (const group of readback.groups || []) {
+    const matches = (group.deployments || []).filter(item => item.platform === platform && item.key === key);
+    if (matches.length) {
+      claimants.push(group);
+      targetOccurrences += matches.length;
+    }
+  }
+  const loose = readback.uncovered_deployments?.find(item => item.platform === platform && item.key === key) || null;
+  if (claimants.length > 1 || targetOccurrences > 1 || (claimants.length > 0 && loose)) {
+    const reasons = [...new Set([
+      "deployment_claimed_by_multiple_accounts",
+      ...claimants.flatMap(group => (Array.isArray(group.reasons) ? group.reasons : [])),
+      ...(Array.isArray(loose?.reasons) ? loose.reasons : []),
+    ])].sort();
+    return {
+      management_status: MANAGEMENT_STATUS.UNKNOWN, evidence_state: "conflict", scope: "unknown",
+      management_class: null, revision: null, reasons, processing_eligible: false,
+      processing_denial: "management_status_unknown", group: null,
+    };
+  }
+  if (claimants.length === 1) {
+    const [group] = claimants;
+    return {
+      management_status: group.management_status, evidence_state: group.evidence_state, scope: group.scope, management_class: group.management_class,
+      revision: group.applied?.revision ?? null, reasons: group.reasons, processing_eligible: group.processing_eligible === true,
+      processing_denial: group.processing_denial, group: canonicalGroupKey(group.deployments),
+    };
+  }
+  return loose ? { management_status: loose.management_status, evidence_state: loose.evidence_state, scope: "unknown", management_class: null,
+    revision: null, reasons: loose.reasons, processing_eligible: false, processing_denial: loose.processing_denial, group: null } : null;
+}
+
+// The cohort of one readback. `readback` may be null (the object is unbound or
+// unreadable): every deployment is then unknown and nothing is resolved.
+export function managementCohort(readback) {
+  const valid = readback?.format === MANAGEMENT_READBACK_FORMAT && readback.status === "available";
+  const claimCounts = new Map();
+  if (valid) {
+    for (const group of readback.groups || []) {
+      for (const item of group.deployments || []) {
+        const id = JSON.stringify([item.platform, item.key]);
+        claimCounts.set(id, (claimCounts.get(id) || 0) + 1);
+      }
+    }
+  }
+  const hasMultipleClaims = valid && (
+    [...claimCounts.values()].some(count => count > 1)
+    || (readback.uncovered_deployments || []).some(item => claimCounts.has(JSON.stringify([item.platform, item.key])))
+  );
+  return Object.freeze({
+    meta: Object.freeze({
+      evidence_scope: valid ? readback.evidence_scope : null, observed_at: valid ? readback.observed_at : null,
+      instance_revision: valid ? readback.instance_revision : null, policy_revision: valid ? readback.policy_revision : null,
+    }),
+    groupingComplete: valid && readback.physical_grouping_complete === true && !hasMultipleClaims,
+    view(platform, key) {
+      const view = valid ? deploymentManagement(readback, platform, key) : null;
+      return view || { ...UNKNOWN_VIEW };
+    },
+    // True when the readback listed the deployment with one unique physical owner.
+    resolved(platform, key) { return valid && deploymentManagement(readback, platform, key)?.group != null; },
+  });
+}
+
+// A known, evidenced status. Anything else (unknown, conflict, stale evidence)
+// is not a known status.
+export const knownStatus = view => view.evidence_state === "known" && Object.values(MANAGEMENT_STATUS).includes(view.management_status)
+  && view.management_status !== MANAGEMENT_STATUS.UNKNOWN;
+
+// A row's own environment and the group's scope are two observations of one
+// fact. They conflict when one says paper and the other says live; the group's
+// paper scope also only counts while its evidence is known. `environment` is
+// the row's own broker environment, or null when it does not say.
+export function scopeConflict({ paper, environment = null }, view) {
+  const ownPaper = paper === true || environment === "paper", ownLive = environment === "live";
+  return (ownPaper && view.scope === "live") || (ownLive && !ownPaper && view.scope === "paper")
+    || (paper === true && environment === "live");
+}
+
+// The disposition of one displayed deployment under the cohort: paper (by the
+// item's own scope or a known paper policy scope) is outside the live-money
+// cohort whatever its status; a known disabled or display-only item is a clean
+// exclusion; a known managed non-paper item is the cohort; every other
+// non-paper item, including a missing environment or a scope conflict, is
+// unknown. A policy scope proves paper only with known evidence.
+export function managementDisposition({ paper, environment = null }, view) {
+  if (scopeConflict({ paper, environment }, view)) return "unknown";
+  if (paper === true || environment === "paper" || (view.scope === "paper" && view.evidence_state === "known")) return "paper";
+  if (!knownStatus(view)) return "unknown";
+  return { [MANAGEMENT_STATUS.MANAGED]: "managed", [MANAGEMENT_STATUS.DISABLED]: "disabled",
+    [MANAGEMENT_STATUS.NOT_UNDER_MANAGEMENT]: "not_under_management" }[view.management_status] || "unknown";
+}
+
+// Accumulate all members of each resolved physical group: any disagreement across
+// members (e.g. managed + unknown or live + paper) leaves the whole group unknown.
+export function resolveCohortDispositions(items, cohort, toItem = item => item) {
+  const dispositions = new Map(items.map(item => [item, managementDisposition(toItem(item), cohort.view(item.platform, item.account_key))]));
+  const byGroup = new Map();
+  for (const item of items) {
+    if (!cohort.resolved(item.platform, item.account_key)) continue;
+    const { group } = cohort.view(item.platform, item.account_key);
+    const list = byGroup.get(group) || [];
+    list.push(item);
+    byGroup.set(group, list);
+  }
+  for (const members of byGroup.values()) {
+    if (new Set(members.map(item => dispositions.get(item))).size > 1) {
+      for (const item of members) dispositions.set(item, "unknown");
+    }
+  }
+  return dispositions;
+}
+
+const COUNT_BUCKET = Object.freeze({
+  managed: "managed_non_paper",
+  disabled: "management_disabled_non_paper",
+  not_under_management: "not_under_management_non_paper",
+  paper: "paper_excluded",
+  unknown: "unknown_non_paper",
+});
+
+// The nine management counts. Each resolved physical group enters one physical
+// category once; extra deployments in the same group count as duplicate_deployments;
+// unresolved deployments stay separate and make the physical total null.
+export function managementCounts(items, dispositions, cohort) {
+  const byGroup = new Map();
+  let unresolved = 0;
+  for (const item of items) {
+    if (!cohort.resolved(item.platform, item.account_key)) {
+      unresolved += 1;
+      continue;
+    }
+    const { group } = cohort.view(item.platform, item.account_key);
+    const members = byGroup.get(group) || [];
+    members.push(item);
+    byGroup.set(group, members);
+  }
+  const counts = {
+    managed_non_paper: 0,
+    management_disabled_non_paper: 0,
+    not_under_management_non_paper: 0,
+    unknown_non_paper: 0,
+    paper_excluded: 0,
+  };
+  let duplicateDeployments = 0;
+  for (const members of byGroup.values()) {
+    duplicateDeployments += members.length - 1;
+    const kinds = new Set(members.map(item => dispositions.get(item)));
+    const category = kinds.size === 1 ? [...kinds][0] : "unknown";
+    counts[COUNT_BUCKET[category] || "unknown_non_paper"] += 1;
+  }
+  return {
+    display_physical: unresolved === 0 && cohort.groupingComplete ? byGroup.size : null,
+    display_deployments: items.length,
+    ...counts,
+    duplicate_deployments: duplicateDeployments,
+    unresolved_deployments: unresolved,
+  };
+}

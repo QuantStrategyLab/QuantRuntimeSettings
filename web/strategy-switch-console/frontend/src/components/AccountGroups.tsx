@@ -1,6 +1,13 @@
 import { ExecutionEvidence } from "./ExecutionEvidence";
 import { accountKey, groupAccounts, type DirectoryConfig } from "../lib/accountDirectory";
-import { declaredEnvironmentOf, factForAccount } from "../lib/accountFacts";
+import {
+  decidePlatformCohort,
+  declaredEnvironmentOf,
+  factForAccount,
+  responseManagementStamped,
+  type PlatformCohortDecision,
+  type PlatformCohortMember,
+} from "../lib/accountFacts";
 import { cardAccountKey, type BinanceFactsView } from "../lib/binanceWalletFacts";
 import { useDisplayNames } from "../lib/useDisplayNames";
 import { useT } from "../i18n";
@@ -9,6 +16,7 @@ import { DateText } from "./primitives";
 import {
   AccountFactsAmounts,
   EnvironmentBadge,
+  ManagementStatusBadge,
   PlatformFactsSummary,
   environmentOfFacts,
   type AccountEnvironment,
@@ -30,28 +38,36 @@ function evidenceEnvironment(evidence: { broker_environment?: "live" | "paper" |
 export interface AccountFactsView {
   rows: AccountFactsAccount[];
   phase: FactsPhase;
+  /** Response-level stamped mode established once from the ready response. */
+  managementStamped?: boolean;
   /** Dedicated single-account source; only an exact platform+account_key card may consume it. */
   binance?: BinanceFactsView;
 }
 
 /**
- * Platform rollup input: the distinct facts rows reached through the trusted
- * platform+account_key join. Dedupe is by row reference only — two directory
- * aliases of one account return the same row and count once, while identical
- * content in distinct rows never merges them. `expected` also counts directory
- * accounts with no facts row, so coverage can never silently complete.
+ * Platform rollup input: left join from every distinct displayed directory
+ * deployment to its exact platform+account_key facts row. Unmatched members
+ * remain in the cohort so management disposition is decided over the complete
+ * displayed membership before monetary totals or known-empty reasons.
  */
-function platformFactsUnits(accounts: { rows: Account[] }[], facts: AccountFactsAccount[]): { rows: AccountFactsAccount[]; expected: number } {
-  const found = new Set<AccountFactsAccount>();
-  const missing = new Set<string>();
+function platformFactsUnits(
+  accounts: { rows: Account[] }[],
+  facts: AccountFactsAccount[],
+  managementStamped?: boolean,
+): PlatformCohortDecision {
+  const members = new Map<string, PlatformCohortMember>();
   for (const account of accounts) {
     for (const row of account.rows) {
-      const fact = factForAccount(facts, row.platform, row.account_alias);
-      if (fact) found.add(fact);
-      else missing.add(accountKey(row));
+      const id = accountKey(row);
+      if (members.has(id)) continue;
+      members.set(id, {
+        platform: row.platform,
+        accountKey: row.account_alias,
+        fact: factForAccount(facts, row.platform, row.account_alias),
+      });
     }
   }
-  return { rows: [...found], expected: found.size + missing.size };
+  return decidePlatformCohort([...members.values()], managementStamped);
 }
 
 function sectionOf(environment: AccountEnvironment | null): EnvironmentSection {
@@ -60,11 +76,14 @@ function sectionOf(environment: AccountEnvironment | null): EnvironmentSection {
 
 export function AccountGroups({ accounts, config, facts, onSelect }: { accounts: Account[]; config: DirectoryConfig | null; facts?: AccountFactsView; onSelect: (key: string) => void }) {
   const names = useDisplayNames(config), t = useT();
+  const responseStamped = facts
+    ? (facts.managementStamped ?? responseManagementStamped({ accounts: facts.rows }))
+    : false;
   return <div className="section-stack account-groups">{groupAccounts(accounts, config).map(group => {
     // One rollup per platform keeps the producer's live scope intact (paper is
     // excluded inside platformCurrencyTotals; unconfirmed rows stay in the
     // denominator). The live total is only attached to the live section below.
-    const units = facts ? platformFactsUnits(group.accounts, facts.rows) : null;
+    const units = facts ? platformFactsUnits(group.accounts, facts.rows, responseStamped) : null;
     const cards = group.accounts.map(account => {
       // A display card is an alias/selector grouping, not a verified
       // identity. Producer-known duplicate aliases of one physical account
@@ -107,14 +126,22 @@ export function AccountGroups({ accounts, config, facts, onSelect }: { accounts:
           {/* Binance's dedicated wallet rollup is one account, not a complete
               platform net value, so it is never rolled into a generic total. */}
           {section.environment === "live" && facts && units && group.platform !== "binance"
-            ? <div className="account-platform-summary"><PlatformFactsSummary rows={units.rows} expected={units.expected} phase={facts.phase} /></div>
+            ? <div className="account-platform-summary"><PlatformFactsSummary rows={units.rows} expected={units.expected} phase={facts.phase} cohort={units} /></div>
             : null}
         </div>
         {section.environment !== "live" && <p className="card-note account-environment-note">{t(`accounts.environment.${section.environment}_note`)}</p>}
         <div className="account-grid">{section.cards.map(({ account, canonical, representative, environment, declarationConflict, binanceKey }) => <article className="card account-group-card" key={account.identity}>
           <div className="account-card-head">
             <h3 className="account-broker-title">{names.account(account.rows[0].account_alias, group.platform)}</h3>
-            <EnvironmentBadge environment={environment} />
+            <div className="account-card-badges">
+              {representative?.management_status && (
+                <ManagementStatusBadge
+                  status={representative.management_status}
+                  evidenceState={representative.evidence_state ?? "unknown"}
+                />
+              )}
+              <EnvironmentBadge environment={environment} />
+            </div>
           </div>
           {declarationConflict && <p className="accounts-inline-note error" role="alert">{t("accounts.declaration.conflict_notice")}</p>}
           {facts && <div className="account-card-facts">

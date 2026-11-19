@@ -1,31 +1,18 @@
 /* Accounts page: list + detail split; two-screen behavior on mobile. */
 
-.accounts-split {
-  display: grid;
-  grid-template-columns: minmax(320px, 400px) minmax(0, 1fr);
-  gap: 18px;
-  align-items: start;
-}
-
-.accounts-list-cards { display: none; }
+.accounts-split { display: grid; grid-template-columns: minmax(320px, 400px) minmax(0, 1fr); gap: 18px; align-items: start; }
 .accounts-split:not(.detail-open) { grid-template-columns: minmax(0, 1fr); }
 .accounts-list, .accounts-detail { min-width: 0; }
 
-.accounts-alias-button {
-  color: var(--accent);
-  font-weight: 600;
-  text-align: left;
-  padding: 0;
-}
+.accounts-alias-button { color: var(--accent); font-weight: 600; text-align: left; padding: 0; }
 .accounts-alias-button:hover { text-decoration: underline; }
 
 .accounts-mobile-back { display: none; margin-bottom: 12px; }
-.accounts-unassigned { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; }
-
-.accounts-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 10px; }
+.accounts-unassigned, .management-badges, .management-radio-group, .management-radio { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; }
+.management-coverage-head { flex-wrap: wrap; }
 .accounts-detail-head > .card-title { margin: 0; font-size: 19px; letter-spacing: -.02em; min-width: 0; overflow-wrap: anywhere; }
 
-.accounts-summary-rows { display: flex; flex-direction: column; gap: 0; }
+.accounts-summary-rows, .accounts-field-rows { display: flex; flex-direction: column; }
 .accounts-summary-row {
   display: flex;
   justify-content: space-between;
@@ -37,11 +24,10 @@
   align-items: baseline;
   flex-wrap: wrap;
 }
-.accounts-summary-row:last-child { border-bottom: 0; }
+.accounts-summary-row:last-child, .accounts-field-row:last-child { border-bottom: 0; }
 .accounts-summary-row > span:first-child { color: var(--muted); }
 .accounts-summary-row > span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
 
-.accounts-field-rows { display: flex; flex-direction: column; }
 .accounts-field-row {
   display: grid;
   grid-template-columns: minmax(140px, 220px) 1fr;
@@ -50,28 +36,31 @@
   padding: 10px 0;
   border-bottom: 1px solid var(--line);
 }
-.accounts-field-row:last-child { border-bottom: none; }
 .accounts-field-label { color: var(--muted); font-size: 13px; padding-top: 8px; }
 .accounts-field-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .accounts-field-value { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.accounts-field-control { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.accounts-field-control, .accounts-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.accounts-toolbar, .management-coverage-bar { margin-bottom: 12px; }
 .accounts-field-control .input { max-width: 280px; }
 .accounts-field-error { color: var(--status-error); font-size: 12px; }
 .accounts-field-current { color: var(--muted); font-size: 12px; }
 
-.accounts-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
 .accounts-inline-note { font-size: 13px; margin: 8px 0; }
 .accounts-inline-note.error { color: var(--status-error); }
 .accounts-inline-note.success { color: var(--status-ok); }
 
 .accounts-diff-section + .accounts-diff-section { margin-top: 12px; }
-.accounts-diff-section h3 { margin: 0 0 6px; font-size: 13px; color: var(--muted); }
+.accounts-diff-section h3, .management-legend { margin: 0 0 6px; font-size: 13px; color: var(--muted); }
+
+.management-card, .management-controls, .management-coverage-bar { display: grid; gap: 8px; }
+.management-controls { padding-top: 8px; border-top: 1px solid var(--line); }
+.management-radio-group { border: 0; padding: 0; }
+.management-radio { font-size: 13px; cursor: pointer; }
+.management-draft-pending { color: var(--warning); font-weight: 600; }
 
 @media (max-width: 768px) {
   .accounts-split { display: block; }
-  .accounts-list-table { display: none; }
-  .accounts-list-cards { display: flex; flex-direction: column; gap: 8px; }
-  .accounts-split.detail-open .accounts-list { display: none; }
+  .accounts-split.detail-open .accounts-list,
   .accounts-split:not(.detail-open) .accounts-detail { display: none; }
   .accounts-mobile-back { display: inline-flex; }
   .accounts-detail-head > .card-title { font-size: 18px; }

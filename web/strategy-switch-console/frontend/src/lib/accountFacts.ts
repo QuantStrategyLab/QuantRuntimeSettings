@@ -1,4 +1,4 @@
-import type { AccountFactsAccount } from "../api/contracts";
+import type { AccountFactsAccount, ManagementDisposition } from "../api/contracts";
 
 /** Broker-reported amounts are decimal strings; anything else is unknown, never zero. */
 const DECIMAL_RE = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
@@ -237,14 +237,139 @@ function factHasCurrency(row: AccountFactsAccount, currency: string): boolean {
  * missing value is never summed as zero, and coverage counts only accounts
  * that actually contributed to a displayed sum.
  */
-export function platformCurrencyTotals(rows: AccountFactsAccount[], expected: number): PlatformCurrencyTotal[] {
-  if (!rows.length || expected < 1) return [];
+const MANAGEMENT_DISPOSITIONS = new Set<ManagementDisposition>(["managed", "disabled", "not_under_management", "paper", "unknown"]);
+
+/**
+ * Authoritative cohort disposition for a stamped account-facts row, or null for
+ * legacy unstamped payloads. Uses the server's final `management_disposition`
+ * when present so certified paper, scope conflicts, and unknown cohorts stay
+ * aligned across server totals, platform totals, and unavailable reasons.
+ */
+export function rowManagementDisposition(row: AccountFactsAccount): ManagementDisposition | null {
+  if (row.management_disposition !== undefined) {
+    if (row.management_scope_conflict === true) return "unknown";
+    return MANAGEMENT_DISPOSITIONS.has(row.management_disposition) ? row.management_disposition : "unknown";
+  }
+  if (row.management_status === undefined && row.management_scope_conflict === undefined) return null;
+  if (row.management_scope_conflict === true) return "unknown";
+  if (row.broker_environment === "paper" || row.account_scope === "paper") return "paper";
+  if (row.evidence_state !== "known" || row.management_status === "unknown") return "unknown";
+  if (row.management_status === "managed") return "managed";
+  if (row.management_status === "management_disabled") return "disabled";
+  if (row.management_status === "not_under_management") return "not_under_management";
+  return "unknown";
+}
+
+export interface PlatformCohortMember {
+  platform: string;
+  accountKey: string;
+  fact: AccountFactsAccount | null;
+}
+
+export interface PlatformCohortDecision {
+  expected: number;
+  rows: AccountFactsAccount[];
+  hasStamped: boolean;
+  managementUnknown: boolean;
+  allExcludedByManagement: boolean;
+}
+
+/**
+ * Establish management-stamped cohort mode once from the full ready facts
+ * response before per-platform grouping or member matching.
+ */
+export function responseManagementStamped(
+  response: { accounts?: AccountFactsAccount[] | null; asset_coverage?: { management_scope?: string | null } | null } | null | undefined,
+): boolean {
+  if (!response) return false;
+  if (response.asset_coverage?.management_scope === "managed_non_paper") return true;
+  return Array.isArray(response.accounts) && response.accounts.some(row => row && rowManagementDisposition(row) !== null);
+}
+
+/**
+ * Determine management disposition across the complete displayed cohort before
+ * monetary filtering or known-empty selection. Any unmatched displayed member in
+ * a stamped cohort is management-unknown, never dropped before classification.
+ */
+export function decidePlatformCohort(
+  members: PlatformCohortMember[],
+  managementStamped?: boolean,
+): PlatformCohortDecision {
+  const byKey = new Map<string, PlatformCohortMember>();
+  for (const member of members) {
+    const key = JSON.stringify([member.platform, member.accountKey]);
+    if (!byKey.has(key)) byKey.set(key, member);
+  }
+  const cohort = [...byKey.values()];
+  const present = [...new Set(cohort.map(member => member.fact).filter((fact): fact is AccountFactsAccount => Boolean(fact)))];
+  const hasStamped = Boolean(managementStamped) || present.some(row => rowManagementDisposition(row) !== null);
+  if (!hasStamped) {
+    return {
+      expected: cohort.length,
+      rows: present,
+      hasStamped: false,
+      managementUnknown: false,
+      allExcludedByManagement: false,
+    };
+  }
+  const dispositions = cohort.map(member => (member.fact ? rowManagementDisposition(member.fact) : "unknown"));
+  const managementUnknown = dispositions.some(disposition => disposition === "unknown" || disposition === null);
+  const allExcludedByManagement = !managementUnknown && cohort.length > 0
+    && dispositions.every(disposition =>
+      disposition === "paper" || disposition === "disabled" || disposition === "not_under_management");
+  return {
+    expected: cohort.length,
+    rows: present,
+    hasStamped: true,
+    managementUnknown,
+    allExcludedByManagement,
+  };
+}
+
+export function decidePlatformCohortFromRows(rows: AccountFactsAccount[], expected: number): PlatformCohortDecision {
   const unique = [...new Set(rows)];
-  const inScope = unique.filter(row => row.aggregation_status !== "duplicate" && !isPaperFact(row));
-  const liveExpected = Math.max(0, expected - (unique.length - inScope.length));
-  const readable = inScope.filter(isReadableFact);
+  const dispositions = unique.map(row => rowManagementDisposition(row));
+  const hasStamped = dispositions.some(disposition => disposition !== null);
+  const managementUnknown = hasStamped && dispositions.some(disposition => disposition === "unknown" || disposition === null);
+  const allExcludedByManagement = hasStamped && !managementUnknown && unique.length > 0
+    && dispositions.every(disposition =>
+      disposition === "paper" || disposition === "disabled" || disposition === "not_under_management");
+  return { expected, rows: unique, hasStamped, managementUnknown, allExcludedByManagement };
+}
+
+export function platformCurrencyTotals(
+  rows: AccountFactsAccount[],
+  expected: number,
+  cohort?: PlatformCohortDecision,
+): PlatformCurrencyTotal[] {
+  if (!rows.length || expected < 1) return [];
+  const decision = cohort ?? decidePlatformCohortFromRows(rows, expected);
+  if (decision.managementUnknown || decision.allExcludedByManagement) return [];
+  const unique = [...new Set(rows)];
+  const dispositions = new Map(unique.map(row => [row, rowManagementDisposition(row)]));
+  const hasStamped = decision.hasStamped;
+  let managedScope: AccountFactsAccount[];
+  if (hasStamped) {
+    // Any row without a known stamped disposition or classified as unknown
+    // (including scope conflicts and incomplete stamped sets) vetoes the total
+    // before duplicate filtering.
+    if (unique.some(row => dispositions.get(row) === "unknown" || dispositions.get(row) === null)) return [];
+    managedScope = unique.filter(row => dispositions.get(row) === "managed" && row.aggregation_status !== "duplicate");
+    if (!managedScope.length) return [];
+  } else {
+    // Legacy unstamped read contract: paper exclusion follows broker/scope
+    // evidence, never user declaration alone.
+    const livePool = unique.filter(row => row.broker_environment !== "paper" && row.account_scope !== "paper");
+    managedScope = livePool.filter(row => row.aggregation_status !== "duplicate");
+  }
+  const liveExpected = Math.max(0, expected - (unique.length - managedScope.length));
+  const readable = managedScope.filter(isReadableFact);
   const eligible = readable.filter(row =>
-    row.aggregation_status === "included" && effectiveFactEnvironment(row) === "live");
+    row.aggregation_status === "included"
+    && (hasStamped
+      ? (row.broker_environment !== "paper" && row.account_scope !== "paper"
+        && (row.management_disposition !== undefined || effectiveFactEnvironment(row) === "live"))
+      : effectiveFactEnvironment(row) === "live"));
   const conflict = readable.some(row => row.aggregation_status === "conflict");
   if (!eligible.length) return [];
   const currencies = new Set<string>();

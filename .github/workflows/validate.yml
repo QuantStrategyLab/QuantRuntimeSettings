@@ -298,5 +298,18 @@ jobs:
           node --experimental-default-type=module tests/ux1_async_ui_validation.mjs
           node --experimental-strip-types --test tests/console_runtime_state_validation.mjs
           node --experimental-strip-types --test tests/binance_private_scope_worker_validation.mjs
+          node tests/account_management_storage_validation.mjs
+          node tests/account_management_gates_validation.mjs
+          node tests/account_management_readback_validation.mjs
+          node tests/management_rollup_veto_validation.mjs
+          mkdir -p "${RUNNER_TEMP}/management-ui-matrix"
+          MANAGEMENT_UI_MATRIX_OUT="${RUNNER_TEMP}/management-ui-matrix/management-ui-matrix.json" node --experimental-strip-types tests/account_status_layers_validation.mjs
           node --check --input-type=module < web/strategy-switch-console/strategy_profiles_asset.js
           node --check --input-type=module < web/strategy-switch-console/worker.js
+      - name: Preserve account management UI matrix
+        uses: actions/upload-artifact@v4
+        with:
+          name: management-ui-matrix
+          path: ${{ runner.temp }}/management-ui-matrix/management-ui-matrix.json
+          if-no-files-found: error
+          retention-days: 3

@@ -545,6 +545,52 @@ assert.equal(
   "facts still exclude a known paper account",
 );
 
+// B2-A17: scope=all cohort. Unknown and known-empty membership answer every
+// endpoint with its own typed empty payload (HTTP 200, no numeric totals);
+// sibling deployments of one physical account count an execution once.
+{
+  const group = (management_status, deployments, extra = {}) => ({
+    management_class: "eligible", management_status, evidence_state: "known", scope: "live", reasons: [],
+    processing_eligible: management_status === "managed", processing_denial: null, applied: { management_enabled: true, revision: 1, effective_at: "2026-01-01T00:00:00.000Z" },
+    deployments: deployments.map(key => ({ platform: "ibkr", key, present: true })), ...extra,
+  });
+  const readbackOf = groups => ({ format: "qsl_account_management_readback.v1", status: "available", evidence_scope: "runtime_instances_sqlite",
+    observed_at: "2026-01-01T00:00:00.000Z", instance_revision: 1, policy_revision: 1, physical_grouping_complete: true, groups, uncovered_deployments: [] });
+  const withReadback = (readback, options, executions = null) => ({ ...perfDeps, managementReadback: async () => readback,
+    accountOptions: async () => ({ options: { ibkr: options.map(key => ({ key, broker_environment: "live" })) } }), ...(executions ? { executions } : {}) });
+  const call = async (part, deps, query = "scope=all") => {
+    const response = await performanceResponse(new Request(`https://console.example/api/performance/${part}?${query}`), {}, deps);
+    return { status: response.status, body: await response.json() };
+  };
+  const cases = {
+    unknown: [readbackOf([group("unknown", ["alpha"], { evidence_state: "unknown" })]), "management_status_unknown"],
+    empty: [readbackOf([group("management_disabled", ["alpha"])]), "no_managed_non_paper_accounts"],
+  };
+  for (const [name, [readback, reason]] of Object.entries(cases)) {
+    for (const part of ["calendar", "summary", "returns", "assets", "holdings", "trades"]) {
+      const { status, body } = await call(part, withReadback(readback, ["alpha"]));
+      assert.equal(status, 200, `${name} ${part}`);
+      validate(part, body);
+      assert.deepEqual([body.status, body.unavailable_reason, body.management_scope], ["unavailable", reason, "managed_non_paper"], `${name} ${part}`);
+      for (const field of ["twr_return_percent", "amount", "simple_weighted_return_percent", "win_rate_percent", "realized_pnl", "reported_execution_count"]) {
+        if (field in body) assert.equal(body[field], null, `${name} ${part} ${field}`);
+      }
+      for (const cell of body.cells ?? []) assert.ok(cell.amount === null && cell.return_percent === null && cell.observed_amount === null, `${name} ${part} cell totals`);
+      for (const field of ["points", "rows", "per_currency", "excess_returns"]) if (field in body) assert.deepEqual(body[field], [], `${name} ${part} ${field}`);
+    }
+  }
+  const record = ref => ({ trade_date: "2026-01-02", local_time: "09:30:00", execution_ref: ref, side: "BUY", currency: "USD", quantity: "1", price: "1" });
+  const source = records => ({ coverage: "synthetic", reports: [], reports_truncated: false, as_of: "2026-01-03T00:00:00.000Z", records });
+  const siblings = readbackOf([group("managed", ["alpha", "beta", "gamma"])]);
+  const same = await call("trades", withReadback(siblings, ["alpha", "beta", "gamma"], async () => source([record("e1")])), "scope=all&range=ALL");
+  assert.deepEqual([same.status, same.body.rows.length, same.body.reported_execution_count], [200, 1, 1], "one execution seen through three siblings counts once");
+  const disjoint = await call("trades", withReadback(siblings, ["alpha", "beta", "gamma"], async option => source([record(`e-${option.key}`)])), "scope=all&range=ALL");
+  assert.deepEqual([disjoint.body.rows.length, disjoint.body.reported_execution_count], [3, 3], "distinct sibling observations are all kept");
+  const apart = readbackOf([group("managed", ["alpha"]), group("managed", ["beta"])]);
+  const twoGroups = await call("trades", withReadback(apart, ["alpha", "beta"], async () => source([record("e1")])), "scope=all&range=ALL");
+  assert.equal(twoGroups.body.rows.length, 2, "the same reference in two physical accounts is two observations");
+}
+
 const rotationFixture = { schema_version: 'qsl.credential_rotation.v1', ok: true, server_time: '2035-01-01T00:00:00.000Z',
   metadata: { name: 'IBKR Flex token', last_rotated_at: null, expires_at: null }, operation: null, allowed_actions: ['stage'] };
 validate('credential_rotation', rotationFixture);

@@ -345,6 +345,8 @@ import {
   runtimeInstanceConflict,
   runtimeInstanceFields,
 } from "../runtime_instances/command.js";
+import { fetchManagementReadback } from "../runtime_instances/account_management_readback.js";
+import { managementPreflight } from "../runtime_instances/management_preflight.js";
 import {
   HK_STOP_DO_ACTIONS,
   HK_STOP_REQUEST_ID,
@@ -2561,6 +2563,22 @@ export async function dispatchSwitch(request, env) {
   const accountConfig = await loadAccountOptionsConfig(env);
   const accountOption = assertConfiguredAccount(inputs, accountConfig.options);
   assertStrategyAllowedForAccount(inputs, accountOption, await loadStrategyProfilesConfig(env));
+  // A switch needs a positive current local management admission before any
+  // dispatch branch. An absent store or an unreadable answer is a denial too.
+  if (!hasRuntimeInstanceStore(env)) {
+    return json({ ok: false, error: "management_status_unknown", workflow_dispatched: false, no_order: true, execution_authority_granted: false }, 409);
+  }
+  let decision = null;
+  try {
+    decision = await runtimeInstanceCommand(env, { action: "account_management_admission_check", actor: "strategy-switch-entrance", platform: inputs.platform, key: accountOption.key });
+  } catch (error) {
+    const denial = error instanceof HttpError && error.status === 409 ? error.message : "management_status_unknown";
+    return json({ ok: false, error: denial, workflow_dispatched: false, no_order: true, execution_authority_granted: false }, 409);
+  }
+  // Transport success is not a decision: only an affirmative answer admits.
+  if (decision?.ok !== true || decision?.admitted !== true) {
+    return json({ ok: false, error: "management_status_unknown", workflow_dispatched: false, no_order: true, execution_authority_granted: false }, 409);
+  }
   if (!SWITCH_ACTIVATION_CONNECTED) {
     return json({
       ok: false,
@@ -2608,30 +2626,9 @@ export async function syncDefaultStrategyForAccount(env, accountOptions, inputs,
       return { synced: false, reason: error instanceof HttpError ? error.message : "runtime_instances_unavailable" };
     }
   }
-  if (!hasConfigStore(env)) return { synced: false, reason: "kv_not_bound" };
-  try {
-    const { options, changed } = updateAccountOptionsDefaultStrategy(accountOptions, inputs);
-    let auditLogged = false;
-    if (changed) {
-      await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, validateAccountOptionsSchemaOrThrow(options));
-      try {
-        await appendAuditLog(env, {
-          ts: new Date().toISOString(),
-          login: session?.login || "",
-          action: "sync_default_strategy",
-          platform: inputs.platform,
-          target_name: inputs.target_name,
-          strategy_profile: inputs.strategy_profile,
-        });
-        auditLogged = true;
-      } catch {
-        auditLogged = false;
-      }
-    }
-    return { synced: true, changed, audit_logged: auditLogged };
-  } catch (error) {
-    return { synced: false, error: error.message || "account option sync failed" };
-  }
+  // Default sync is processing admission: without the authority Durable
+  // Object there is no KV-only write path.
+  return { synced: false, reason: "management_authority_unavailable" };
 }
 
 export async function syncAccountDefaultResponse(request, env) {
@@ -2656,51 +2653,33 @@ export async function syncAccountDefaultResponse(request, env) {
   const strategy = strategyProfiles.find((item) => sameStrategyProfile(item.profile, inputs.strategy_profile));
   if (!strategy) throw new Error(`strategy ${inputs.strategy_profile} is not configured`);
 
-  let accountOptions = accountConfig.options;
-  let accountOption = configuredAccountForInputs(inputs, accountOptions);
-  let registeredLegacyContinuityAccount = false;
+  const accountOptions = accountConfig.options;
+  const accountOption = configuredAccountForInputs(inputs, accountOptions);
   if (!accountOption) {
     if (isFrozenStrategyProfile(strategy)) throw new HttpError(`strategy ${inputs.strategy_profile} is frozen for new selection`, 409);
-    if (hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instance_registration_requires_management", 409);
-    const registration = registerLegacyContinuityAccount(env, accountOptions, inputs, strategy);
-    accountOptions = registration.options;
-    accountOption = registration.account;
-    registeredLegacyContinuityAccount = registration.registered;
-    if (registeredLegacyContinuityAccount) {
-      await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, validateAccountOptionsSchemaOrThrow(accountOptions));
-      try {
-        await appendAuditLog(env, {
-          ts: new Date().toISOString(),
-          login: "github-actions",
-          action: "register_legacy_continuity_account",
-          platform: inputs.platform,
-          target_name: inputs.target_name,
-          strategy_profile: inputs.strategy_profile,
-          live_continuity_state: inputs.live_continuity_state,
-        });
-      } catch {
-        // The routing registration is still valid if its non-critical audit
-        // append fails; callers receive the registration result below.
-      }
-    }
+    throw new HttpError("runtime_instance_registration_requires_management", 409);
   }
-  if (!accountOption) throw new Error("switch inputs do not match configured account options");
   if (isFrozenStrategyProfile(strategy) && !sameStrategyProfile(accountOption.default_strategy_profile, inputs.strategy_profile)) {
     throw new HttpError(`strategy ${inputs.strategy_profile} requires an existing matching account default`, 409);
   }
   assertStrategyAllowedForAccount(inputs, accountOption, strategyProfiles);
+  // Advisory preflight before any fallback write; the object gates again inside its transaction.
+  const denial = hasRuntimeInstanceStore(env) ? await managementPreflight(env, [{ platform: inputs.platform, key: accountOption.key }]) : null;
+  if (denial) {
+    return json({ ok: false, account_options_sync: { synced: false, reason: denial.error }, legacy_continuity_account_registered: false }, denial.status);
+  }
   const result = await syncDefaultStrategyForAccount(env, accountOptions, inputs, {
     login: "github-actions",
   });
-  const kvSyncSkipped = result.reason === "kv_not_bound";
-  const accountOptionsSync = kvSyncSkipped ? { ...result, skipped: true } : result;
+  // A management denial is a 409 admission outcome, not a sync failure.
+  const denied = typeof result.reason === "string" && result.reason.startsWith("management_");
   return json(
     {
-      ok: result.synced || kvSyncSkipped,
-      account_options_sync: accountOptionsSync,
-      legacy_continuity_account_registered: registeredLegacyContinuityAccount,
+      ok: result.synced,
+      account_options_sync: result,
+      legacy_continuity_account_registered: false,
     },
-    result.synced || kvSyncSkipped ? 200 : 500,
+    result.synced ? 200 : denied ? 409 : 500,
   );
 }
 
@@ -4231,6 +4210,8 @@ export async function accountFactsResponse(request, env) {
     runtimeInstanceCommand,
     periodReturnCommand,
     accountFactsErrorResponse,
+    // The shared management cohort of the totals and coverage (Q5).
+    managementReadback: fetchManagementReadback,
   });
 }
 
@@ -4959,6 +4940,7 @@ export function auditEventAction(source, kind) {
   if (source === "durable_human_decision") return `record_${kind}_decision`;
   if (source === "research_promotion_application") return "research_promotion_application";
   if (source === "account_settings_application") return "account_settings_approval";
+  if (source === "account_management_change") return "account_management_change";
   return null;
 }
 
@@ -5007,13 +4989,16 @@ export async function auditEventsResponse(request, env, url) {
     const source = row.source === "decision" ? "durable_human_decision"
       : row.source === "promotion_application" ? "research_promotion_application"
         : row.source === "account_settings_application" ? "account_settings_application"
-          : null;
+          : row.source === "account_management_change" ? "account_management_change"
+            : null;
     if (!source) return json({ ok: false, error: "audit_projection_invalid" }, 503);
     const subject = source === "durable_human_decision"
       ? { kind: `${row.kind}_decision`, id: row.subject_id }
       : source === "research_promotion_application"
         ? { kind: "strategy_promotion", id: row.subject_id }
-        : { kind: "account_settings", id: row.subject_id };
+        : source === "account_management_change"
+          ? { kind: "account_management", id: row.subject_id }
+          : { kind: "account_settings", id: row.subject_id };
     if (typeof subject.id !== "string" || !subject.id || subject.id.length > 256) return json({ ok: false, error: "audit_projection_invalid" }, 503);
     const revision = /^[0-9a-f]{64}$/.test(row.revision || "") ? row.revision : null;
     events.push({
@@ -5275,6 +5260,11 @@ export async function recordResearchPromotionDecisionResponse(request, env) {
   const reviewBinding = await researchPromotionReviewBinding(ticket);
   const selectedAccount = raw?.selected_account || null;
   const confirmation = raw?.confirmation || null;
+  // Advisory admission preflight of the selected account (replays included); the object re-resolves at commit.
+  if (decision === "accept" && selectedAccount) {
+    const denial = await managementPreflight(env, [{ platform: selectedAccount.platform, key: selectedAccount.key }]);
+    if (denial) return json({ ok: false, error: denial.error, no_order: true, execution_authority_granted: false }, denial.status);
+  }
   const target = { selected_account: selectedAccount, confirmation };
   const targetJson = canonicalResearchTaskJson(target);
   let authority;
@@ -5575,6 +5565,7 @@ export async function researchPromotionApplicationResponse(request, env, url) {
       error instanceof HttpError
       && error.message === "unsupported_research_promotion_application_action"
     ),
+    managementPreflight,
     V7_PAPER_APPLICATION_MAX_BODY_BYTES,
     V7_PAPER_APPLICATION_SOURCE_COMMIT,
     V7_PAPER_APPLICATION_UES_REVISION,
@@ -6994,13 +6985,32 @@ export async function writeConfigJson(env, key, value) {
   else await store.put(key, text);
 }
 
-export async function loadAuditLog(env) {
-  if (!hasConfigStore(env)) return [];
-  const payload = await readConfigJson(env, AUDIT_LOG_KEY);
-  if (!Array.isArray(payload)) return [];
+function normalizeBoundedAuditEntries(payload) {
   return payload
     .filter((entry) => entry && !Array.isArray(entry) && typeof entry === "object")
     .slice(0, AUDIT_LOG_LIMIT);
+}
+
+export async function loadAuditLog(env, { preserveAvailability = false } = {}) {
+  if (!preserveAvailability) {
+    if (!hasConfigStore(env)) return [];
+    const payload = await readConfigJson(env, AUDIT_LOG_KEY);
+    if (!Array.isArray(payload)) return [];
+    return normalizeBoundedAuditEntries(payload);
+  }
+  const store = configStore(env);
+  if (!store) return null;
+  const text = await store.get(AUDIT_LOG_KEY);
+  if (text === null || text === undefined) return [];
+  if (typeof text !== "string") return null;
+  let payload;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    throw new Error(`STRATEGY_SWITCH_CONFIG.${AUDIT_LOG_KEY} must be valid JSON`);
+  }
+  if (!Array.isArray(payload)) return null;
+  return normalizeBoundedAuditEntries(payload);
 }
 
 export async function appendAuditLog(env, entry) {

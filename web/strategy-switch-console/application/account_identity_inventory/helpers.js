@@ -155,6 +155,54 @@ function declarationField(object, field) {
   return DECLARATION_VALUES[field].includes(item) ? { present: true, value: item, valid: true }
     : { present: true, valid: false, value_type: Array.isArray(item) ? "array" : typeof item };
 }
+const ADMISSION_IDENTITY_FIELDS = ["platform", "key", "target_name", "broker_environment", "account_selector",
+  "deployment_selector", "account_scope", "service_name"];
+// Matches MAPPING_POLICY_LIMITS.text in account_mapping/policy.js (helpers.js is boundary-locked to constants.js).
+const ADMISSION_IDENTITY_TEXT_LIMIT = 200;
+const boundedAdmissionText = value => typeof value === "string" && value.length <= ADMISSION_IDENTITY_TEXT_LIMIT;
+const boundedAdmissionId = value => boundedAdmissionText(value) && value.length > 0;
+
+function validAdmissionSlotValue(slot) {
+  if (!isObject(slot) || Object.keys(slot).length !== 3) return false;
+  if (!boundedAdmissionId(slot.platform) || !boundedAdmissionId(slot.legacy_key)) return false;
+  const identity = slot.identity;
+  if (!isObject(identity) || Object.keys(identity).length !== ADMISSION_IDENTITY_FIELDS.length) return false;
+  if (!ADMISSION_IDENTITY_FIELDS.every(field => Object.hasOwn(identity, field))) return false;
+  if (identity.platform !== slot.platform || identity.key !== slot.legacy_key) return false;
+  return ADMISSION_IDENTITY_FIELDS.every(field => field === "broker_environment"
+    ? identity[field] === null || identity[field] === "live" || identity[field] === "paper"
+    : boundedAdmissionText(identity[field])) && boundedAdmissionId(identity.platform) && boundedAdmissionId(identity.key);
+}
+
+// The admission binding a promotion stored: an outer JSON object holding the
+// applied revision and the admitted group as a serialized membership string.
+// The inner string is projected as one bounded identity document (each member
+// and its full saved identity); a missing binding is explicit legacy absence
+// (`state: "null"`), and an outer shape that is not exactly that is unread.
+export function admissionBindingProjection(text) {
+  const parsed = parseJson(text);
+  if (parsed.state !== "valid") return parsed;
+  const value = parsed.value;
+  if (!value || typeof value !== "object" || Array.isArray(value) || typeof value.membership_json !== "string"
+    || !Number.isSafeInteger(value.applied_revision) || value.applied_revision < 0) return { state: "unexpected_shape", bytes: parsed.bytes };
+  const membership = jsonIdentity(value.membership_json, ROW_IDENTITY_FIELDS);
+  // A present binding names at least one admitted member: an empty or non-array
+  // membership is invalid cardinality, never zero sibling references.
+  if (membership.state === "valid" && !membership.truncated && !(Number.isSafeInteger(membership.counts?.$) && membership.counts.$ >= 1)) {
+    return { state: "valid", bytes: parsed.bytes, applied_revision: value.applied_revision, membership: { state: "unexpected_shape", bytes: membership.bytes } };
+  }
+  if (membership.state === "valid" && !membership.truncated) {
+    const parsedMembership = JSON.parse(value.membership_json);
+    if (Array.isArray(parsedMembership)) {
+      const invalidSlots = [];
+      for (let index = 0; index < parsedMembership.length; index += 1) {
+        if (!validAdmissionSlotValue(parsedMembership[index])) invalidSlots.push(index);
+      }
+      if (invalidSlots.length) membership.invalid_slots = invalidSlots;
+    }
+  }
+  return { state: "valid", bytes: parsed.bytes, applied_revision: value.applied_revision, membership };
+}
 export function declarationProjection(text) {
   const parsed = parseJson(text);
   if (parsed.state !== "valid") return parsed;
@@ -198,6 +246,7 @@ export function projectRow(spec, row, { nested = null, nestedSize = 0 } = {}) {
     else if (spec.redact.includes(name)) columns[name] = { present: value !== null && value !== undefined && value !== "" };
     else if (spec.keys?.includes(name)) columns[name] = objectKeys(value);
     else if (spec.declaration === name) columns[name] = declarationProjection(value);
+    else if (spec.binding === name) columns[name] = admissionBindingProjection(value);
     else if (spec.history === name) {
       const parsed = parseJson(value);
       columns[name] = parsed.state !== "valid" ? parsed : !parsed.value || typeof parsed.value !== "object" ? { state: "unexpected_shape" } : {
@@ -224,7 +273,7 @@ export function projectRow(spec, row, { nested = null, nestedSize = 0 } = {}) {
       }
     } else unexpected.push(name);
   }
-  for (const name of [...spec.copy, ...spec.json, ...spec.opaque, ...spec.redact, ...(spec.declaration ? [spec.declaration] : [])]) {
+  for (const name of [...spec.copy, ...spec.json, ...spec.opaque, ...spec.redact, ...(spec.declaration ? [spec.declaration] : []), ...(spec.binding ? [spec.binding] : [])]) {
     if (!(name in row)) columns[name] = { column_absent: true };
   }
   out.columns = columns;

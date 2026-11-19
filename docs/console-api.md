@@ -564,6 +564,7 @@ Stable reasons include:
 | `positions_stale` | Existing position source is stale |
 | `avg_cost_missing`, `position_value_missing` | Unrealized P/L lacks required fields |
 | `fills_not_connected` | No console fill source; no trade statistics are emitted |
+| `management_status_unknown`, `no_managed_non_paper_accounts` | `scope=all` management membership is unknown or known to be empty; the endpoint returns its own typed empty payload with no numeric totals, HTTP 200 |
 | `stored_records_unreadable` | A required store read failed |
 
 `coverage.excluded_accounts` and `omitted_dates` disclose incomplete cohorts.

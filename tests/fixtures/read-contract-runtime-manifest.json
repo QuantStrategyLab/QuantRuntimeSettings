@@ -340,6 +340,7 @@
      "cold-request:sql_ddl ALTER TABLE account_diagnosis_tasks ADD",
      "cold-request:sql_ddl CREATE INDEX IF NOT",
      "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl ALTER TABLE research_promotion_applications ADD",
      "cold-request:sql_ddl DROP INDEX IF EXISTS",
      "cold-request:sql_ddl CREATE INDEX IF NOT",
      "cold-request:sql_ddl CREATE TABLE IF NOT",
@@ -365,7 +366,14 @@
      "cold-request:sql_ddl ALTER TABLE hk_stop_request ADD",
      "cold-request:sql_ddl ALTER TABLE hk_stop_request ADD",
      "cold-request:sql_ddl ALTER TABLE hk_stop_request ADD",
-     "cold-request:sql_ddl ALTER TABLE hk_stop_request ADD"
+     "cold-request:sql_ddl ALTER TABLE hk_stop_request ADD",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT"
     ],
     "detection": "none"
    }

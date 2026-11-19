@@ -40,7 +40,27 @@ export type Reason =
   | "aggregation_duplicate"
   | "aggregation_conflict"
   | "account_facts_disabled"
-  | "currency_mismatch";
+  | "currency_mismatch"
+  | "management_status_unknown"
+  | "no_managed_non_paper_accounts"
+  | "management_disabled"
+  | "management_not_under_management"
+  | "not_under_management"
+  | "paper_account"
+  | "duplicate_account"
+  | "aggregate_management_status_unknown"
+  | "management_policy_unavailable"
+  | "management_policy_invalid"
+  | "management_policy_revision_conflict"
+  | "management_instance_revision_conflict"
+  | "management_identity_conflict"
+  | "management_membership_conflict"
+  | "management_state_conflict"
+  | "management_draft_revision_conflict"
+  | "management_applied_revision_conflict"
+  | "management_request_conflict"
+  | "management_request_invalid"
+  | "management_journal_unavailable";
 export type Scalar = string | number | boolean | null;
 export type Category =
   | "reconciliation_recovery"
@@ -238,11 +258,13 @@ export interface CombinedDraftResponse {
     overrides: Partial<Record<DraftField, Scalar>>;
   };
   effective: Record<string, { status: string; value?: Scalar }>;
+  management?: AccountManagementSettingsSection | null;
   adopted: false;
   no_order: true;
   execution_authority_granted: false;
   [key: string]: unknown;
 }
+export type AccountSettingsResponse = CombinedDraftResponse;
 export interface SettingsHistoryResponse {
   status: "partial";
   account_alias: string;
@@ -250,10 +272,15 @@ export interface SettingsHistoryResponse {
   items: {
     id: string;
     short_id: string;
-    event: "draft_saved" | "approved";
+    event: "draft_saved" | "approved" | "account_management_change";
     time: string;
     actor_alias: string | null;
     draft_revision: number | null;
+    management_revision?: number | null;
+    old_management_revision?: number | null;
+    old_management_enabled?: boolean | null;
+    new_management_enabled?: boolean | null;
+    change_ref?: string | null;
     source: string;
   }[];
   next_cursor: string | null;
@@ -261,7 +288,9 @@ export interface SettingsHistoryResponse {
   availability: Record<
     "draft_saved" | "approved" | "effect_verification",
     { status: Status; unavailable_reason: Reason | null }
-  >;
+  > & {
+    management_change?: { status: Status; unavailable_reason: Reason | null };
+  };
 }
 export interface AccountsResponse {
   status: "ok" | "partial";
@@ -814,9 +843,141 @@ export interface AccountFactsAccount {
    * or unknown values are treated as unverified, never as included.
    */
   aggregation_status?: "included" | "unverified" | "conflict" | "duplicate";
+  /**
+   * The row's management membership from the registered live readback. When
+   * present it is authoritative for the managed non-paper cohort; any value
+   * other than a known "managed" keeps the row out of every live sum.
+   */
+  management_status?: ManagementStatusCode;
+  evidence_state?: ManagementEvidenceState;
+  management_revision?: number | null;
+  /** Final cohort disposition carried from server classification. */
+  management_disposition?: ManagementDisposition;
+  /** Set by the server when the row's own environment contradicts its group's scope. */
+  management_scope_conflict?: boolean;
   balances: AccountFactsBalance[];
   cash: AccountFactsCash[];
 }
+export type ManagementStatusCode = "managed" | "management_disabled" | "not_under_management" | "unknown";
+export type ManagementEvidenceState = "known" | "unknown" | "conflict" | "stale";
+export type ManagementDisposition = "managed" | "disabled" | "not_under_management" | "paper" | "unknown";
+
+export interface AccountManagementSibling {
+  platform: string;
+  key: string;
+}
+
+export interface AccountManagementAppliedView {
+  management_enabled: boolean;
+  revision: number;
+  effective_at: string;
+}
+
+export interface AccountManagementDraftView {
+  management_enabled: boolean;
+  revision: number;
+  base_applied_revision: number;
+  status: "pending" | "consumed";
+  consumed_applied_revision: number | null;
+}
+
+export interface AccountManagementSettingsSection {
+  evidence_scope: string;
+  policy_revision: number | null;
+  instance_revision: number | null;
+  management_class: "eligible" | "display_only" | null;
+  management_status: ManagementStatusCode;
+  evidence_state: ManagementEvidenceState;
+  reasons: string[];
+  processing_eligible: boolean;
+  siblings: AccountManagementSibling[];
+  applied: AccountManagementAppliedView | null;
+  draft: AccountManagementDraftView | null;
+}
+
+export interface AccountManagementDraftSaveRequest {
+  platform: string;
+  key: string;
+  identity: Record<string, unknown>;
+  request_key: string;
+  expected_instance_revision: number;
+  expected_policy_revision: number;
+  expected_management_draft_revision: number;
+  expected_management_revision: number;
+  management_draft: { management_enabled: boolean };
+}
+
+export interface AccountManagementApplyRequest {
+  platform: string;
+  key: string;
+  identity: Record<string, unknown>;
+  request_key: string;
+  expected_instance_revision: number;
+  expected_policy_revision: number;
+  expected_management_draft_revision: number;
+  expected_management_revision: number;
+}
+
+export interface AccountManagementReceipt {
+  ok: true;
+  operation: "account_management_draft_save" | "account_management_apply";
+  request_key: string;
+  replayed: boolean;
+  platform: string;
+  key: string;
+  policy_revision: number;
+  instance_revision: number;
+  deployments: { platform: string; legacy_key: string }[];
+  committed_at: string;
+  no_order: true;
+  execution_authority_granted: false;
+  outcome: "draft_saved" | "applied" | "no_op";
+  event_id?: string;
+  management_draft_revision: number;
+  management_revision: number;
+  previous_management_revision?: number;
+  management_enabled: boolean;
+  previous_management_enabled?: boolean | null;
+}
+
+export interface AccountFactsManagementCounts {
+  display_physical: number | null;
+  display_deployments: number;
+  managed_non_paper: number;
+  management_disabled_non_paper: number;
+  not_under_management_non_paper: number;
+  unknown_non_paper: number;
+  paper_excluded: number;
+  duplicate_deployments: number;
+  unresolved_deployments: number;
+}
+
+export interface AccountFactsAssetCoverage {
+  scope: string;
+  source: string;
+  totals_status: "by_currency" | "unavailable";
+  totals_reason: string | null;
+  management_scope?: string;
+  management_coverage_status?: "complete" | "incomplete";
+  management_counts?: AccountFactsManagementCounts;
+  management_observed_at?: string | null;
+  management_instance_revision?: number | null;
+  management_policy_revision?: number | null;
+  accounts: {
+    platform: string;
+    account_key: string;
+    status: "included" | "excluded" | "unavailable" | "blocked";
+    reason: string | null;
+    management_status?: ManagementStatusCode;
+    evidence_state?: ManagementEvidenceState;
+    management_revision?: number | null;
+    management_disposition?: ManagementDisposition;
+    management_scope_conflict?: boolean;
+    observation_date: string | null;
+    observed_finished_at: string | null;
+  }[];
+}
+
 export interface AccountFactsResponse extends ReadOnlyProjection {
   ok: true;
   accounts: AccountFactsAccount[];
@@ -831,6 +992,7 @@ export interface AccountFactsResponse extends ReadOnlyProjection {
       account_count: number;
     }[];
   };
+  asset_coverage?: AccountFactsAssetCoverage;
   account_options_revision: number | null;
   enabled: true;
   configured: boolean;

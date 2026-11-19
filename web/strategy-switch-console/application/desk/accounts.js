@@ -8,6 +8,7 @@
 // source and stay unknown/not_supported; config drift has no stored,
 // identity-bound comparison on the read path and stays unknown as well.
 import { accountFactsReadModelEnabled, buildAccountFactsReadModel } from "../../account_facts.js";
+import { managementCohort } from "../account_mapping/management_cohort.js";
 import { credentialItems } from "./credentials.js";
 import { DeskError } from "./http.js";
 import { ibkrAccountId, readbackTargets } from "./readback.js";
@@ -125,7 +126,9 @@ export async function readFactsModel(env, deps, config, now) {
     const bindings = await deps.factsBindings(env);
     const storedByAccount = await deps.factsStored(env, config.value.options, bindings);
     if (!(storedByAccount instanceof Map)) throw new TypeError("invalid stored facts");
-    return { bindings, model: buildAccountFactsReadModel({ accountOptions: config.value.options, bindings, storedByAccount, now }) };
+    // The shared management cohort; the production wiring supplies `deps.managementReadback`.
+    const management = deps.managementReadback ? managementCohort(await deps.managementReadback(env)) : null;
+    return { bindings, model: buildAccountFactsReadModel({ accountOptions: config.value.options, bindings, storedByAccount, now, management }) };
   });
   return read.ok && Array.isArray(read.value.model?.accounts) ? { ok: true, ...read.value } : { ok: false };
 }

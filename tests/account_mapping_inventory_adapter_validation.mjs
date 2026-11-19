@@ -233,4 +233,34 @@ for (const [label, options, reason] of [
   assert.equal(deriveMappingAuthority(forged, policyFor(), META).authoritative, true, "A17: group_reasons alone decides nothing");
 }
 
+// B08 / B2-A08 / B2-A14 / B2-A15: reviewed journal index verdicts collected from
+// actual HTTP inventory flow through assemble() into the B1 adapter cleanly.
+{
+  for (const [label, extraSql, expectComplete, expectedReason] of [
+    ["correct-index", [], true, null],
+    ["missing-index", [["DROP INDEX account_management_change_time"]], false, "account_management_change:missing_index:account_management_change_time"],
+    ["incompatible-direction", [["DROP INDEX account_management_change_time"], ["CREATE INDEX account_management_change_time ON account_management_change (occurred_at DESC, event_id)"]], false, "account_management_change:incompatible_index:account_management_change_time"],
+    ["incompatible-partial", [["DROP INDEX account_management_change_time"], ["CREATE INDEX account_management_change_time ON account_management_change (occurred_at, event_id) WHERE result = 'applied'"]], false, "account_management_change:incompatible_index:account_management_change_time"],
+  ]) {
+    const assembled = await collectInventory({ statements: roster(INSTANCES, extraSql) });
+    const runtime = assembled.private.objects.find(item => item.object === "runtime");
+    const authority = deriveMappingAuthority(assembled.private, policyFor(), META);
+    if (expectComplete) {
+      assert.equal(assembled.private.status, ENUMERATED, `${label}: enumerated`);
+      assert.equal(assembled.private.groups["3"], "complete", `${label}: group 3 complete`);
+      assert.equal(runtime.complete, true, `${label}: runtime object complete`);
+      assert.equal(authority.authoritative, true, `${label}: adapter authoritative`);
+    } else {
+      assert.equal(assembled.private.status, "incomplete", `${label}: overall incomplete`);
+      assert.equal(assembled.private.groups["3"], "incomplete", `${label}: group 3 incomplete`);
+      assert.equal(runtime.complete, false, `${label}: runtime object incomplete`);
+      assert.equal(runtime.tables.account_management_change.disposition, "incomplete", `${label}: journal table disposition incomplete`);
+      assert.ok(runtime.reasons.includes(expectedReason), `${label}: runtime reason ${expectedReason}`);
+      assert.ok(assembled.private.group_reasons["3"].includes(`runtime:${expectedReason}`), `${label}: group 3 reason runtime:${expectedReason}`);
+      excludedFromAuthority(authority, `B08-${label}`);
+      assert.ok(authority.reasons.includes("group:3:incomplete"), `${label}: adapter records group:3:incomplete`);
+    }
+  }
+}
+
 console.log("account mapping inventory adapter validation passed");

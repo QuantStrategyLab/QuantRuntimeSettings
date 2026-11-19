@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { withManagedReadback } from "./helpers/management_readback_shim.mjs";
 import { createHash } from "node:crypto";
 import "./account_facts_totals_validation.mjs";
 import "./account_facts_stock_inventory_validation.mjs";
@@ -277,7 +278,10 @@ const mf = new Miniflare({
 });
 
 const kv = await mf.getKVNamespace("STRATEGY_SWITCH_CONFIG");
-const namespace = await mf.getDurableObjectNamespace("STRATEGY_SWITCH_RUNTIME_INSTANCES");
+const objectNamespace = await mf.getDurableObjectNamespace("STRATEGY_SWITCH_RUNTIME_INSTANCES");
+// This suite is not about management: every configured account is a known managed one.
+const namespace = withManagedReadback(objectNamespace, async () => Object.entries(JSON.parse(await kv.get("account_options") || "{}"))
+  .flatMap(([platform, items]) => (Array.isArray(items) ? items : []).map(item => ({ platform, key: item.key, environment: item.broker_environment }))));
 const cookie = await __test.makeSession("facts-reader", [], {
   SESSION_SECRET: sessionSecret,
   ALLOWED_GITHUB_LOGINS: "facts-reader",

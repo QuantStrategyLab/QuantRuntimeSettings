@@ -30,10 +30,12 @@ export const ROUTE_METHODS = Object.freeze(["GET", "HEAD", "POST", "*"]);
 
 const N1 = "contract:docs/desk-n1-read-projection-contract.md";
 const INVENTORY = "contract:docs/account-identity-inventory.md";
+const MANAGEMENT = "contract:docs/account-mapping-authority.md";
 
 // `match` is the route condition exactly as written in `worker.js`, with
 // whitespace collapsed. `handler` is the function or value the branch serves.
 export const PUBLIC_ROUTES = Object.freeze([
+  { id: "/api/admin/account-management", match: "url.pathname === MANAGEMENT_ROUTE", handler: "accountManagementReadResponse", effects: { GET: "observation" }, scope: MANAGEMENT },
   { id: "/api/admin/account-identity-inventory", match: "url.pathname === INVENTORY_ROUTE", handler: "accountIdentityInventoryResponse", effects: { GET: "observation" }, scope: INVENTORY },
   { id: "/", match: 'url.pathname === "/"', handler: "V2_PAGE_HTML", effects: { GET: "observation", HEAD: "observation" }, scope: "static" },
   { id: "/v2 redirect", match: '["/v2", "/v2/", "/v2/index.html"].includes(url.pathname)', handler: "Location", effects: { GET: "observation", HEAD: "observation" }, scope: "static" },
@@ -69,6 +71,8 @@ export const PUBLIC_ROUTES = Object.freeze([
   { id: "/api/risk-profiles", match: 'url.pathname === "/api/risk-profiles" && request.method === "POST"', handler: "saveRiskProfileBindings", effects: { POST: "command" }, scope: "command" },
   { id: "/api/account-settings", match: 'url.pathname === "/api/account-settings" && request.method === "GET"', handler: "accountSettingsResponse", effects: { GET: ["B1", "B0"] }, scope: "undeclared" },
   { id: "/api/account-settings", match: 'url.pathname === "/api/account-settings" && request.method === "POST"', handler: "saveAccountSettings", effects: { POST: "command" }, scope: "command" },
+  { id: "/api/account-settings/management/apply", match: "url.pathname === MANAGEMENT_APPLY_ROUTE", handler: "accountManagementApplyResponse", effects: { POST: "command" }, scope: "command" },
+  { id: "/api/internal/account-mapping-policy", match: "url.pathname === POLICY_PROVISION_ROUTE", handler: "accountMappingPolicyResponse", effects: { POST: "command" }, scope: "command" },
   { id: "/api/account-settings/profile-application/approve", match: 'url.pathname === "/api/account-settings/profile-application/approve" && request.method === "POST"', handler: "approveAccountSettingsProfileApplication", effects: { POST: "command" }, scope: "command" },
   { id: "ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_PATH", match: "url.pathname === ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_PATH", handler: "claimAccountSettingsProfileApplicationFromGitHub", effects: { POST: "command" }, scope: "command" },
   { id: "/api/internal/sync-account-default", match: 'url.pathname === "/api/internal/sync-account-default" && request.method === "POST"', handler: "syncAccountDefaultResponse", effects: { POST: "command" }, scope: "command" },
@@ -160,6 +164,9 @@ export const INTERNAL_OPERATIONS = Object.freeze({
     effect: "observation", scope: INVENTORY,
     sections: { schema: "observation", sql: "observation", do_kv: "observation", finalize: "observation" },
   },
+  // RuntimeInstances.fetch: the fixed management read path, dispatched before
+  // storage initialization through a SELECT-only facade; it is one observation.
+  "action:account_management_read": { effect: "observation", scope: MANAGEMENT },
   // RuntimeInstances.fetch: GET and the instance-state transaction.
   "action:instance_state:GET": read(),
   "action:instance_state:initialize": write(),
@@ -247,6 +254,10 @@ export const INTERNAL_OPERATIONS = Object.freeze({
   "action:account_settings_profile_application_lookup": read(),
   "action:account_settings_profile_application_approve": write(),
   "action:account_settings_profile_application_claim": write(),
+  "action:account_mapping_policy_replace": write(),
+  "action:account_management_draft_save": write(),
+  "action:account_management_apply": write(),
+  "action:account_management_admission_check": write(),
   // ACCOUNT_FACTS_DO_ACTIONS
   "action:account_external_flow_put": write(),
   "action:account_executions_put": write(),
