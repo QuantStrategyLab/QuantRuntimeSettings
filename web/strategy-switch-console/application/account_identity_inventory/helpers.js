@@ -166,7 +166,13 @@ export function admissionBindingProjection(text) {
   const value = parsed.value;
   if (!value || typeof value !== "object" || Array.isArray(value) || typeof value.membership_json !== "string"
     || !Number.isSafeInteger(value.applied_revision) || value.applied_revision < 0) return { state: "unexpected_shape", bytes: parsed.bytes };
-  return { state: "valid", bytes: parsed.bytes, applied_revision: value.applied_revision, membership: jsonIdentity(value.membership_json, ROW_IDENTITY_FIELDS) };
+  const membership = jsonIdentity(value.membership_json, ROW_IDENTITY_FIELDS);
+  // A present binding names at least one admitted member: an empty or non-array
+  // membership is invalid cardinality, never zero sibling references.
+  if (membership.state === "valid" && !membership.truncated && !(Number.isSafeInteger(membership.counts?.$) && membership.counts.$ >= 1)) {
+    return { state: "valid", bytes: parsed.bytes, applied_revision: value.applied_revision, membership: { state: "unexpected_shape", bytes: membership.bytes } };
+  }
+  return { state: "valid", bytes: parsed.bytes, applied_revision: value.applied_revision, membership };
 }
 export function declarationProjection(text) {
   const parsed = parseJson(text);

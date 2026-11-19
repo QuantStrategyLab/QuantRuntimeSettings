@@ -2992,6 +2992,8 @@ for (const [label, runPlan, adverse] of [["A3-populated-loss-free-control", plan
       ["outer-wrong-shape", "{}", "admission_binding_unreadable"],
       ["revision-invalid", JSON.stringify({ membership_json: members, applied_revision: -1 }), "admission_binding_unreadable"],
       ["inner-not-json", JSON.stringify({ membership_json: "{bad", applied_revision: 1 }), "admission_binding_membership_unreadable"],
+      ["inner-empty-array", JSON.stringify({ membership_json: "[]", applied_revision: 1 }), "admission_binding_membership_unreadable"],
+      ["inner-empty-object", JSON.stringify({ membership_json: "{}", applied_revision: 1 }), "admission_binding_membership_unreadable"],
     ]) {
       const run = await inventoryFull({ sql: [state, promotion(text)] });
       r9Outcome(`B07-${label}`, run, { reasons: [bad(reason)], incomplete: [11], needles: ["b2-a", "b2-b"] });
