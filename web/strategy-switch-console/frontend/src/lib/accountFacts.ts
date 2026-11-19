@@ -275,11 +275,26 @@ export interface PlatformCohortDecision {
 }
 
 /**
+ * Establish management-stamped cohort mode once from the full ready facts
+ * response before per-platform grouping or member matching.
+ */
+export function responseManagementStamped(
+  response: { accounts?: AccountFactsAccount[] | null; asset_coverage?: { management_scope?: string | null } | null } | null | undefined,
+): boolean {
+  if (!response) return false;
+  if (response.asset_coverage?.management_scope === "managed_non_paper") return true;
+  return Array.isArray(response.accounts) && response.accounts.some(row => row && rowManagementDisposition(row) !== null);
+}
+
+/**
  * Determine management disposition across the complete displayed cohort before
  * monetary filtering or known-empty selection. Any unmatched displayed member in
  * a stamped cohort is management-unknown, never dropped before classification.
  */
-export function decidePlatformCohort(members: PlatformCohortMember[]): PlatformCohortDecision {
+export function decidePlatformCohort(
+  members: PlatformCohortMember[],
+  managementStamped?: boolean,
+): PlatformCohortDecision {
   const byKey = new Map<string, PlatformCohortMember>();
   for (const member of members) {
     const key = JSON.stringify([member.platform, member.accountKey]);
@@ -287,7 +302,7 @@ export function decidePlatformCohort(members: PlatformCohortMember[]): PlatformC
   }
   const cohort = [...byKey.values()];
   const present = [...new Set(cohort.map(member => member.fact).filter((fact): fact is AccountFactsAccount => Boolean(fact)))];
-  const hasStamped = present.some(row => rowManagementDisposition(row) !== null);
+  const hasStamped = Boolean(managementStamped) || present.some(row => rowManagementDisposition(row) !== null);
   if (!hasStamped) {
     return {
       expected: cohort.length,

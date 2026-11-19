@@ -4,6 +4,7 @@ import {
   decidePlatformCohort,
   declaredEnvironmentOf,
   factForAccount,
+  responseManagementStamped,
   type PlatformCohortDecision,
   type PlatformCohortMember,
 } from "../lib/accountFacts";
@@ -37,6 +38,8 @@ function evidenceEnvironment(evidence: { broker_environment?: "live" | "paper" |
 export interface AccountFactsView {
   rows: AccountFactsAccount[];
   phase: FactsPhase;
+  /** Response-level stamped mode established once from the ready response. */
+  managementStamped?: boolean;
   /** Dedicated single-account source; only an exact platform+account_key card may consume it. */
   binance?: BinanceFactsView;
 }
@@ -47,7 +50,11 @@ export interface AccountFactsView {
  * remain in the cohort so management disposition is decided over the complete
  * displayed membership before monetary totals or known-empty reasons.
  */
-function platformFactsUnits(accounts: { rows: Account[] }[], facts: AccountFactsAccount[]): PlatformCohortDecision {
+function platformFactsUnits(
+  accounts: { rows: Account[] }[],
+  facts: AccountFactsAccount[],
+  managementStamped?: boolean,
+): PlatformCohortDecision {
   const members = new Map<string, PlatformCohortMember>();
   for (const account of accounts) {
     for (const row of account.rows) {
@@ -60,7 +67,7 @@ function platformFactsUnits(accounts: { rows: Account[] }[], facts: AccountFacts
       });
     }
   }
-  return decidePlatformCohort([...members.values()]);
+  return decidePlatformCohort([...members.values()], managementStamped);
 }
 
 function sectionOf(environment: AccountEnvironment | null): EnvironmentSection {
@@ -69,11 +76,14 @@ function sectionOf(environment: AccountEnvironment | null): EnvironmentSection {
 
 export function AccountGroups({ accounts, config, facts, onSelect }: { accounts: Account[]; config: DirectoryConfig | null; facts?: AccountFactsView; onSelect: (key: string) => void }) {
   const names = useDisplayNames(config), t = useT();
+  const responseStamped = facts
+    ? (facts.managementStamped ?? responseManagementStamped({ accounts: facts.rows }))
+    : false;
   return <div className="section-stack account-groups">{groupAccounts(accounts, config).map(group => {
     // One rollup per platform keeps the producer's live scope intact (paper is
     // excluded inside platformCurrencyTotals; unconfirmed rows stay in the
     // denominator). The live total is only attached to the live section below.
-    const units = facts ? platformFactsUnits(group.accounts, facts.rows) : null;
+    const units = facts ? platformFactsUnits(group.accounts, facts.rows, responseStamped) : null;
     const cards = group.accounts.map(account => {
       // A display card is an alias/selector grouping, not a verified
       // identity. Producer-known duplicate aliases of one physical account

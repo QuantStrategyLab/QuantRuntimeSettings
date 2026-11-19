@@ -22,14 +22,20 @@ try {
       export { platformCurrencyTotals } from './src/lib/accountFacts';
       import { PlatformFactsSummary } from './src/components/AccountFactsAmounts';
       import { AccountGroups } from './src/components/AccountGroups';
+      import { readyAccountFactsView } from './src/pages/accounts/AccountsPage';
       export const renderPlatform = (language, rows, expected) => renderToStaticMarkup(
         h(I18nProvider, { language },
           h(PrefsContext.Provider, { value: { prefs: { ...DEFAULT_PREFERENCES, language, theme: 'light' }, resolvedTheme: 'light', setPrefs: () => {} } },
             h(PlatformFactsSummary, { rows, expected, phase: 'ready' }))));
-      export const renderGroups = (language, accounts, rows) => renderToStaticMarkup(
-        h(I18nProvider, { language },
-          h(PrefsContext.Provider, { value: { prefs: { ...DEFAULT_PREFERENCES, language, theme: 'light' }, resolvedTheme: 'light', setPrefs: () => {} } },
-            h(AccountGroups, { accounts, config: null, facts: { rows, phase: 'ready' }, onSelect: () => {} }))));
+      export const renderGroups = (language, accounts, rows, config = null, responseCoverage = undefined) => {
+        const facts = responseCoverage === false
+          ? { rows, phase: 'ready' }
+          : readyAccountFactsView({ ok: true, accounts: rows, totals: { status: 'unavailable', reason: null, by_currency: [] }, asset_coverage: responseCoverage, account_options_revision: 1, enabled: true, configured: true });
+        return renderToStaticMarkup(
+          h(I18nProvider, { language },
+            h(PrefsContext.Provider, { value: { prefs: { ...DEFAULT_PREFERENCES, language, theme: 'light' }, resolvedTheme: 'light', setPrefs: () => {} } },
+              h(AccountGroups, { accounts, config, facts, onSelect: () => {} }))));
+      };
     `, resolveDir: root },
     bundle: true, platform: "node", format: "cjs", outfile, loader: { ".css": "empty" }, define: { "import.meta.env": "{}" } });
   const { platformCurrencyTotals, renderPlatform, renderGroups } = createRequire(import.meta.url)(outfile);
@@ -138,6 +144,24 @@ try {
   const disabledRow = fact({ account_key: "synthetic-disabled", management_status: "management_disabled", management_disposition: "disabled" });
   const disabledUnmatched = renderGroups("en", [dirEntry("synthetic-disabled"), dirEntry("synthetic-missing")], [disabledRow]);
   assert.ok(summaryOf(disabledUnmatched).includes('data-state="facts.platform_management_unknown"'), "disabled + unmatched never reports known-empty");
+
+  // R5-P response-level stamped mode carried from AccountsPage -> AccountGroups -> decidePlatformCohort:
+  // a ready stamped response with zero matching facts on the displayed live directory shows management unknown.
+  const liveCfg = { currentStrategies: { ibkr: { "synthetic-main": { execution_evidence: { broker_environment: "live" } } } } };
+  const stampedCov = { scope: "account_facts_totals", source: "validated_account_facts_snapshot", totals_status: "unavailable", totals_reason: "management_status_unknown", management_scope: "managed_non_paper", accounts: [] };
+  const schwabManaged = fact({ platform: "schwab", account_key: "schwab-only", balances: [{ currency: "USD", net_assets: "500" }] });
+  for (const lang of ["zh", "en"]) {
+    assert.ok(summaryOf(renderGroups(lang, [dirEntry("synthetic-main")], [], liveCfg, stampedCov)).includes('data-state="facts.platform_management_unknown"'),
+      `${lang}: stamped empty-rows response renders management_unknown`);
+    assert.ok(summaryOf(renderGroups(lang, [dirEntry("synthetic-main")], [schwabManaged], liveCfg, stampedCov)).includes('data-state="facts.platform_management_unknown"'),
+      `${lang}: stamped other-platform facts renders management_unknown`);
+    assert.ok(summaryOf(renderGroups(lang, [dirEntry("synthetic-main")], [schwabManaged], liveCfg, false)).includes('data-state="facts.platform_management_unknown"'),
+      `${lang}: row-stamped other-platform facts without coverage renders management_unknown`);
+    assert.ok(summaryOf(renderGroups(lang, [dirEntry("synthetic-main")], [managed, managed], liveCfg, stampedCov)).includes('data-state="facts.platform_management_unknown"'),
+      `${lang}: ambiguous exact-key rows render management_unknown`);
+    assert.ok(summaryOf(renderGroups(lang, [dirEntry("synthetic-main")], [], liveCfg, undefined)).includes('data-state="state.not_connected"'),
+      `${lang}: legacy unstamped empty response retains state.not_connected`);
+  }
   console.log("management_rollup_veto_validation ok");
 } finally {
   await rm(directory, { recursive: true, force: true });
