@@ -13,6 +13,7 @@ import {
   isPaperFact,
   isReadableFact,
   platformCurrencyTotals,
+  rowManagementDisposition,
 } from "../lib/accountFacts";
 import { managementEvidenceText, managementStatusText } from "../lib/accountManagementText";
 import { maskedAmount } from "../lib/format";
@@ -236,12 +237,18 @@ export function PlatformFactsSummary({ rows, expected, phase }: {
   if (!totals.length) {
     // Empty totals in the live口径: paper-only scopes are an honest no-data,
     // while readable non-paper rows without any verified identity are an
-    // identity problem, never a sum.
-    const nonPaper = rows.filter(row => !isPaperFact(row));
-    const stamped = nonPaper.filter(row => row.management_status !== undefined);
-    const anyManagementUnknown = stamped.some(row => row.evidence_state !== "known" || row.management_status === "unknown");
-    const allExcludedByManagement = stamped.length > 0 && nonPaper.length > 0
-      && nonPaper.every(row => row.evidence_state === "known" && (row.management_status === "management_disabled" || row.management_status === "not_under_management"));
+    // identity problem, never a sum. Stamped rows use the authoritative cohort
+    // disposition before any declaration fallback.
+    const entries = rows.map(row => ({ row, disposition: rowManagementDisposition(row) }));
+    const hasStamped = entries.some(entry => entry.disposition !== null);
+    const anyManagementUnknown = hasStamped
+      && entries.some(entry => entry.disposition === "unknown" || entry.disposition === null);
+    const nonPaper = hasStamped
+      ? entries.filter(entry => entry.disposition !== "paper").map(entry => entry.row)
+      : rows.filter(row => !isPaperFact(row));
+    const nonPaperEntries = hasStamped ? entries.filter(entry => entry.disposition !== "paper") : [];
+    const allExcludedByManagement = hasStamped && nonPaperEntries.length > 0
+      && nonPaperEntries.every(entry => entry.disposition === "disabled" || entry.disposition === "not_under_management");
     const anyVerified = nonPaper.some(row => isReadableFact(row) && row.aggregation_status === "included");
     const anyReadable = nonPaper.some(isReadableFact);
     const stateKey = !rows.length

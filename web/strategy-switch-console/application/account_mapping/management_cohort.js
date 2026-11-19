@@ -12,23 +12,49 @@ export const MANAGEMENT_READBACK_FORMAT = "qsl_account_management_readback.v1";
 export const MANAGEMENT_SCOPE = "managed_non_paper";
 
 const UNKNOWN_VIEW = Object.freeze({ management_status: MANAGEMENT_STATUS.UNKNOWN, evidence_state: "unknown", scope: "unknown", revision: null, group: null });
+const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
+const canonicalGroupKey = deployments => JSON.stringify(
+  [...(deployments || [])]
+    .map(item => [item.platform, item.key])
+    .sort((left, right) => compareText(left[0], right[0]) || compareText(left[1], right[1])),
+);
 
 // The deployment's view in a readback, or null when the readback does not list
 // it. `group` identifies the physical account the deployment belongs to; it is
-// null for a deployment no policy account claims.
+// null for a deployment no policy account claims or one claimed by multiple
+// accounts (an ambiguous owner cannot supply a physical group key).
 export function deploymentManagement(readback, platform, key) {
   if (!readback || readback.format !== MANAGEMENT_READBACK_FORMAT) return null;
+  const claimants = [];
+  let targetOccurrences = 0;
   for (const group of readback.groups || []) {
-    const member = group.deployments?.find(item => item.platform === platform && item.key === key);
-    if (member) {
-      return {
-        management_status: group.management_status, evidence_state: group.evidence_state, scope: group.scope, management_class: group.management_class,
-        revision: group.applied?.revision ?? null, reasons: group.reasons, processing_eligible: group.processing_eligible === true,
-        processing_denial: group.processing_denial, group: JSON.stringify(group.deployments.map(item => [item.platform, item.key])),
-      };
+    const matches = (group.deployments || []).filter(item => item.platform === platform && item.key === key);
+    if (matches.length) {
+      claimants.push(group);
+      targetOccurrences += matches.length;
     }
   }
-  const loose = readback.uncovered_deployments?.find(item => item.platform === platform && item.key === key);
+  const loose = readback.uncovered_deployments?.find(item => item.platform === platform && item.key === key) || null;
+  if (claimants.length > 1 || targetOccurrences > 1 || (claimants.length > 0 && loose)) {
+    const reasons = [...new Set([
+      "deployment_claimed_by_multiple_accounts",
+      ...claimants.flatMap(group => (Array.isArray(group.reasons) ? group.reasons : [])),
+      ...(Array.isArray(loose?.reasons) ? loose.reasons : []),
+    ])].sort();
+    return {
+      management_status: MANAGEMENT_STATUS.UNKNOWN, evidence_state: "conflict", scope: "unknown",
+      management_class: null, revision: null, reasons, processing_eligible: false,
+      processing_denial: "management_status_unknown", group: null,
+    };
+  }
+  if (claimants.length === 1) {
+    const [group] = claimants;
+    return {
+      management_status: group.management_status, evidence_state: group.evidence_state, scope: group.scope, management_class: group.management_class,
+      revision: group.applied?.revision ?? null, reasons: group.reasons, processing_eligible: group.processing_eligible === true,
+      processing_denial: group.processing_denial, group: canonicalGroupKey(group.deployments),
+    };
+  }
   return loose ? { management_status: loose.management_status, evidence_state: loose.evidence_state, scope: "unknown", management_class: null,
     revision: null, reasons: loose.reasons, processing_eligible: false, processing_denial: loose.processing_denial, group: null } : null;
 }
@@ -37,17 +63,30 @@ export function deploymentManagement(readback, platform, key) {
 // unreadable): every deployment is then unknown and nothing is resolved.
 export function managementCohort(readback) {
   const valid = readback?.format === MANAGEMENT_READBACK_FORMAT && readback.status === "available";
+  const claimCounts = new Map();
+  if (valid) {
+    for (const group of readback.groups || []) {
+      for (const item of group.deployments || []) {
+        const id = JSON.stringify([item.platform, item.key]);
+        claimCounts.set(id, (claimCounts.get(id) || 0) + 1);
+      }
+    }
+  }
+  const hasMultipleClaims = valid && (
+    [...claimCounts.values()].some(count => count > 1)
+    || (readback.uncovered_deployments || []).some(item => claimCounts.has(JSON.stringify([item.platform, item.key])))
+  );
   return Object.freeze({
     meta: Object.freeze({
       evidence_scope: valid ? readback.evidence_scope : null, observed_at: valid ? readback.observed_at : null,
       instance_revision: valid ? readback.instance_revision : null, policy_revision: valid ? readback.policy_revision : null,
     }),
-    groupingComplete: valid && readback.physical_grouping_complete === true,
+    groupingComplete: valid && readback.physical_grouping_complete === true && !hasMultipleClaims,
     view(platform, key) {
       const view = valid ? deploymentManagement(readback, platform, key) : null;
       return view || { ...UNKNOWN_VIEW };
     },
-    // True when the readback listed the deployment at all.
+    // True when the readback listed the deployment with one unique physical owner.
     resolved(platform, key) { return valid && deploymentManagement(readback, platform, key)?.group != null; },
   });
 }

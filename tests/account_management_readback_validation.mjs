@@ -1006,5 +1006,93 @@ if (out) await writeFile(out, rec.report());
     ok("B2-A20", "r3j_journal_export_certification");
     ok("B2-A22", "r3j_journal_readback_certification");
   }
+
+  // B09 (both claimant orders), R3-W (Binance wallet physical aggregation), and B04 (coverage disposition).
+  {
+    const { deploymentManagement, managementCohort, managementCounts, resolveCohortDispositions } =
+      await import(new URL("application/account_mapping/management_cohort.js", CONSOLE));
+    const { performanceResponse } =
+      await import(new URL("application/console_api/performance_routes.js", CONSOLE));
+    const g1 = { management_class: "eligible", management_status: "managed", evidence_state: "known", reasons: [], scope: "live",
+      processing_eligible: true, processing_denial: null, applied: { revision: 1 },
+      deployments: [{ platform: "ibkr", key: "syn-a", present: true }, { platform: "ibkr", key: "syn-b", present: true }] };
+    const g2 = { management_class: "eligible", management_status: "management_disabled", evidence_state: "known", reasons: [], scope: "live",
+      processing_eligible: false, processing_denial: "management_disabled", applied: { revision: 1 },
+      deployments: [{ platform: "ibkr", key: "syn-b", present: true }] };
+    const g3 = { management_class: "eligible", management_status: "managed", evidence_state: "known", reasons: [], scope: "live",
+      processing_eligible: true, processing_denial: null, applied: { revision: 1 },
+      deployments: [{ platform: "ibkr", key: "syn-c", present: true }, { platform: "ibkr", key: "syn-d", present: true }] };
+    const items = [
+      { platform: "ibkr", account_key: "syn-a", paper: false, environment: "live" },
+      { platform: "ibkr", account_key: "syn-b", paper: false, environment: "live" },
+      { platform: "ibkr", account_key: "syn-c", paper: false, environment: "live" },
+      { platform: "ibkr", account_key: "syn-d", paper: false, environment: "live" },
+    ];
+    const orderResults = [];
+    for (const groups of [[g1, g2, g3], [g2, g1, g3]]) {
+      const readback = { format: "qsl_account_management_readback.v1", status: "available", evidence_scope: "runtime_instances_sqlite",
+        observed_at: "2026-11-19T00:00:00.000Z", instance_revision: 1, policy_revision: 1, physical_grouping_complete: false,
+        groups, uncovered_deployments: [] };
+      const cohort = managementCohort(readback);
+      assert.equal(deploymentManagement(readback, "ibkr", "syn-b").group, null);
+      assert.equal(cohort.resolved("ibkr", "syn-b"), false);
+      assert.equal(cohort.resolved("ibkr", "syn-a"), true);
+      assert.equal(cohort.resolved("ibkr", "syn-c"), true);
+      const counts = managementCounts(items, resolveCohortDispositions(items, cohort), cohort);
+      assert.deepEqual([counts.display_physical, counts.unresolved_deployments, counts.duplicate_deployments, counts.managed_non_paper],
+        [null, 1, 1, 2], "ambiguous claimant counted once as unresolved while uniquely owned groups remain resolvable");
+      orderResults.push(counts);
+    }
+    assert.deepEqual(orderResults[0], orderResults[1]);
+
+    // R3-W: Binance physical group wallet aggregation in scope=all.
+    const binGroup = [{ management_class: "eligible", management_status: "managed", evidence_state: "known", reasons: [], scope: "live",
+      processing_eligible: true, processing_denial: null, applied: { revision: 1 },
+      deployments: [{ platform: "binance", key: "bin-a", present: true }, { platform: "binance", key: "bin-b", present: true }] }];
+    const runWallet = async ({ endpoint = "assets", scope = "all", groups = binGroup, opts = [{ key: "bin-a", broker_environment: "live" }, { key: "bin-b", broker_environment: "live" }], walletMap }) => {
+      const readback = { format: "qsl_account_management_readback.v1", status: "available", evidence_scope: "runtime_instances_sqlite",
+        observed_at: "2026-11-18T00:00:00.000Z", instance_revision: 1, policy_revision: 1, physical_grouping_complete: true,
+        groups, uncovered_deployments: [] };
+      const res = await performanceResponse(
+        new Request(`https://console.example/api/performance/${endpoint}?scope=${scope}${scope !== "all" ? "&platform=binance" : ""}&range=ALL`),
+        {},
+        {
+          json: (b, s = 200) => Response.json(b, { status: s }),
+          readSession: async () => ({ allowed: true, login: "reader" }),
+          accountOptions: async () => ({ options: { binance: opts } }),
+          managementReadback: async () => readback,
+          wallet: async req => {
+            const k = new URL(req.url).searchParams.get("account_key");
+            return walletMap[k]?.fail ? Response.json({ error: "unavailable" }, { status: 503 }) : Response.json({ currency: "USDT", points: walletMap[k].points });
+          },
+          benchmarks: async () => Response.json({ points: [] }),
+        },
+      );
+      return res.json();
+    };
+    const pts = [
+      { observation_date: "2026-11-17", amount: "1000", observed_at: "2026-11-17T10:00:00Z", break_before: false },
+      { observation_date: "2026-11-18", amount: "1100", observed_at: "2026-11-18T10:00:00Z", break_before: false },
+    ];
+    const identical = await runWallet({ walletMap: { "bin-a": { points: pts }, "bin-b": { points: pts } } });
+    assert.deepEqual([identical.per_currency[0].total, identical.per_currency[0].account_count, identical.points.map(p => p.value)], [1100, 1, [1000, 1100]]);
+    const disjoint = await runWallet({ walletMap: { "bin-a": { points: [pts[0]] }, "bin-b": { points: [pts[1]] } } });
+    assert.deepEqual([disjoint.per_currency[0].total, disjoint.points.length, disjoint.status], [1100, 2, "ok"]);
+    const clash = await runWallet({ walletMap: { "bin-a": { points: pts }, "bin-b": { points: [pts[0], { ...pts[1], amount: "1250" }] } } });
+    assert.equal(clash.per_currency.length, 0);
+    assert.equal(clash.account_freshness[0].unavailable_reason, "aggregation_conflict");
+    const partial = await runWallet({ walletMap: { "bin-a": { fail: true }, "bin-b": { points: pts } } });
+    assert.deepEqual([partial.status, partial.per_currency[0].total, partial.coverage.read_failures], ["partial", 1100, ["bin-a"]]);
+    const twoGroups = [
+      { ...binGroup[0], deployments: [{ platform: "binance", key: "bin-1", present: true }] },
+      { ...binGroup[0], deployments: [{ platform: "binance", key: "bin-2", present: true }] },
+    ];
+    const distinct = await runWallet({ groups: twoGroups, opts: [{ key: "bin-1", broker_environment: "live" }, { key: "bin-2", broker_environment: "live" }],
+      walletMap: { "bin-1": { points: [pts[0]] }, "bin-2": { points: [{ ...pts[0], amount: "500" }] } } });
+    assert.deepEqual([distinct.per_currency[0].total, distinct.per_currency[0].account_count], [1500, 2]);
+    const single = await runWallet({ scope: "bin-a", walletMap: { "bin-a": { points: pts }, "bin-b": { points: pts } } });
+    assert.deepEqual([single.per_currency[0].total, single.per_currency[0].account_count], [1100, 1]);
+    ok("B2-A17", "b09_and_r3w_physical_group_aggregation");
+  }
 }
 console.log(`account_management_readback_validation ok ${Object.values(rec.rows).reduce((total, row) => total + row.checks, 0)} checks outbound=${outbound.count}`);

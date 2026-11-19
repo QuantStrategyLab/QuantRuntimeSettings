@@ -88,6 +88,33 @@ assert.equal((await executionStatsResponse([{ ...option, platform: "ibkr" }],
   assert.equal(apart.reported_execution_count, 2, "separate physical groups stay separate");
   const clash = sib("syn-b", [{ ...record, report_ref: "s".repeat(64), price: "999.99" }]);
   assert.equal((await run([a, clash], () => "g1")).reported_execution_count, 2, "a genuine conflict is not merged away");
+
+  // Permutations of repeated conflicting versions and optional-field ambiguity
+  // yield identical deduplicated/merged totals, per-currency and side counts.
+  const perms = list => list.length <= 1 ? [list] : list.flatMap((x, i) => perms([...list.slice(0, i), ...list.slice(i + 1)]).map(rest => [x, ...rest]));
+  const v1 = sib("p-1", [{ ...record, report_ref: "1".repeat(64), price: "100.25", commission: null }]);
+  const v2a = sib("p-2", [{ ...record, report_ref: "2".repeat(64), price: "999.99", commission: null }]);
+  const v2b = sib("p-3", [{ ...record, report_ref: "3".repeat(64), price: "999.99", commission: "1.00" }]);
+  for (const order of perms([v1, v2a, v2b])) {
+    const out = await run(order, () => "g1");
+    assert.equal(out.reported_execution_count, 2, "repeated conflicting version counts once");
+    assert.deepEqual(out.per_currency, [{ currency: "USD", reported_execution_count: 2, buy_execution_count: 0, sell_execution_count: 2 }]);
+    assert.deepEqual(out.rows.map(r => [r.price, r.commission]), [["100.25", null], ["999.99", "1.00"]]);
+    assert.equal(out.coverage.length, 3);
+  }
+  const optA = sib("o-1", [{ ...record, side: "BUY", report_ref: "4".repeat(64), commission: null, taxes: "0.10" }]);
+  const optA2 = sib("o-4", [{ ...record, side: "BUY", report_ref: "5".repeat(64), commission: null, taxes: "0.10" }]);
+  const optB = sib("o-2", [{ ...record, side: "BUY", report_ref: "6".repeat(64), commission: "1.00", taxes: null }]);
+  const optC = sib("o-3", [{ ...record, side: "BUY", report_ref: "7".repeat(64), commission: "2.00", taxes: null }]);
+  let baselineOpt = null;
+  for (const order of perms([optA, optB, optC])) {
+    const out = await run([...order, optA2], () => "g1");
+    assert.equal(out.reported_execution_count, 3);
+    assert.deepEqual(out.per_currency, [{ currency: "USD", reported_execution_count: 3, buy_execution_count: 3, sell_execution_count: 0 }]);
+    const signature = out.rows.map(r => [r.commission, r.taxes]);
+    if (!baselineOpt) baselineOpt = signature;
+    else assert.deepEqual(signature, baselineOpt, "optional-field conflict outcome invariant across permutations");
+  }
 }
 
 const settings = { SESSION_SECRET: "synthetic-session", ALLOWED_GITHUB_LOGINS: "synthetic-reader",

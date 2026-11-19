@@ -335,7 +335,10 @@ with `Cache-Control: private, no-store` and `X-Robots-Tag: noindex`.
 - **Account facts (`GET /api/account-facts`)**: `aggregateAccountFactsTotals`
   and `accountFactsAssetCoverage` classify the complete displayed cohort via
   `managementCohort` before summing non-paper balances. Each row carries
-  `management_status`, `evidence_state`, and `management_revision`;
+  `management_status`, `evidence_state`, `management_revision`,
+  `management_disposition` (`"managed" | "disabled" | "not_under_management" | "paper" | "unknown"`),
+  and optional `management_scope_conflict` (copied into `asset_coverage.accounts`
+  when the cohort is attached; legacy unstamped payloads omit them);
   `asset_coverage` adds `management_scope: "managed_non_paper"`,
   `management_coverage_status` (`"complete" | "incomplete"`),
   `management_observed_at`, `management_instance_revision`,

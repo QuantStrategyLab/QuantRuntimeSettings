@@ -156,7 +156,9 @@ const EXCLUDED = {
 // non-paper accounts; a model built without a cohort keeps the older scope.
 const managedLive = (model, target) => {
   const row = factsRowFor(model, target);
-  return row?.management_status === "managed" && row.evidence_state === "known";
+  return row?.management_disposition !== undefined
+    ? row.management_disposition === "managed"
+    : (row?.management_status === "managed" && row.evidence_state === "known");
 };
 const managementAware = facts => facts.ok && typeof facts.model?.asset_coverage?.management_scope === "string";
 

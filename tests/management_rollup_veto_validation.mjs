@@ -13,9 +13,21 @@ const root = new URL("../web/strategy-switch-console/frontend/", import.meta.url
 const directory = await mkdtemp(join(tmpdir(), "management-rollup-"));
 try {
   const outfile = join(directory, "rollup.cjs");
-  await build({ stdin: { contents: "export { platformCurrencyTotals } from './src/lib/accountFacts';", resolveDir: root },
+  await build({ stdin: { contents: `
+      import { createElement as h } from 'react';
+      import { renderToStaticMarkup } from 'react-dom/server';
+      import { I18nProvider } from './src/i18n';
+      import { PrefsContext } from './src/app/context';
+      import { DEFAULT_PREFERENCES } from './src/lib/prefs';
+      export { platformCurrencyTotals } from './src/lib/accountFacts';
+      import { PlatformFactsSummary } from './src/components/AccountFactsAmounts';
+      export const renderPlatform = (language, rows, expected) => renderToStaticMarkup(
+        h(I18nProvider, { language },
+          h(PrefsContext.Provider, { value: { prefs: { ...DEFAULT_PREFERENCES, language, theme: 'light' }, resolvedTheme: 'light', setPrefs: () => {} } },
+            h(PlatformFactsSummary, { rows, expected, phase: 'ready' }))));
+    `, resolveDir: root },
     bundle: true, platform: "node", format: "cjs", outfile, loader: { ".css": "empty" }, define: { "import.meta.env": "{}" } });
-  const { platformCurrencyTotals } = createRequire(import.meta.url)(outfile);
+  const { platformCurrencyTotals, renderPlatform } = createRequire(import.meta.url)(outfile);
   const fact = extra => ({
     platform: "ibkr", account_key: "synthetic-main", binding_status: "bound", identity_status: "partial_identity", identity_mismatch: false,
     data_status: "fresh", broker_environment: "live", account_scope: "LIVE", observation_date: "2026-10-20",
@@ -53,6 +65,51 @@ try {
   assert.equal(aggregateAccountFactsTotals(serverRows, identities, cohort).status, "unavailable", "the server withholds the same total");
   const serverControl = [serverRow(managed, "synthetic-main")];
   assert.equal(aggregateAccountFactsTotals(serverControl, new Map(serverControl.map(row => [row, "x"])), cohort).status, "by_currency", "known-live control still sums");
+
+  // B04 cross-consumer disposition consistency: server totals, server coverage,
+  // platform rollup, and rendered PlatformFactsSummary share the cohort disposition.
+  const { accountFactsAssetCoverage } = await import("../web/strategy-switch-console/account_facts.js");
+  const fullCohort = managementCohort({ format: "qsl_account_management_readback.v1", status: "available", physical_grouping_complete: true,
+    evidence_scope: "synthetic", observed_at: "2026-11-18T00:00:00.000Z", instance_revision: 1, policy_revision: 1,
+    groups: [
+      { deployments: [dep("syn-live")], management_status: "managed", evidence_state: "known", scope: "live", reasons: [] },
+      { deployments: [dep("syn-paper-cert")], management_status: "managed", evidence_state: "known", scope: "paper", reasons: [] },
+      { deployments: [dep("syn-unknown")], management_status: "unknown", evidence_state: "unknown", scope: "live", reasons: ["effective_state_missing"] },
+      { deployments: [dep("syn-sib-l"), dep("syn-sib-p")], management_status: "managed", evidence_state: "known", scope: "live", reasons: [] },
+    ] });
+  const liveSrv = serverRow(managed, "syn-live");
+  const certPaperNoOwn = serverRow({ ...managed, broker_environment: null, account_scope: null,
+    user_declaration: { source: "user_declared", environment: "live", account_type: null } }, "syn-paper-cert");
+  const certRows = [structuredClone(liveSrv), certPaperNoOwn];
+  const certTot = aggregateAccountFactsTotals(certRows, new Map(certRows.map((r, i) => [r, `id-${i}`])), fullCohort);
+  const certCov = accountFactsAssetCoverage(certRows, certTot, fullCohort);
+  assert.equal(certTot.by_currency[0].net_assets, "100", "certified paper with live declaration excluded from server sum");
+  assert.equal(certCov.accounts[1].reason, "paper_account");
+  assert.equal(platformCurrencyTotals(certRows, 2)[0].netAssets, "100", "platform rollup excludes certified paper even with live declaration");
+
+  const unkDeclaredPaper = serverRow({ ...managed, broker_environment: null, account_scope: null,
+    user_declaration: { source: "user_declared", environment: "paper", account_type: null } }, "syn-unknown");
+  const unkRows = [structuredClone(liveSrv), unkDeclaredPaper];
+  const unkTot = aggregateAccountFactsTotals(unkRows, new Map(unkRows.map((r, i) => [r, `id-${i}`])), fullCohort);
+  const unkCov = accountFactsAssetCoverage(unkRows, unkTot, fullCohort);
+  assert.equal(unkTot.reason, "management_status_unknown");
+  assert.equal(unkCov.accounts[1].reason, "management_status_unknown");
+  assert.equal(platformCurrencyTotals(unkRows, 2).length, 0);
+  assert.ok(renderPlatform("zh", unkRows, 2).includes('data-state="facts.platform_management_unknown"'));
+  assert.ok(renderPlatform("en", unkRows, 2).includes('data-state="facts.platform_management_unknown"'));
+
+  const rawPaperConflict = [serverRow({ ...managed, broker_environment: "paper", account_scope: "paper" }, "syn-live")];
+  const conflictTot = aggregateAccountFactsTotals(rawPaperConflict, new Map([[rawPaperConflict[0], "id-0"]]), fullCohort);
+  const conflictCov = accountFactsAssetCoverage(rawPaperConflict, conflictTot, fullCohort);
+  assert.equal(conflictTot.reason, "management_status_unknown");
+  assert.equal(conflictCov.accounts[0].reason, "management_status_unknown", "scope conflict precedes raw paper in server coverage");
+  assert.equal(platformCurrencyTotals(rawPaperConflict, 1).length, 0);
+  assert.ok(renderPlatform("en", rawPaperConflict, 1).includes('data-state="facts.platform_management_unknown"'));
+
+  const sibConflict = [serverRow(managed, "syn-sib-l"), serverRow({ ...managed, broker_environment: "paper", account_scope: "paper" }, "syn-sib-p")];
+  const sibTot = aggregateAccountFactsTotals(sibConflict, new Map(sibConflict.map((r, i) => [r, `id-${i}`])), fullCohort);
+  assert.equal(sibTot.reason, "management_status_unknown");
+  assert.ok(renderPlatform("en", sibConflict, 2).includes('data-state="facts.platform_management_unknown"'));
   console.log("management_rollup_veto_validation ok");
 } finally {
   await rm(directory, { recursive: true, force: true });

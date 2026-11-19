@@ -815,6 +815,7 @@ function classifyManagement(rows, cohort) {
     row.management_status = view.management_status;
     row.evidence_state = view.evidence_state;
     row.management_revision = view.revision;
+    row.management_disposition = dispositions.get(row) || "unknown";
     // A scope conflict is stamped, so a frontend rollup cannot sum around it.
     row.management_scope_conflict = scopeConflict(rowItem(row), view);
   }
@@ -914,7 +915,8 @@ export function accountFactsAssetCoverage(accounts, totals, cohort = null) {
       let status = "unavailable";
       let reason;
       const disposition = dispositions?.get(row);
-      if (row.broker_environment === "paper" || row.account_scope === "paper" || disposition === "paper") {
+      if (cohort && disposition === "unknown") reason = "management_status_unknown";
+      else if (cohort ? disposition === "paper" : (row.broker_environment === "paper" || row.account_scope === "paper")) {
         status = "excluded";
         reason = "paper_account";
       } else if (disposition === "disabled") {
@@ -923,8 +925,7 @@ export function accountFactsAssetCoverage(accounts, totals, cohort = null) {
       } else if (disposition === "not_under_management") {
         status = "excluded";
         reason = "not_under_management";
-      } else if (disposition === "unknown") reason = "management_status_unknown";
-      else if (row.aggregation_status === "duplicate") {
+      } else if (row.aggregation_status === "duplicate") {
         status = "excluded";
         reason = "duplicate_account";
       } else if (!ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(row.platform)) reason = "source_not_supported";
@@ -949,6 +950,7 @@ export function accountFactsAssetCoverage(accounts, totals, cohort = null) {
         status,
         reason,
         ...(cohort ? { management_status: row.management_status, evidence_state: row.evidence_state, management_revision: row.management_revision,
+          management_disposition: disposition || "unknown",
           ...(row.management_scope_conflict ? { management_scope_conflict: true } : {}) } : {}),
         observation_date: row.observation_date,
         observed_finished_at: row.observed_finished_at,

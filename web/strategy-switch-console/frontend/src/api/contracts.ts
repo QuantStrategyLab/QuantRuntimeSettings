@@ -851,6 +851,8 @@ export interface AccountFactsAccount {
   management_status?: ManagementStatusCode;
   evidence_state?: ManagementEvidenceState;
   management_revision?: number | null;
+  /** Final cohort disposition carried from server classification. */
+  management_disposition?: ManagementDisposition;
   /** Set by the server when the row's own environment contradicts its group's scope. */
   management_scope_conflict?: boolean;
   balances: AccountFactsBalance[];
@@ -858,6 +860,7 @@ export interface AccountFactsAccount {
 }
 export type ManagementStatusCode = "managed" | "management_disabled" | "not_under_management" | "unknown";
 export type ManagementEvidenceState = "known" | "unknown" | "conflict" | "stale";
+export type ManagementDisposition = "managed" | "disabled" | "not_under_management" | "paper" | "unknown";
 
 export interface AccountManagementSibling {
   platform: string;
@@ -968,6 +971,8 @@ export interface AccountFactsAssetCoverage {
     management_status?: ManagementStatusCode;
     evidence_state?: ManagementEvidenceState;
     management_revision?: number | null;
+    management_disposition?: ManagementDisposition;
+    management_scope_conflict?: boolean;
     observation_date: string | null;
     observed_finished_at: string | null;
   }[];

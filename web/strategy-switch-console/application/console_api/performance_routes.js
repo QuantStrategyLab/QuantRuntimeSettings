@@ -148,6 +148,7 @@ export async function performanceResponse(request, env, deps) {
       unreadableHistoryCurrencies = new Set(),
       historyOnlyCandidates = new Set();
     let truncated = false;
+    const walletGroups = new Map();
     for (const option of matches) {
       if (option.platform === "binance") {
         // Current native quantities and wallet valuation history are separate sources.
@@ -179,6 +180,8 @@ export async function performanceResponse(request, env, deps) {
           accounts.push(account);
           continue;
         }
+        const walletKey = scope === "all" && groupOf ? groupOf(option) : JSON.stringify([option.platform, option.key]);
+        const groupEntries = walletGroups.get(walletKey) || [];
         const response = await deps.wallet(
           makeRequest("/api/binance-account-facts/history", {
             account_key: option.key,
@@ -188,41 +191,20 @@ export async function performanceResponse(request, env, deps) {
         if (!response.ok) {
           if (!readFailures.includes(option.key)) readFailures.push(option.key);
           unreadableHistoryCurrencies.add("USDT");
-          failed.push(option.key);
-          accounts.push({ account_key: option.key, platform: option.platform,
-            snapshot_unavailable_reason: "stored_records_unreadable" });
+          if (!failed.includes(option.key)) failed.push(option.key);
+          groupEntries.push({ option, status: "read_failed" });
+          walletGroups.set(walletKey, groupEntries);
           continue;
         }
         const body = await response.json();
         if (body.currency !== "USDT") {
-          accounts.push({ account_key: option.key, platform: option.platform,
-            snapshot_unavailable_reason: "currency_mismatch" });
-          failed.push(option.key);
+          if (!failed.includes(option.key)) failed.push(option.key);
+          groupEntries.push({ option, status: "currency_mismatch" });
+          walletGroups.set(walletKey, groupEntries);
           continue;
         }
-        const latest = [...(body.points || [])].sort((a, b) => a.observation_date.localeCompare(b.observation_date)).at(-1);
-        accounts.push({ account_key: option.key, platform: option.platform,
-          observed_finished_at: latest?.observed_at || null,
-          observation_date: latest?.observation_date || null,
-          balances: latest ? [{ currency: "USDT", net_assets: latest.amount }] : [],
-        });
-        histories.push({
-          id: `${option.platform}:${option.key}`,
-          currency: "USDT",
-          crypto: true,
-          points: (body.points || []).flatMap((p) =>
-            number(p.amount) === null
-              ? []
-              : [
-                  {
-                    date: p.observation_date,
-                    value: number(p.amount),
-                    externalFlow: null,
-                    breakBefore: p.break_before,
-                  },
-                ],
-          ),
-        });
+        groupEntries.push({ option, status: "ok", points: body.points || [] });
+        walletGroups.set(walletKey, groupEntries);
         continue;
       }
       const fact = (factsBody.accounts || []).find(
@@ -333,6 +315,127 @@ export async function performanceResponse(request, env, deps) {
           && accountHistories.every(h => h.points.length > 0 && h.externalFlow)
           && matches.filter(candidate => candidate.key === option.key).length === 1) historyOnlyCandidates.add(option.key);
       if (accountHistories.some((h) => !h.points.length) && !failed.includes(option.key)) failed.push(option.key);
+    }
+    for (const groupEntries of walletGroups.values()) {
+      const sorted = [...groupEntries].sort((left, right) =>
+        left.option.key < right.option.key ? -1 : left.option.key > right.option.key ? 1 : 0);
+      if (sorted.length === 1) {
+        const [entry] = sorted;
+        if (entry.status === "read_failed") {
+          accounts.push({ account_key: entry.option.key, platform: entry.option.platform,
+            snapshot_unavailable_reason: "stored_records_unreadable" });
+          continue;
+        }
+        if (entry.status === "currency_mismatch") {
+          accounts.push({ account_key: entry.option.key, platform: entry.option.platform,
+            snapshot_unavailable_reason: "currency_mismatch" });
+          continue;
+        }
+        const latest = [...entry.points].sort((a, b) => a.observation_date.localeCompare(b.observation_date)).at(-1);
+        accounts.push({ account_key: entry.option.key, platform: entry.option.platform,
+          observed_finished_at: latest?.observed_at || null,
+          observation_date: latest?.observation_date || null,
+          balances: latest ? [{ currency: "USDT", net_assets: latest.amount }] : [],
+        });
+        histories.push({
+          id: `${entry.option.platform}:${entry.option.key}`,
+          currency: "USDT",
+          crypto: true,
+          points: entry.points.flatMap((p) =>
+            number(p.amount) === null
+              ? []
+              : [
+                  {
+                    date: p.observation_date,
+                    value: number(p.amount),
+                    externalFlow: null,
+                    breakBefore: p.break_before,
+                  },
+                ],
+          ),
+        });
+        continue;
+      }
+      // Siblings in one physical Binance wallet group form one physical account
+      // and one USDT valuation series: agree per date, combine complementary
+      // dates, and omit conflicting dates while flagging aggregation conflict.
+      const okEntries = sorted.filter(entry => entry.status === "ok");
+      const rep = (okEntries[0] || sorted[0]).option;
+      if (!okEntries.length) {
+        accounts.push({
+          account_key: rep.key,
+          platform: rep.platform,
+          snapshot_unavailable_reason: sorted.some(entry => entry.status === "read_failed")
+            ? "stored_records_unreadable" : "currency_mismatch",
+        });
+        continue;
+      }
+      const byDate = new Map();
+      for (const entry of okEntries) {
+        for (const p of entry.points) {
+          const val = number(p.amount);
+          if (val === null || typeof p.observation_date !== "string" || !p.observation_date) continue;
+          const list = byDate.get(p.observation_date) || [];
+          list.push({
+            optionKey: entry.option.key,
+            value: val,
+            amount: String(p.amount),
+            observedAt: typeof p.observed_at === "string" ? p.observed_at : null,
+            breakBefore: p.break_before === true,
+          });
+          byDate.set(p.observation_date, list);
+        }
+      }
+      const dates = [...byDate.keys()].sort();
+      const latestObservedDate = dates.at(-1) || null;
+      const mergedPoints = [];
+      const conflictingDates = new Set();
+      let prevConflicted = false;
+      let latestAgreed = null;
+      for (const date of dates) {
+        const obs = byDate.get(date);
+        if (new Set(obs.map(item => item.value)).size > 1) {
+          conflictingDates.add(date);
+          prevConflicted = true;
+          continue;
+        }
+        const orderedObs = [...obs].sort((a, b) => {
+          const aTime = Number.isFinite(Date.parse(a.observedAt)) ? Date.parse(a.observedAt) : -Infinity;
+          const bTime = Number.isFinite(Date.parse(b.observedAt)) ? Date.parse(b.observedAt) : -Infinity;
+          return (bTime - aTime) || (a.optionKey < b.optionKey ? -1 : a.optionKey > b.optionKey ? 1 : 0);
+        });
+        const chosen = orderedObs[0];
+        const breakBefore = obs.some(item => item.breakBefore) || prevConflicted;
+        prevConflicted = false;
+        mergedPoints.push({ date, value: chosen.value, externalFlow: null, breakBefore });
+        latestAgreed = { date, amount: chosen.amount, observedAt: chosen.observedAt };
+      }
+      if (conflictingDates.size > 0 && !failed.includes(rep.key)) failed.push(rep.key);
+      histories.push({
+        id: `${rep.platform}:${rep.key}`,
+        currency: "USDT",
+        crypto: true,
+        points: mergedPoints,
+      });
+      if (latestObservedDate && conflictingDates.has(latestObservedDate)) {
+        accounts.push({ account_key: rep.key, platform: rep.platform, snapshot_unavailable_reason: "aggregation_conflict" });
+      } else if (latestAgreed) {
+        accounts.push({
+          account_key: rep.key,
+          platform: rep.platform,
+          observed_finished_at: latestAgreed.observedAt,
+          observation_date: latestAgreed.date,
+          balances: [{ currency: "USDT", net_assets: latestAgreed.amount }],
+        });
+      } else {
+        accounts.push({
+          account_key: rep.key,
+          platform: rep.platform,
+          observed_finished_at: null,
+          observation_date: null,
+          balances: [],
+        });
+      }
     }
     if (endpoint === "holdings") {
       const block = performanceBlocks({ accounts, histories: [], today, year, month,

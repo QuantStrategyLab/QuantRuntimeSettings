@@ -400,6 +400,29 @@ assert.equal(getPlatformAdapter("binance").capability().canEnable, false);
       assert.ok(groupsHtml.includes("USD 500.00"), "raw card balances stay visible even when platform total is unavailable");
       if (language === "en") assert.doesNotMatch(visibleText(groupsHtml), /[\u3400-\u9fff]/u, "no CJK in English groups");
       recordCell("facts_cohort_unknown_preserves_raw", "B2-A17", language, theme);
+
+      // 8. B04: disposition consistency on PlatformFactsSummary across zh-CN/en & light/dark
+      const certPaperHtml = ui.platform(language, theme, {
+        rows: [baseFact("syn-paper-cert", { broker_environment: null, account_scope: null, user_declaration: { source: "user_declared", environment: "live", account_type: null },
+          management_status: "managed", evidence_state: "known", management_disposition: "paper" })],
+        expected: 1, phase: "ready",
+      });
+      assert.ok(!/USD\s*\d/.test(certPaperHtml), "certified paper missing own scope never sums even with live declaration");
+      assert.ok(certPaperHtml.includes('data-state="state.no_data"'));
+      const unkPaperDeclHtml = ui.platform(language, theme, {
+        rows: [baseFact("syn-a", { management_status: "managed", evidence_state: "known", management_disposition: "managed" }),
+          baseFact("syn-unk", { broker_environment: null, account_scope: null, user_declaration: { source: "user_declared", environment: "paper", account_type: null },
+            management_status: "unknown", evidence_state: "unknown", management_disposition: "unknown" })],
+        expected: 2, phase: "ready",
+      });
+      assert.ok(unkPaperDeclHtml.includes('data-state="facts.platform_management_unknown"'), "paper declaration never hides unknown cohort");
+      const rawPaperConflictHtml = ui.platform(language, theme, {
+        rows: [baseFact("syn-a", { broker_environment: "paper", account_scope: "paper", management_status: "managed", evidence_state: "known",
+          management_disposition: "unknown", management_scope_conflict: true })],
+        expected: 1, phase: "ready",
+      });
+      assert.ok(rawPaperConflictHtml.includes('data-state="facts.platform_management_unknown"'), "scope conflict surfaces unknown reason over raw paper");
+      recordCell("facts_b04_disposition_consistency", "B2-A17", language, theme);
     }
   }
 
