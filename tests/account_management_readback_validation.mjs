@@ -1145,22 +1145,28 @@ if (out) await writeFile(out, rec.report());
       const readback = { format: "qsl_account_management_readback.v1", status: "available", evidence_scope: "runtime_instances_sqlite",
         observed_at: "2026-11-18T00:00:00.000Z", instance_revision: 1, policy_revision: 1, physical_grouping_complete: true,
         groups, uncovered_deployments: [] };
-      const res = await performanceResponse(
-        new Request(`https://console.example/api/performance/${endpoint}?scope=${scope}${scope !== "all" ? "&platform=binance" : ""}&range=ALL`),
-        {},
-        {
-          json: (b, s = 200) => Response.json(b, { status: s }),
-          readSession: async () => ({ allowed: true, login: "reader" }),
-          accountOptions: async () => ({ options: { binance: opts } }),
-          managementReadback: async () => readback,
-          wallet: async req => {
-            const k = new URL(req.url).searchParams.get("account_key");
-            return walletMap[k]?.fail ? Response.json({ error: "unavailable" }, { status: 503 }) : Response.json({ currency: "USDT", points: walletMap[k].points });
+      const realNow = Date.now;
+      Date.now = () => Date.parse("2026-11-18T12:00:00Z");
+      try {
+        const res = await performanceResponse(
+          new Request(`https://console.example/api/performance/${endpoint}?scope=${scope}${scope !== "all" ? "&platform=binance" : ""}&range=ALL`),
+          {},
+          {
+            json: (b, s = 200) => Response.json(b, { status: s }),
+            readSession: async () => ({ allowed: true, login: "reader" }),
+            accountOptions: async () => ({ options: { binance: opts } }),
+            managementReadback: async () => readback,
+            wallet: async req => {
+              const k = new URL(req.url).searchParams.get("account_key");
+              return walletMap[k]?.fail ? Response.json({ error: "unavailable" }, { status: 503 }) : Response.json({ currency: "USDT", points: walletMap[k].points });
+            },
+            benchmarks: async () => Response.json({ points: [] }),
           },
-          benchmarks: async () => Response.json({ points: [] }),
-        },
-      );
-      return res.json();
+        );
+        return await res.json();
+      } finally {
+        Date.now = realNow;
+      }
     };
     const pts = [
       { observation_date: "2026-11-17", amount: "1000", observed_at: "2026-11-17T10:00:00Z", break_before: false },
