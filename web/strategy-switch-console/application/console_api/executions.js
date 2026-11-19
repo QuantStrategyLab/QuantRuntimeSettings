@@ -1,8 +1,9 @@
 import { rangeStart } from "../../performance_math.js";
+import { mergeExecutionRecord } from "../account_facts/executions.js";
 
 /** Only broker executions. Snapshot, benchmark and wallet failures are unrelated. */
 export async function executionStatsResponse(options, { scope, range, today, groupOf = null }, env, deps) {
-  const coverage = [], rows = [], seen = new Set();
+  const coverage = [], rows = [], seen = new Map();
   let asOf = null, connected = 0, failures = 0;
   const start = range === "ALL" ? null : rangeStart(range.toLowerCase(), today);
   for (const option of options) {
@@ -25,14 +26,25 @@ export async function executionStatsResponse(options, { scope, range, today, gro
     const observations = source.as_of ? [source.as_of] : source.reports.map(report => report.observed_at);
     for (const observedAt of observations) if (!asOf || Date.parse(observedAt) > Date.parse(asOf)) asOf = observedAt;
     // Sibling deployments of one physical account observe the same executions:
-    // an identical observation counts once, a distinct one stays.
+    // one execution reference in one group is one execution whatever report
+    // carried it. Compatible supplemental fields merge; a genuine disagreement
+    // keeps both observations rather than choosing one.
     const owner = groupOf?.(option) ?? JSON.stringify([option.platform, option.key]);
     for (const row of source.records) {
       if (row.trade_date > today || start && row.trade_date < start) continue;
-      const identity = JSON.stringify([owner, row.execution_ref, row]);
-      if (seen.has(identity)) continue;
-      seen.add(identity);
-      rows.push({ platform: option.platform, account_alias: option.key, ...row });
+      const identity = JSON.stringify([owner, row.execution_ref]);
+      const index = seen.get(identity);
+      if (index === undefined) {
+        seen.set(identity, rows.length);
+        rows.push({ platform: option.platform, account_alias: option.key, ...row });
+        continue;
+      }
+      try {
+        const { platform, account_alias, ...first } = rows[index];
+        rows[index] = { platform, account_alias, ...mergeExecutionRecord(first, row) };
+      } catch {
+        rows.push({ platform: option.platform, account_alias: option.key, ...row });
+      }
     }
   }
   rows.sort((a, b) => b.trade_date.localeCompare(a.trade_date)

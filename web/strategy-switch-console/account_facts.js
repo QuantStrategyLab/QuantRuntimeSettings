@@ -1,5 +1,5 @@
 import { projectForwardReconciliation } from "./forward_reconciliation.js";
-import { MANAGEMENT_SCOPE, managementCounts, managementDisposition, scopeConflict } from "./application/account_mapping/management_cohort.js";
+import { MANAGEMENT_SCOPE, managementCounts, resolveCohortDispositions, scopeConflict } from "./application/account_mapping/management_cohort.js";
 
 // Pure account-facts projection helpers. Keeps broker snapshot history out of
 // runtime-daily and never invents FX totals, returns, or historical backfill.
@@ -805,19 +805,20 @@ function sumMoneyTexts(amounts) {
 
 const isPaperRow = row => row?.broker_environment === "paper" || row?.account_scope === "paper";
 const rowItem = row => ({ paper: isPaperRow(row), environment: row?.broker_environment ?? null });
-const rowDisposition = (row, cohort) => managementDisposition(rowItem(row), cohort.view(row.platform, row.account_key));
+const rowDispositions = (rows, cohort) => resolveCohortDispositions(rows, cohort, rowItem);
 
 // Stamp each row with its management state and return its disposition.
 function classifyManagement(rows, cohort) {
-  return new Map(rows.map(row => {
+  const dispositions = rowDispositions(rows, cohort);
+  for (const row of rows) {
     const view = cohort.view(row.platform, row.account_key);
     row.management_status = view.management_status;
     row.evidence_state = view.evidence_state;
     row.management_revision = view.revision;
     // A scope conflict is stamped, so a frontend rollup cannot sum around it.
     row.management_scope_conflict = scopeConflict(rowItem(row), view);
-    return [row, rowDisposition(row, cohort)];
-  }));
+  }
+  return dispositions;
 }
 
 export function aggregateAccountFactsTotals(accountRows, physicalIdentities = new Map(), cohort = null) {
@@ -894,7 +895,7 @@ export function aggregateAccountFactsTotals(accountRows, physicalIdentities = ne
 
 // Membership in this endpoint's existing totals, not performance/history coverage.
 export function accountFactsAssetCoverage(accounts, totals, cohort = null) {
-  const dispositions = cohort ? new Map(accounts.map(row => [row, rowDisposition(row, cohort)])) : null;
+  const dispositions = cohort ? rowDispositions(accounts, cohort) : null;
   const unknownCohort = dispositions ? accounts.some(row => dispositions.get(row) === "unknown") : false;
   return {
     scope: "account_facts_totals",
@@ -904,7 +905,7 @@ export function accountFactsAssetCoverage(accounts, totals, cohort = null) {
     ...(cohort ? {
       management_scope: MANAGEMENT_SCOPE,
       management_coverage_status: unknownCohort ? "incomplete" : "complete",
-      management_counts: managementCounts(accounts, dispositions, cohort, row => row.aggregation_status === "duplicate"),
+      management_counts: managementCounts(accounts, dispositions, cohort),
       management_observed_at: cohort.meta.observed_at,
       management_instance_revision: cohort.meta.instance_revision,
       management_policy_revision: cohort.meta.policy_revision,

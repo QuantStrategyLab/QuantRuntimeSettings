@@ -1,5 +1,5 @@
 import { isAggregateAssetAccount } from "../../performance_math.js";
-import { MANAGEMENT_SCOPE, managementCohort, managementCounts, managementDisposition } from "../account_mapping/management_cohort.js";
+import { MANAGEMENT_SCOPE, managementCohort, managementCounts, resolveCohortDispositions } from "../account_mapping/management_cohort.js";
 import { MARKET_BENCHMARK_SERIES_IDS } from "../../infrastructure/market_benchmark/market_benchmark.js";
 import { applyNativeDailyReturns } from "./native_daily_returns.js";
 import { businessDate, performanceBlocks } from "./performance.js";
@@ -82,7 +82,7 @@ export async function performanceResponse(request, env, deps) {
       const items = options.map((a) => ({ platform: a.platform, account_key: a.key, option: a, paper: !candidates.includes(a), environment: a.broker_environment ?? null }));
       // Every deployment is classified before any grouping or reading; one
       // unknown or conflicting scope vetoes the whole total.
-      const dispositions = new Map(items.map((item) => [item, managementDisposition(item, cohort.view(item.platform, item.account_key))]));
+      const dispositions = resolveCohortDispositions(items, cohort);
       const unknown = items.some((item) => dispositions.get(item) === "unknown");
       const managed = items.filter((item) => dispositions.get(item) === "managed").map((item) => item.option);
       const unavailable = reason => json({ schema_version: "console_api.v1", scope, range, ...unavailablePerformance(endpoint, { range, today, year, month }, env),

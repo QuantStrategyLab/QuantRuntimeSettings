@@ -71,6 +71,25 @@ assert.equal((await executionStatsResponse([{ ...option, platform: "ibkr" }],
 assert.equal((await executionStatsResponse([{ ...option, platform: "ibkr" }],
   { scope: option.key, range: "ALL", today: "2026-10-25" }, {}, rangeDeps)).rows.length, 2);
 
+// B02: one physical execution seen in two reports (different report_ref) is one
+// execution; a supplemental field merges; a genuine disagreement stays visible.
+{
+  const sib = (key, rows) => ({ option: { ...option, key, platform: "ibkr" },
+    source: { coverage: "reported_executions", reports: [{ observed_at: payload.observed_at, period: payload.period }], records: rows } });
+  const a = sib("syn-a", [{ ...record, report_ref: "r".repeat(64), commission: null }]);
+  const b = sib("syn-b", [{ ...record, report_ref: "s".repeat(64), commission: "1.00" }]);
+  const run = async (items, groupOf) => executionStatsResponse(items.map(item => item.option),
+    { scope: "all", range: "ALL", today: "2026-10-25", groupOf }, {},
+    { executions: async opt => items.find(item => item.option.key === opt.key).source, json: body => body });
+  const same = await run([a, b], () => "g1");
+  assert.equal(same.reported_execution_count, 1, "two compatible reports of one execution count once");
+  assert.equal(same.rows[0].commission, "1.00", "the compatible supplemental field merges");
+  const apart = await run([a, b], option => option.key);
+  assert.equal(apart.reported_execution_count, 2, "separate physical groups stay separate");
+  const clash = sib("syn-b", [{ ...record, report_ref: "s".repeat(64), price: "999.99" }]);
+  assert.equal((await run([a, clash], () => "g1")).reported_execution_count, 2, "a genuine conflict is not merged away");
+}
+
 const settings = { SESSION_SECRET: "synthetic-session", ALLOWED_GITHUB_LOGINS: "synthetic-reader",
   ACCOUNT_FACTS_READ_MODEL_ENABLED: "true", IBKR_ACCOUNT_FACTS_SYNC_TOKEN: "synthetic-ibkr-token",
   SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN: "synthetic-other-token" };

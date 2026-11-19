@@ -69,16 +69,25 @@ export function normalizeExecutions(raw, { binding, now = Date.now(), enforceFre
   return result;
 }
 
-function mergeRecord(old, incoming) {
+export function mergeExecutionRecord(old, incoming) {
   const result = { ...old };
   for (const key of RECORD_KEYS) {
     if (key === "report_ref") continue;
+    const prev = old[key] ?? null;
+    const next = incoming[key] ?? null;
     if (OPTIONAL.includes(key)) {
-      if (old[key] === null) result[key] = incoming[key];
-      else if (incoming[key] !== null && incoming[key] !== old[key]) throw executionError("execution_history_conflict", 409);
-    } else if (old[key] !== incoming[key]) throw executionError("execution_history_conflict", 409);
+      if (prev === null) {
+        if (next !== null) result[key] = incoming[key];
+      } else if (next !== null && next !== prev) {
+        throw executionError("execution_history_conflict", 409);
+      }
+    } else if (prev !== next) {
+      throw executionError("execution_history_conflict", 409);
+    }
   }
-  if (stable(result) !== stable(old)) result.report_ref = incoming.report_ref;
+  if (stable(result) !== stable(old) && Object.hasOwn(incoming, "report_ref")) {
+    result.report_ref = incoming.report_ref;
+  }
   return result;
 }
 
@@ -89,7 +98,7 @@ export function mergeExecutions(prior, incoming) {
   }
   const rows = new Map(prior.records.map(row => [row.execution_ref, row]));
   for (const row of incoming.records) rows.set(row.execution_ref,
-    rows.has(row.execution_ref) ? mergeRecord(rows.get(row.execution_ref), row) : row);
+    rows.has(row.execution_ref) ? mergeExecutionRecord(rows.get(row.execution_ref), row) : row);
   const latest = Date.parse(incoming.observed_at) >= Date.parse(prior.observed_at) ? incoming : prior;
   return normalizeExecutions({ ...latest, period: {
     from: prior.period.from < incoming.period.from ? prior.period.from : incoming.period.from,
@@ -155,7 +164,7 @@ export function readExecutions(sql, context) {
     reports.push(...saved.reports);
     reportsTruncated ||= saved.reports_truncated;
     for (const row of payload.records) records.set(row.execution_ref,
-      records.has(row.execution_ref) ? mergeRecord(records.get(row.execution_ref), row) : row);
+      records.has(row.execution_ref) ? mergeExecutionRecord(records.get(row.execution_ref), row) : row);
   }
   if (asOf === null) return null;
   return { source: "ibkr_flex", coverage: "reported_executions", as_of: asOf,

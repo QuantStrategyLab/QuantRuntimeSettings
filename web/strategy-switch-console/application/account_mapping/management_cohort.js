@@ -81,24 +81,69 @@ export function managementDisposition({ paper, environment = null }, view) {
     [MANAGEMENT_STATUS.NOT_UNDER_MANAGEMENT]: "not_under_management" }[view.management_status] || "unknown";
 }
 
-// The nine management counts. Physical categories count each resolved group
-// once; deployments the readback does not place in a group are counted apart
-// and make the physical total null. A deployment count is never promoted to a
-// physical one. `items` carry `platform` and `account_key`.
-export function managementCounts(items, dispositions, cohort, isDuplicate = () => false) {
-  const resolved = items.filter(item => cohort.resolved(item.platform, item.account_key));
-  const groupsOf = predicate => new Set(resolved.filter(predicate).map(item => cohort.view(item.platform, item.account_key).group)).size;
-  const by = name => item => dispositions.get(item) === name;
-  const unresolved = items.length - resolved.length;
+// Accumulate all members of each resolved physical group: any disagreement across
+// members (e.g. managed + unknown or live + paper) leaves the whole group unknown.
+export function resolveCohortDispositions(items, cohort, toItem = item => item) {
+  const dispositions = new Map(items.map(item => [item, managementDisposition(toItem(item), cohort.view(item.platform, item.account_key))]));
+  const byGroup = new Map();
+  for (const item of items) {
+    if (!cohort.resolved(item.platform, item.account_key)) continue;
+    const { group } = cohort.view(item.platform, item.account_key);
+    const list = byGroup.get(group) || [];
+    list.push(item);
+    byGroup.set(group, list);
+  }
+  for (const members of byGroup.values()) {
+    if (new Set(members.map(item => dispositions.get(item))).size > 1) {
+      for (const item of members) dispositions.set(item, "unknown");
+    }
+  }
+  return dispositions;
+}
+
+const COUNT_BUCKET = Object.freeze({
+  managed: "managed_non_paper",
+  disabled: "management_disabled_non_paper",
+  not_under_management: "not_under_management_non_paper",
+  paper: "paper_excluded",
+  unknown: "unknown_non_paper",
+});
+
+// The nine management counts. Each resolved physical group enters one physical
+// category once; extra deployments in the same group count as duplicate_deployments;
+// unresolved deployments stay separate and make the physical total null.
+export function managementCounts(items, dispositions, cohort) {
+  const byGroup = new Map();
+  let unresolved = 0;
+  for (const item of items) {
+    if (!cohort.resolved(item.platform, item.account_key)) {
+      unresolved += 1;
+      continue;
+    }
+    const { group } = cohort.view(item.platform, item.account_key);
+    const members = byGroup.get(group) || [];
+    members.push(item);
+    byGroup.set(group, members);
+  }
+  const counts = {
+    managed_non_paper: 0,
+    management_disabled_non_paper: 0,
+    not_under_management_non_paper: 0,
+    unknown_non_paper: 0,
+    paper_excluded: 0,
+  };
+  let duplicateDeployments = 0;
+  for (const members of byGroup.values()) {
+    duplicateDeployments += members.length - 1;
+    const kinds = new Set(members.map(item => dispositions.get(item)));
+    const category = kinds.size === 1 ? [...kinds][0] : "unknown";
+    counts[COUNT_BUCKET[category] || "unknown_non_paper"] += 1;
+  }
   return {
-    display_physical: unresolved === 0 && cohort.groupingComplete ? groupsOf(() => true) : null,
+    display_physical: unresolved === 0 && cohort.groupingComplete ? byGroup.size : null,
     display_deployments: items.length,
-    managed_non_paper: groupsOf(by("managed")),
-    management_disabled_non_paper: groupsOf(by("disabled")),
-    not_under_management_non_paper: groupsOf(by("not_under_management")),
-    unknown_non_paper: groupsOf(by("unknown")),
-    paper_excluded: groupsOf(by("paper")),
-    duplicate_deployments: items.filter(isDuplicate).length,
+    ...counts,
+    duplicate_deployments: duplicateDeployments,
     unresolved_deployments: unresolved,
   };
 }

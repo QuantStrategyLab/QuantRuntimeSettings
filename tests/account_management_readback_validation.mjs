@@ -303,6 +303,28 @@ const group = (body, text) => { const [platform, key] = ref(text); return body.g
   assert.equal(Object.values(disp).filter(text => text === "excluded:duplicate_account").length, 1);
   ok("B2-A17", "known_cohort_totals_and_counts");
 
+  // B09: two deployments of one physical group, one managed and one scope-
+  // conflicted, are one group in exactly one category (unknown), one duplicate.
+  {
+    const { managementCounts, resolveCohortDispositions } = await import(new URL("application/account_mapping/management_cohort.js", CONSOLE));
+    const dep = key => ({ platform: "ibkr", key });
+    const synthetic = (members, extra = {}) => ({ format: "qsl_account_management_readback.v1", status: "available", physical_grouping_complete: true,
+      evidence_scope: "synthetic", observed_at: "2026-11-18T00:00:00.000Z", instance_revision: 1, policy_revision: 1,
+      groups: [{ deployments: members.map(dep), management_status: "managed", evidence_state: "known", scope: "live", ...extra }] });
+    const items = [{ platform: "ibkr", account_key: "syn-a", paper: false, environment: "live" }, { platform: "ibkr", account_key: "syn-b", paper: false, environment: "paper" }];
+    const mixed = managementCohort(synthetic(["syn-a", "syn-b"]));
+    const mixedCounts = managementCounts(items, resolveCohortDispositions(items, mixed), mixed);
+    assert.deepEqual([mixedCounts.display_physical, mixedCounts.unknown_non_paper, mixedCounts.managed_non_paper, mixedCounts.duplicate_deployments, mixedCounts.display_deployments],
+      [1, 1, 0, 1, 2], "a live/paper disagreement in one group is one unknown group plus one duplicate");
+    const clean = managementCohort(synthetic(["syn-a", "syn-b"]));
+    const cleanItems = items.map(item => ({ ...item, environment: "live" }));
+    const cleanCounts = managementCounts(cleanItems, resolveCohortDispositions(cleanItems, clean), clean);
+    assert.deepEqual([cleanCounts.display_physical, cleanCounts.managed_non_paper, cleanCounts.unknown_non_paper, cleanCounts.duplicate_deployments], [1, 1, 0, 1], "a consistent sibling pair counts once");
+    const loose = managementCohort(synthetic(["syn-a"]));
+    const looseCounts = managementCounts(items, resolveCohortDispositions(items, loose), loose);
+    assert.deepEqual([looseCounts.display_physical, looseCounts.unresolved_deployments], [null, 1], "an unresolved deployment keeps the physical total null");
+  }
+
   // Disable one live account: a clean exclusion, totals stay available.
   const disabledText = live(store);
   await setManagement(store, disabledText, false);
