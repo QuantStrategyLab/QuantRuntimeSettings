@@ -10,9 +10,14 @@ import { inbox } from "./inbox.js";
 import { deskDelivery } from "./desk_delivery.js";
 export { inbox } from "./inbox.js";
 
-// Settings history order: newest first, then id, then source, so the key is total.
+// Settings history order: newest first, then id, then source, then occurrence
+// within the verified window so the ordering key is total.
 const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
-const historyOrder = (left, right) => compareText(right.time, left.time) || compareText(left.id, right.id) || compareText(left.source, right.source);
+const compareNumber = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
+const historyOrder = (left, right) => compareText(right.time, left.time)
+  || compareText(left.id, right.id)
+  || compareText(left.source, right.source)
+  || (left.occ !== undefined && right.occ !== undefined ? compareNumber(left.occ, right.occ) : 0);
 const HISTORY_CURSOR = /^h1\.[A-Za-z0-9_-]{1,2048}$/;
 const encodeHistoryCursor = payload => `h1.${btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(payload)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
 const decodeHistoryCursor = text => JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), char => char.charCodeAt(0))));
@@ -37,8 +42,11 @@ function historyPageQuery(url) {
   if (!cursor) return { limit, cursor: null };
   let payload;
   try { payload = decodeHistoryCursor(cursor.slice(3)); } catch { throw new Error("invalid_pagination"); }
-  if (!payload || ["a", "t", "i", "s"].some(field => typeof payload[field] !== "string") || !validHistorySnapshot(payload.v)) throw new Error("invalid_pagination");
-  return { limit, cursor: { a: payload.a, snapshot: payload.v, key: { time: payload.t, id: payload.i, source: payload.s } } };
+  if (!payload || ["a", "t", "i", "s"].some(field => typeof payload[field] !== "string")
+    || (Object.hasOwn(payload, "o") && (!Number.isSafeInteger(payload.o) || payload.o < 0))
+    || !validHistorySnapshot(payload.v)) throw new Error("invalid_pagination");
+  return { limit, cursor: { a: payload.a, snapshot: payload.v, key: { time: payload.t, id: payload.i, source: payload.s,
+    ...(Object.hasOwn(payload, "o") ? { occ: payload.o } : {}) } } };
 }
 
 export async function consoleApiResponse(request, env, deps) {
@@ -245,15 +253,16 @@ export async function consoleApiResponse(request, env, deps) {
       const managementChanges = Array.isArray(result.management_changes)
         ? result.management_changes
         : [];
-      const items = await Promise.all(
+      const entries = (await Promise.all(
         [
-          ...saves.map((row) => ({
+          ...saves.map((row, occ) => ({
             id: `draft:${account.platform}:${account.key}:${row.draft_revision}:${row.ts}`,
             event: "draft_saved",
             time: row.ts,
             actor: row.login,
             draft_revision: row.draft_revision ?? null,
             source: "bounded_audit_log",
+            occ,
           })),
           ...(result.approvals || []).map((row) => ({
             id: row.request_key || `approval:${account.platform}:${account.key}:${row.draft_revision}:${row.approved_at}`,
@@ -262,6 +271,7 @@ export async function consoleApiResponse(request, env, deps) {
             actor: row.approved_by,
             draft_revision: row.draft_revision,
             source: "profile_application",
+            occ: 0,
           })),
           ...managementChanges.map((row) => ({
             id: row.event_id,
@@ -280,29 +290,34 @@ export async function consoleApiResponse(request, env, deps) {
             new_management_enabled: row.new_management_enabled === 1,
             change_ref: row.event_id,
             source: "account_management_change",
+            occ: 0,
           })),
-        ].map(async (row) => {
-          const { actor, ...rest } = row;
-          return { ...rest, short_id: shortId(rest.id, "CH"), actor_alias: await actorAlias(actor) };
+        ].map(async ({ actor, occ, ...rest }) => {
+          const item = { ...rest, short_id: shortId(rest.id, "CH"), actor_alias: await actorAlias(actor) };
+          return { item, key: { time: item.time, id: item.id, source: item.source, occ } };
         }),
-      );
-      items.sort(historyOrder);
+      )).sort((left, right) => historyOrder(left.key, right.key));
       // A later page is the remainder of the first page's snapshot: membership
       // is the pinned version of every source, and the last emitted ordering
       // key only positions the traversal inside it.
       const accountRef = `${account.platform}/${account.key}`;
       if (page.cursor && page.cursor.a !== accountRef) return json({ ok: false, error: "invalid_pagination" }, 400);
+      if (page.cursor && page.cursor.key.occ === undefined) {
+        const matches = entries.filter(entry => entry.key.time === page.cursor.key.time
+          && entry.key.id === page.cursor.key.id && entry.key.source === page.cursor.key.source);
+        if (matches.length > 1) return expired();
+      }
       const snapshot = page.cursor ? page.cursor.snapshot : { ...result.snapshot, legacy };
-      const remaining = items.filter(item => !page.cursor || historyOrder(page.cursor.key, item) < 0);
+      const remaining = entries.filter(entry => !page.cursor || historyOrder(page.cursor.key, entry.key) < 0);
       const emitted = remaining.slice(0, page.limit);
       const last = emitted.at(-1);
       return json({
         status: "partial",
         account_alias: account.key,
         platform: account.platform,
-        items: emitted,
+        items: emitted.map(entry => entry.item),
         next_cursor: remaining.length > emitted.length
-          ? encodeHistoryCursor({ a: accountRef, v: snapshot, t: last.time, i: last.id, s: last.source })
+          ? encodeHistoryCursor({ a: accountRef, v: snapshot, t: last.key.time, i: last.key.id, s: last.key.source, o: last.key.occ })
           : null,
         coverage: "bounded_audit_log_and_durable_account_records",
         availability: {

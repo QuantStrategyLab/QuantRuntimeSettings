@@ -745,6 +745,78 @@ const group = (body, text) => { const [platform, key] = ref(text); return body.g
     const continued = await (await readHistory(flaky, pA, kA, 1, firstUnavailable.next_cursor)).json();
     assert.deepEqual(continued.availability.draft_saved, firstUnavailable.availability.draft_saved, "an unavailable start keeps its original coverage on continuation");
     assert.ok(continued.items.every(item => item.source !== "bounded_audit_log"), "an unavailable start stays empty for that source");
+
+    // B06: wired Worker loader preserves source availability across unbound,
+    // stored JSON null, wrong-shape, absent-key and actual empty-array states.
+    const { loadAuditLog, readAuditLog } = await import(new URL("application/worker/runtime_support.js", CONSOLE));
+    assert.deepEqual(await loadAuditLog({}), [], "forgiving loader preserves [] for unbound store");
+    assert.deepEqual(await loadAuditLog({ STRATEGY_SWITCH_CONFIG: { get: async () => "null", put: async () => {} } }), [], "forgiving loader preserves [] for JSON null");
+    assert.equal(await readAuditLog({}), null, "bounded reader marks unbound store unavailable");
+    assert.equal(await readAuditLog({ STRATEGY_SWITCH_CONFIG: { get: async () => "null", put: async () => {} } }), null, "bounded reader distinguishes stored JSON null");
+    assert.equal(await readAuditLog({ STRATEGY_SWITCH_CONFIG: { get: async () => "{}", put: async () => {} } }), null, "bounded reader rejects wrong shape");
+    assert.deepEqual(await readAuditLog({ STRATEGY_SWITCH_CONFIG: { get: async () => null, put: async () => {} } }), [], "absent key in readable store stays empty");
+    for (const [raw, expectedStatus] of [[null, "partial"], ["[]", "partial"], ["null", "unavailable"], ["{}", "unavailable"]]) {
+      let page = 0;
+      const kvState = bindings({
+        get: async key => (key !== "audit_log" ? null : page === 0 ? raw : JSON.stringify(auditEntries)),
+        put: async () => {},
+      });
+      const p1 = await (await readHistory(kvState, pA, kA, 1)).json();
+      assert.equal(p1.availability.draft_saved.status, expectedStatus, `page1 availability for raw=${raw}`);
+      page = 1;
+      const p2 = await (await readHistory(kvState, pA, kA, 1, p1.next_cursor)).json();
+      assert.equal(p2.availability.draft_saved.status, expectedStatus, `page2 pins availability for raw=${raw}`);
+      assert.ok(p2.items.every(item => item.source !== "bounded_audit_log"), `page2 keeps pinned empty/unavailable legacy log for raw=${raw}`);
+    }
+
+    // R4-K: tied-key legacy saves with multiplicity & distinct actors survive
+    // page boundaries, harmless prepends, and expire ambiguous old cursors.
+    const seqOf = items => items.map(item => [item.id, item.event, item.time, item.actor_alias, item.draft_revision ?? null, item.source]);
+    const walkSeq = async (envObj, platform, key, limit, between = async () => {}, stripO = false) => {
+      const strip = c => {
+        if (!c || !stripO) return c;
+        const p = JSON.parse(Buffer.from(c.slice(3).replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+        delete p.o;
+        return `h1.${Buffer.from(JSON.stringify(p), "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
+      };
+      const items = [];
+      const first = await readHistory(envObj, platform, key, limit);
+      const fb = await first.json();
+      if (first.status !== 200) return { status: first.status, error: fb.error, items };
+      items.push(...fb.items);
+      await between();
+      let cursor = strip(fb.next_cursor);
+      for (let i = 0; i < 40 && cursor; i += 1) {
+        const resp = await readHistory(envObj, platform, key, limit, cursor);
+        const body = await resp.json();
+        if (resp.status !== 200) return { status: resp.status, error: body.error, items };
+        items.push(...body.items);
+        cursor = strip(body.next_cursor);
+      }
+      return { status: 200, items };
+    };
+    for (const [platform, key] of [[pA, kA], [pB, kB]]) {
+      const tiedFixture = () => [
+        { action: "save_account_settings", platform, key, draft_revision: 3, ts: "2026-11-18T00:10:00.000Z", login: "actor-one" },
+        { action: "save_account_settings", platform, key, draft_revision: 3, ts: "2026-11-18T00:10:00.000Z", login: "actor-two" },
+        { action: "save_account_settings", platform, key, draft_revision: 3, ts: "2026-11-18T00:10:00.000Z", login: "actor-one" },
+        { action: "save_account_settings", platform, key, draft_revision: 2, ts: "2026-11-18T00:05:00.000Z", login: "actor-three" },
+      ];
+      let tiedAudit = tiedFixture();
+      const tiedEnv = bindings({ get: async k => (k === "audit_log" ? JSON.stringify(tiedAudit) : null), put: async () => {} });
+      const wideSeq = seqOf((await walkSeq(tiedEnv, platform, key, 100)).items);
+      assert.equal(wideSeq.length, 7);
+      assert.deepEqual(seqOf((await walkSeq(tiedEnv, platform, key, 1)).items), wideSeq, `limit=1 preserves tied-key multiplicity (${key})`);
+      assert.deepEqual(seqOf((await walkSeq(tiedEnv, platform, key, 2)).items), wideSeq, `limit=2 preserves tied-key multiplicity (${key})`);
+      const prependedTied = await walkSeq(tiedEnv, platform, key, 1, async () => {
+        tiedAudit = [{ action: "save_account_settings", platform, key, draft_revision: 9, ts: "2026-11-18T01:00:00.000Z", login: "actor-new" }, ...tiedAudit];
+      });
+      assert.equal(prependedTied.status, 200);
+      assert.deepEqual(seqOf(prependedTied.items), wideSeq, `prepend preserves tied-key order and multiplicity (${key})`);
+      tiedAudit = tiedFixture();
+      const oldAmbig = await walkSeq(tiedEnv, platform, key, 1, async () => {}, true);
+      assert.deepEqual([oldAmbig.status, oldAmbig.error], [409, "history_snapshot_expired"], `ambiguous old cursor without o expires (${key})`);
+    }
     ok("B2-A19", "history_snapshot_three_sources");
   }
 
@@ -757,6 +829,8 @@ const group = (body, text) => { const [platform, key] = ref(text); return body.g
     STRATEGY_SWITCH_RUNTIME_INSTANCES: okBindings.STRATEGY_SWITCH_RUNTIME_INSTANCES,
   });
   assert.equal(noKvResp.status, 200);
+  const noKvBody = await noKvResp.json();
+  assert.deepEqual(noKvBody.availability.draft_saved, { status: "unavailable", unavailable_reason: "stored_records_unreadable" });
   const workerThrowKvResp = await worker.fetch(
     new Request(`https://console.example/api/account-settings/history?account=${kA}&platform=${pA}`, { headers: { Cookie: cookie } }),
     bindings(throwingKv),

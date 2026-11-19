@@ -6985,13 +6985,36 @@ export async function writeConfigJson(env, key, value) {
   else await store.put(key, text);
 }
 
+function normalizeBoundedAuditEntries(payload) {
+  return payload
+    .filter((entry) => entry && !Array.isArray(entry) && typeof entry === "object")
+    .slice(0, AUDIT_LOG_LIMIT);
+}
+
 export async function loadAuditLog(env) {
   if (!hasConfigStore(env)) return [];
   const payload = await readConfigJson(env, AUDIT_LOG_KEY);
   if (!Array.isArray(payload)) return [];
-  return payload
-    .filter((entry) => entry && !Array.isArray(entry) && typeof entry === "object")
-    .slice(0, AUDIT_LOG_LIMIT);
+  return normalizeBoundedAuditEntries(payload);
+}
+
+// Bounded history-route reader: preserves source availability (unbound store,
+// failed read/decode, stored JSON null or wrong top-level shape -> null/throw)
+// while treating an absent key in a readable store as an empty log.
+export async function readAuditLog(env) {
+  const store = configStore(env);
+  if (!store) return null;
+  const text = await store.get(AUDIT_LOG_KEY);
+  if (text === null || text === undefined) return [];
+  if (typeof text !== "string") return null;
+  let payload;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    throw new Error(`STRATEGY_SWITCH_CONFIG.${AUDIT_LOG_KEY} must be valid JSON`);
+  }
+  if (!Array.isArray(payload)) return null;
+  return normalizeBoundedAuditEntries(payload);
 }
 
 export async function appendAuditLog(env, entry) {
