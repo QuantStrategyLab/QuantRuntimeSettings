@@ -243,7 +243,10 @@ export function platformCurrencyTotals(rows: AccountFactsAccount[], expected: nu
   // Management evidence is judged before duplicates leave the set: a duplicate
   // carrying unknown or conflicting evidence, or any row stamped as a scope
   // conflict, vetoes the total just as a kept row would.
-  const livePool = unique.filter(row => !isPaperFact(row));
+  // Paper exclusion follows the server's evidence (the wire's own environment or
+  // scope), never a user declaration: a declaration alone cannot hide a row from
+  // the veto below.
+  const livePool = unique.filter(row => row.broker_environment !== "paper" && row.account_scope !== "paper");
   const stamped = livePool.filter(row => row.management_status !== undefined);
   if (stamped.some(row => row.evidence_state !== "known" || row.management_status === "unknown")) return [];
   if (unique.some(row => row.management_scope_conflict === true)) return [];
