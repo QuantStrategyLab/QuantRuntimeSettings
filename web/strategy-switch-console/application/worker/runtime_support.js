@@ -6991,17 +6991,13 @@ function normalizeBoundedAuditEntries(payload) {
     .slice(0, AUDIT_LOG_LIMIT);
 }
 
-export async function loadAuditLog(env) {
-  if (!hasConfigStore(env)) return [];
-  const payload = await readConfigJson(env, AUDIT_LOG_KEY);
-  if (!Array.isArray(payload)) return [];
-  return normalizeBoundedAuditEntries(payload);
-}
-
-// Bounded history-route reader: preserves source availability (unbound store,
-// failed read/decode, stored JSON null or wrong top-level shape -> null/throw)
-// while treating an absent key in a readable store as an empty log.
-export async function readAuditLog(env) {
+export async function loadAuditLog(env, { preserveAvailability = false } = {}) {
+  if (!preserveAvailability) {
+    if (!hasConfigStore(env)) return [];
+    const payload = await readConfigJson(env, AUDIT_LOG_KEY);
+    if (!Array.isArray(payload)) return [];
+    return normalizeBoundedAuditEntries(payload);
+  }
   const store = configStore(env);
   if (!store) return null;
   const text = await store.get(AUDIT_LOG_KEY);

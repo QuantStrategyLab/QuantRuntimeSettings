@@ -748,13 +748,13 @@ const group = (body, text) => { const [platform, key] = ref(text); return body.g
 
     // B06: wired Worker loader preserves source availability across unbound,
     // stored JSON null, wrong-shape, absent-key and actual empty-array states.
-    const { loadAuditLog, readAuditLog } = await import(new URL("application/worker/runtime_support.js", CONSOLE));
+    const { loadAuditLog } = await import(new URL("application/worker/runtime_support.js", CONSOLE));
     assert.deepEqual(await loadAuditLog({}), [], "forgiving loader preserves [] for unbound store");
     assert.deepEqual(await loadAuditLog({ STRATEGY_SWITCH_CONFIG: { get: async () => "null", put: async () => {} } }), [], "forgiving loader preserves [] for JSON null");
-    assert.equal(await readAuditLog({}), null, "bounded reader marks unbound store unavailable");
-    assert.equal(await readAuditLog({ STRATEGY_SWITCH_CONFIG: { get: async () => "null", put: async () => {} } }), null, "bounded reader distinguishes stored JSON null");
-    assert.equal(await readAuditLog({ STRATEGY_SWITCH_CONFIG: { get: async () => "{}", put: async () => {} } }), null, "bounded reader rejects wrong shape");
-    assert.deepEqual(await readAuditLog({ STRATEGY_SWITCH_CONFIG: { get: async () => null, put: async () => {} } }), [], "absent key in readable store stays empty");
+    assert.equal(await loadAuditLog({}, { preserveAvailability: true }), null, "bounded reader marks unbound store unavailable");
+    assert.equal(await loadAuditLog({ STRATEGY_SWITCH_CONFIG: { get: async () => "null", put: async () => {} } }, { preserveAvailability: true }), null, "bounded reader distinguishes stored JSON null");
+    assert.equal(await loadAuditLog({ STRATEGY_SWITCH_CONFIG: { get: async () => "{}", put: async () => {} } }, { preserveAvailability: true }), null, "bounded reader rejects wrong shape");
+    assert.deepEqual(await loadAuditLog({ STRATEGY_SWITCH_CONFIG: { get: async () => null, put: async () => {} } }, { preserveAvailability: true }), [], "absent key in readable store stays empty");
     for (const [raw, expectedStatus] of [[null, "partial"], ["[]", "partial"], ["null", "unavailable"], ["{}", "unavailable"]]) {
       let page = 0;
       const kvState = bindings({
