@@ -157,17 +157,21 @@ function declarationField(object, field) {
 }
 const ADMISSION_IDENTITY_FIELDS = ["platform", "key", "target_name", "broker_environment", "account_selector",
   "deployment_selector", "account_scope", "service_name"];
+// Matches MAPPING_POLICY_LIMITS.text in account_mapping/policy.js (helpers.js is boundary-locked to constants.js).
+const ADMISSION_IDENTITY_TEXT_LIMIT = 200;
+const boundedAdmissionText = value => typeof value === "string" && value.length <= ADMISSION_IDENTITY_TEXT_LIMIT;
+const boundedAdmissionId = value => boundedAdmissionText(value) && value.length > 0;
 
 function validAdmissionSlotValue(slot) {
   if (!isObject(slot) || Object.keys(slot).length !== 3) return false;
-  if (typeof slot.platform !== "string" || !slot.platform || typeof slot.legacy_key !== "string" || !slot.legacy_key) return false;
+  if (!boundedAdmissionId(slot.platform) || !boundedAdmissionId(slot.legacy_key)) return false;
   const identity = slot.identity;
   if (!isObject(identity) || Object.keys(identity).length !== ADMISSION_IDENTITY_FIELDS.length) return false;
   if (!ADMISSION_IDENTITY_FIELDS.every(field => Object.hasOwn(identity, field))) return false;
   if (identity.platform !== slot.platform || identity.key !== slot.legacy_key) return false;
   return ADMISSION_IDENTITY_FIELDS.every(field => field === "broker_environment"
     ? identity[field] === null || identity[field] === "live" || identity[field] === "paper"
-    : typeof identity[field] === "string");
+    : boundedAdmissionText(identity[field])) && boundedAdmissionId(identity.platform) && boundedAdmissionId(identity.key);
 }
 
 // The admission binding a promotion stored: an outer JSON object holding the

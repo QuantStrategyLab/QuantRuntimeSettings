@@ -6,6 +6,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { INDEX_SPECS } from "./application/account_identity_inventory/constants.js";
+import { MAPPING_POLICY_LIMITS } from "./application/account_mapping/policy.js";
 
 export const EXPORT_FORMAT = "qsl_account_identity_inventory_export.v1";
 const OBJECTS = ["runtime", "directory"];
@@ -122,6 +123,7 @@ function chain(pages, reasons, label) {
 }
 
 const ADMISSION_STRING_IDENTITY_FIELDS = ["target_name", "account_selector", "deployment_selector", "account_scope", "service_name"];
+const boundedAdmissionText = value => typeof value === "string" && value.length <= MAPPING_POLICY_LIMITS.text;
 function validAdmissionMembershipSlots(membership) {
   if (!membership || membership.state !== "valid") return false;
   if (Array.isArray(membership.invalid_slots) && membership.invalid_slots.length > 0) return false;
@@ -129,17 +131,16 @@ function validAdmissionMembershipSlots(membership) {
   const count = membership.counts?.$;
   if (!Number.isSafeInteger(count) || count < 1) return false;
   const fields = membership.fields || {};
-  const isTextOrLong = value => (typeof value === "string") || (value !== null && typeof value === "object" && Number.isSafeInteger(value.long_string));
-  const isNonEmptyTextOrLong = value => (typeof value === "string" && value.length > 0) || (value !== null && typeof value === "object" && Number.isSafeInteger(value.long_string));
+  const isBoundedText = value => boundedAdmissionText(value);
+  const isNonEmptyBoundedText = value => boundedAdmissionText(value) && value.length > 0;
   for (let index = 0; index < count; index += 1) {
     const slot = `[${index}]`;
     const depPlatform = fields[`${slot}.platform`], depKey = fields[`${slot}.legacy_key`];
     const idPlatform = fields[`${slot}.identity.platform`], idKey = fields[`${slot}.identity.key`];
-    if (!isNonEmptyTextOrLong(depPlatform) || !isNonEmptyTextOrLong(depKey)
-      || !isNonEmptyTextOrLong(idPlatform) || !isNonEmptyTextOrLong(idKey)) return false;
-    if (typeof depPlatform === "string" && typeof idPlatform === "string" && depPlatform !== idPlatform) return false;
-    if (typeof depKey === "string" && typeof idKey === "string" && depKey !== idKey) return false;
-    if (!ADMISSION_STRING_IDENTITY_FIELDS.every(field => isTextOrLong(fields[`${slot}.identity.${field}`]))) return false;
+    if (!isNonEmptyBoundedText(depPlatform) || !isNonEmptyBoundedText(depKey)
+      || !isNonEmptyBoundedText(idPlatform) || !isNonEmptyBoundedText(idKey)) return false;
+    if (depPlatform !== idPlatform || depKey !== idKey) return false;
+    if (!ADMISSION_STRING_IDENTITY_FIELDS.every(field => isBoundedText(fields[`${slot}.identity.${field}`]))) return false;
     if (!Object.hasOwn(fields, `${slot}.identity.broker_environment`)) return false;
     const brokerEnv = fields[`${slot}.identity.broker_environment`];
     if (brokerEnv !== null && brokerEnv !== "live" && brokerEnv !== "paper") return false;

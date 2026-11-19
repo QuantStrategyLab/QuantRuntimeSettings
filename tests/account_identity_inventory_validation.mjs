@@ -3018,6 +3018,57 @@ for (const [label, runPlan, adverse] of [["A3-populated-loss-free-control", plan
       && item.kind === "stored_identity_differs_from_current"
       && item.records.some(record => record.locator.column === "management_binding_json")),
     "readable sibling conflict survives alongside an unreadable slot");
+
+    // Writer's 200 UTF-16 code-unit bound: 199/200 pass, 201/512/513 fail at both
+    // the raw promotion decoder and the projected-input assembler check.
+    const { MAPPING_POLICY_LIMITS, normalizeMappingPolicy } = await import(new URL("application/account_mapping/policy.js", CONSOLE));
+    assert.equal(MAPPING_POLICY_LIMITS.text, 200);
+    const writerAccepts = slot => {
+      try {
+        normalizeMappingPolicy({ format: "qsl_account_mapping_policy.v1", policy_revision: 1, accounts: [{ management_class: "eligible", deployments: [slot] }] });
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    for (const [label, len] of [["in-199", 199], ["in-200", 200], ["over-201", 201], ["over-512", 512], ["over-513", 513]]) {
+      const slot = { platform: "ibkr", legacy_key: "b2-a", identity: { ...idA, account_selector: "x".repeat(len) } };
+      assert.equal(writerAccepts(slot), len <= 200, `writer acceptance for ${label}`);
+      const boundRun = await inventoryFull({ sql: [state, promotion(JSON.stringify({ membership_json: JSON.stringify([slot]), applied_revision: 1 }))] });
+      if (len <= 200) {
+        assert.equal(boundRun.private.status, ENUMERATED, `${label}: complete`);
+        assert.equal(boundRun.private.groups[11], "complete", `${label}: group 11 complete`);
+      } else {
+        const expectedReasons = [bad("admission_binding_membership_unreadable")];
+        if (len > LONG_STRING) expectedReasons.push(`sql:runtime:research_promotion_applications:0:management_binding_json.[0].identity.account_selector:${SCALAR_LOSS}`);
+        r9Outcome(`B07-${label}`, boundRun, { reasons: expectedReasons, incomplete: [11], needles: ["b2-a", "b2-b"] });
+      }
+      // Projected-input check without raw invalid_slots marker (earlier export shape)
+      const legacyExport = structuredClone(boundRun.exported);
+      for (const page of legacyExport.responses) {
+        if (page.request?.table === "research_promotion_applications") {
+          for (const row of page.body?.rows || []) delete row.columns?.management_binding_json?.membership?.invalid_slots;
+        }
+      }
+      const legacyAssembled = assemble(legacyExport);
+      assert.equal(legacyAssembled.private.groups[11], len <= 200 ? "complete" : "incomplete", `projected-only ${label}`);
+    }
+    const overKey = "k".repeat(201);
+    const overKeySlot = { platform: "ibkr", legacy_key: overKey, identity: { ...idA, key: overKey } };
+    assert.equal(writerAccepts(overKeySlot), false);
+    const overKeyRun = await inventoryFull({ sql: [state, promotion(JSON.stringify({
+      membership_json: JSON.stringify([{ platform: "ibkr", legacy_key: "b2-b", identity: idBDrift }, overKeySlot]),
+      applied_revision: 1,
+    }))] });
+    r9Outcome("B07-over-201-matching-key-with-sibling", overKeyRun, {
+      reasons: [bad("admission_binding_membership_unreadable")],
+      incomplete: [11],
+      needles: ["b2-a", "b2-b"],
+    });
+    assert.ok(overKeyRun.private.mapping.conflicts.some(item => item.legacy_key === "b2-b"
+      && item.kind === "stored_identity_differs_from_current"
+      && item.records.some(record => record.locator.column === "management_binding_json")),
+    "readable sibling drift survives alongside an overlong slot");
   }
 }
 assert.deepEqual(violations, [], "no trap fired in Part A");
