@@ -141,6 +141,29 @@ assert.equal((await executionStatsResponse([{ ...option, platform: "ibkr" }],
   const mixed = await run([u1, u2, uPart, uAmbig, uAmbigRepeat], () => "g1");
   assert.equal(mixed.reported_execution_count, 3);
   assert.deepEqual(mixed.rows.map(r => [r.commission, r.taxes, r.time_zone]), [[null, null, "UTC"], ["1.00", "0.10", null], ["2.00", "0.20", null]]);
+
+  // Two uniquely attributable partials pointing to opposite conflicting versions
+  // must not form a partial-only maximal clique across any of the 24 orders.
+  const u2Part = sib("u-6", [{ ...record, side: "BUY", report_ref: "8".repeat(64), commission: null, taxes: "0.20" }]);
+  for (const order of perms([u1, u2, uPart, u2Part])) {
+    const out = await run(order, () => "g1");
+    assert.equal(out.reported_execution_count, 2);
+    assert.deepEqual(out.per_currency, [{ currency: "USD", reported_execution_count: 2, buy_execution_count: 2, sell_execution_count: 0 }]);
+    assert.deepEqual(out.rows.map(r => [r.commission, r.taxes]), [["1.00", "0.10"], ["2.00", "0.20"]]);
+    assert.equal(out.coverage.length, 4);
+  }
+  // Same-version pair of partials + conflicting full version, and mixed with
+  // repeated ambiguous observations, both retain exact counts and rows.
+  const u1PartTaxes = sib("u-7", [{ ...record, side: "BUY", report_ref: "0".repeat(64), commission: null, taxes: "0.10" }]);
+  for (const order of perms([u1, u2, uPart, u1PartTaxes])) {
+    const out = await run(order, () => "g1");
+    assert.equal(out.reported_execution_count, 2);
+    assert.deepEqual(out.per_currency, [{ currency: "USD", reported_execution_count: 2, buy_execution_count: 2, sell_execution_count: 0 }]);
+  }
+  const mixedBoth = await run([u1, u2, uPart, u2Part, uAmbig, uAmbigRepeat], () => "g1");
+  assert.equal(mixedBoth.reported_execution_count, 3);
+  assert.deepEqual(mixedBoth.per_currency, [{ currency: "USD", reported_execution_count: 3, buy_execution_count: 3, sell_execution_count: 0 }]);
+  assert.deepEqual(mixedBoth.rows.map(r => [r.commission, r.taxes, r.time_zone]), [[null, null, "UTC"], ["1.00", "0.10", null], ["2.00", "0.20", null]]);
 }
 
 const settings = { SESSION_SECRET: "synthetic-session", ALLOWED_GITHUB_LOGINS: "synthetic-reader",

@@ -21,6 +21,17 @@ function compatibleOptional(leftRow, rightRow) {
   return true;
 }
 
+function strictlyExtends(richerRow, partialRow) {
+  let added = false;
+  for (const field of OPTIONAL_FIELDS) {
+    const richer = richerRow[field] ?? null;
+    const partial = partialRow[field] ?? null;
+    if (partial !== null && richer !== partial) return false;
+    if (partial === null && richer !== null) added = true;
+  }
+  return added;
+}
+
 function mergeGroup(entries) {
   const sorted = [...entries].sort(entrySortOrder);
   let merged = { ...sorted[0].row };
@@ -84,11 +95,36 @@ function reduceExecutionBucket(bucket) {
       out.push(mergeGroup(nodes[0].entries));
       continue;
     }
-    const adj = nodes.map(() => new Set());
-    let hasConflict = false;
+    // Attribute strict projections with a unique compatible maximal version
+    // as a batch against the fixed maximal set before forming cliques so
+    // partial-only cliques cannot override unique witnessed attributions.
+    const isMaximal = nodes.map((_, i) => !nodes.some((other, j) => i !== j && strictlyExtends(other.row, nodes[i].row)));
+    const maximalIndices = nodes.map((_, i) => i).filter(i => isMaximal[i]);
+    const attributedNodes = maximalIndices.map(i => ({ row: nodes[i].row, entries: [...nodes[i].entries] }));
+    const remainingNodes = [];
     for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        if (compatibleOptional(nodes[i].row, nodes[j].row)) {
+      if (isMaximal[i]) continue;
+      const extensions = maximalIndices.filter(m => strictlyExtends(nodes[m].row, nodes[i].row));
+      const compatMaximal = maximalIndices.filter(m => compatibleOptional(nodes[i].row, nodes[m].row));
+      const uniqueTarget = extensions.length > 0 && extensions.every(m =>
+        compatMaximal.every(other => m === other || compatibleOptional(nodes[m].row, nodes[other].row))
+      );
+      if (uniqueTarget) {
+        attributedNodes[maximalIndices.indexOf(extensions[0])].entries.push(...nodes[i].entries);
+      } else {
+        remainingNodes.push({ row: nodes[i].row, entries: [...nodes[i].entries] });
+      }
+    }
+    const activeNodes = [...attributedNodes, ...remainingNodes];
+    if (activeNodes.length === 1) {
+      out.push(mergeGroup(activeNodes[0].entries));
+      continue;
+    }
+    const adj = activeNodes.map(() => new Set());
+    let hasConflict = false;
+    for (let i = 0; i < activeNodes.length; i++) {
+      for (let j = i + 1; j < activeNodes.length; j++) {
+        if (compatibleOptional(activeNodes[i].row, activeNodes[j].row)) {
           adj[i].add(j);
           adj[j].add(i);
         } else {
@@ -97,23 +133,23 @@ function reduceExecutionBucket(bucket) {
       }
     }
     if (!hasConflict) {
-      out.push(mergeGroup(nodes.flatMap(node => node.entries)));
+      out.push(mergeGroup(activeNodes.flatMap(node => node.entries)));
       continue;
     }
     // Pairwise compatibility is non-transitive across partial observations:
     // assign a node to a substantive version only when it belongs to a unique
     // maximal clique across the whole bucket; ambiguous nodes stay separate.
     const cliques = maximalCliques(adj);
-    const memberCliques = nodes.map(() => []);
+    const memberCliques = activeNodes.map(() => []);
     for (let c = 0; c < cliques.length; c++) {
       for (const nodeIndex of cliques[c]) memberCliques[nodeIndex].push(c);
     }
     const cliqueEntries = cliques.map(() => []);
-    for (let i = 0; i < nodes.length; i++) {
+    for (let i = 0; i < activeNodes.length; i++) {
       if (memberCliques[i].length === 1) {
-        cliqueEntries[memberCliques[i][0]].push(...nodes[i].entries);
+        cliqueEntries[memberCliques[i][0]].push(...activeNodes[i].entries);
       } else {
-        out.push(mergeGroup(nodes[i].entries));
+        out.push(mergeGroup(activeNodes[i].entries));
       }
     }
     for (const entries of cliqueEntries) {
