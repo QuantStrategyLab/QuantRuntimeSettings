@@ -602,6 +602,31 @@ const group = (body, text) => { const [platform, key] = ref(text); return body.g
   ok("B2-A10", "siblings_share_history_timeline");
   ok("B2-A19", "history_equal_timestamp_pagination");
 
+  // An append between pages never shifts or repeats a returned item: the cursor
+  // is keyed to the last emitted ordering key, and it is bound to its account.
+  {
+    const first = await (await readHistory(okBindings, pA, kA, 1)).json();
+    assert.equal(typeof first.next_cursor, "string");
+    const template = store.rows("account_management_change")[0];
+    const appended = { ...template, event_id: "ffffffff-ffff-4fff-8fff-ffffffffffff", occurred_at: new Date().toISOString() };
+    const columns = Object.keys(appended);
+    store.db.prepare(`INSERT INTO account_management_change (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`).run(...columns.map(column => appended[column]));
+    const rest = [];
+    let cursor = first.next_cursor;
+    for (let i = 0; i < 10 && cursor; i++) {
+      const page = await (await readHistory(okBindings, pA, kA, 1, cursor)).json();
+      rest.push(...page.items.map(item => item.id));
+      cursor = page.next_cursor;
+    }
+    assert.deepEqual([first.items[0].id, ...rest], walkedA, "the pages are the first page's snapshot, unshifted and unrepeated");
+    const wrongAccount = await readHistory(okBindings, pB, "synthetic-other-account", 1, first.next_cursor);
+    assert.ok([400, 404].includes(wrongAccount.status), "a cursor is bound to its account");
+    const forged = await readHistory(okBindings, pA, kA, 1, "12");
+    assert.equal(forged.status, 400, "an offset cursor is rejected");
+    store.db.prepare("DELETE FROM account_management_change WHERE event_id = ?").run(appended.event_id);
+    ok("B2-A19", "history_cursor_stable_under_append");
+  }
+
   // 3. KV failure or missing KV never makes durable management history unavailable (B2-A04 / B2-A19).
   const throwingKv = { get: async key => { if (key === "audit_log") throw new Error("kv_outage"); return null; }, put: async () => {} };
   const noKvResp = await worker.fetch(new Request(`https://console.example/api/account-settings/history?account=${kA}&platform=${pA}`, { headers: { Cookie: cookie } }), {

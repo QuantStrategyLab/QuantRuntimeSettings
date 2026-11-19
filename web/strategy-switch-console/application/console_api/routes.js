@@ -10,6 +10,23 @@ import { inbox } from "./inbox.js";
 import { deskDelivery } from "./desk_delivery.js";
 export { inbox } from "./inbox.js";
 
+// Settings history order: newest first, then id, then source, so the key is total.
+const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
+const historyOrder = (left, right) => compareText(right.time, left.time) || compareText(left.id, right.id) || compareText(left.source, right.source);
+const HISTORY_CURSOR = /^h1\.[A-Za-z0-9_-]{1,2048}$/;
+const encodeHistoryCursor = payload => `h1.${btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(payload)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
+const decodeHistoryCursor = text => JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), char => char.charCodeAt(0))));
+function historyPageQuery(url) {
+  const limit = Number(url.searchParams.get("limit") || 25);
+  const cursor = url.searchParams.get("cursor") || "";
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || (cursor && !HISTORY_CURSOR.test(cursor))) throw new Error("invalid_pagination");
+  if (!cursor) return { limit, cursor: null };
+  let payload;
+  try { payload = decodeHistoryCursor(cursor.slice(3)); } catch { throw new Error("invalid_pagination"); }
+  if (!payload || ["a", "b", "t", "i", "s"].some(field => typeof payload[field] !== "string")) throw new Error("invalid_pagination");
+  return { limit, cursor: { a: payload.a, b: payload.b, key: { time: payload.t, id: payload.i, source: payload.s } } };
+}
+
 export async function consoleApiResponse(request, env, deps) {
   const { json, readSession, command } = deps;
   const url = new URL(request.url),
@@ -43,7 +60,7 @@ export async function consoleApiResponse(request, env, deps) {
   }
   let page;
   try {
-    page = pageQuery(url);
+    page = path === "/api/account-settings/history" ? historyPageQuery(url) : pageQuery(url);
   } catch {
     return json({ ok: false, error: "invalid_pagination" }, 400);
   }
@@ -225,16 +242,24 @@ export async function consoleApiResponse(request, env, deps) {
           return { ...rest, short_id: shortId(rest.id, "CH"), actor_alias: await actorAlias(actor) };
         }),
       );
-      items.sort((a, b) => b.time.localeCompare(a.time) || a.id.localeCompare(b.id));
+      items.sort(historyOrder);
+      // A later page is the remainder of the first page's snapshot: items newer
+      // than its boundary are ignored, and the page starts strictly after the
+      // last emitted ordering key, so an append never shifts a returned item.
+      const accountRef = `${account.platform}/${account.key}`;
+      if (page.cursor && page.cursor.a !== accountRef) return json({ ok: false, error: "invalid_pagination" }, 400);
+      const boundary = page.cursor ? page.cursor.b : new Date().toISOString();
+      const remaining = items.filter(item => item.time <= boundary && (!page.cursor || historyOrder(page.cursor.key, item) < 0));
+      const emitted = remaining.slice(0, page.limit);
+      const last = emitted.at(-1);
       return json({
         status: "partial",
         account_alias: account.key,
         platform: account.platform,
-        items: items.slice(page.offset, page.offset + page.limit),
-        next_cursor:
-          items.length > page.offset + page.limit
-            ? String(page.offset + page.limit)
-            : null,
+        items: emitted,
+        next_cursor: remaining.length > emitted.length
+          ? encodeHistoryCursor({ a: accountRef, b: boundary, t: last.time, i: last.id, s: last.source })
+          : null,
         coverage: "bounded_audit_log_and_durable_account_records",
         availability: {
           draft_saved: auditStatus,
