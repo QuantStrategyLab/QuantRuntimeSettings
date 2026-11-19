@@ -115,6 +115,32 @@ assert.equal((await executionStatsResponse([{ ...option, platform: "ibkr" }],
     if (!baselineOpt) baselineOpt = signature;
     else assert.deepEqual(signature, baselineOpt, "optional-field conflict outcome invariant across permutations");
   }
+
+  // Unique compatibility across conflicting versions: a partial observation
+  // matching only one version supplements it without creating a third count,
+  // while ambiguous partials stay separate.
+  const u1 = sib("u-1", [{ ...record, side: "BUY", report_ref: "a".repeat(64), commission: "1.00", taxes: "0.10" }]);
+  const u2 = sib("u-2", [{ ...record, side: "BUY", report_ref: "b".repeat(64), commission: "2.00", taxes: "0.20" }]);
+  const uPart = sib("u-3", [{ ...record, side: "BUY", report_ref: "c".repeat(64), commission: "1.00", taxes: null }]);
+  for (const order of perms([u1, u2, uPart])) {
+    const out = await run(order, () => "g1");
+    assert.equal(out.reported_execution_count, 2);
+    assert.deepEqual(out.per_currency, [{ currency: "USD", reported_execution_count: 2, buy_execution_count: 2, sell_execution_count: 0 }]);
+    assert.deepEqual(out.rows.map(r => [r.commission, r.taxes]), [["1.00", "0.10"], ["2.00", "0.20"]]);
+    assert.equal(out.coverage.length, 3);
+  }
+  const u1Part = sib("u-1p", [{ ...record, side: "BUY", report_ref: "d".repeat(64), commission: "1.00", taxes: null }]);
+  const uPart2 = sib("u-3p", [{ ...record, side: "BUY", report_ref: "e".repeat(64), commission: null, taxes: "0.10" }]);
+  for (const order of perms([u1Part, uPart2, u2])) {
+    const out = await run(order, () => "g1");
+    assert.equal(out.reported_execution_count, 2);
+    assert.deepEqual(out.rows.map(r => [r.commission, r.taxes]), [["1.00", "0.10"], ["2.00", "0.20"]]);
+  }
+  const uAmbig = sib("u-4", [{ ...record, side: "BUY", report_ref: "f".repeat(64), commission: null, taxes: null, time_zone: "UTC" }]);
+  const uAmbigRepeat = sib("u-5", [{ ...record, side: "BUY", report_ref: "9".repeat(64), commission: null, taxes: null, time_zone: "UTC" }]);
+  const mixed = await run([u1, u2, uPart, uAmbig, uAmbigRepeat], () => "g1");
+  assert.equal(mixed.reported_execution_count, 3);
+  assert.deepEqual(mixed.rows.map(r => [r.commission, r.taxes, r.time_zone]), [[null, null, "UTC"], ["1.00", "0.10", null], ["2.00", "0.20", null]]);
 }
 
 const settings = { SESSION_SECRET: "synthetic-session", ALLOWED_GITHUB_LOGINS: "synthetic-reader",

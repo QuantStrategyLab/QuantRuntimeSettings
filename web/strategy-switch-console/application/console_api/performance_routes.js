@@ -373,12 +373,10 @@ export async function performanceResponse(request, env, deps) {
       const byDate = new Map();
       for (const entry of okEntries) {
         for (const p of entry.points) {
-          const val = number(p.amount);
-          if (val === null || typeof p.observation_date !== "string" || !p.observation_date) continue;
+          if (number(p.amount) === null || typeof p.observation_date !== "string" || !p.observation_date) continue;
           const list = byDate.get(p.observation_date) || [];
           list.push({
             optionKey: entry.option.key,
-            value: val,
             amount: String(p.amount),
             observedAt: typeof p.observed_at === "string" ? p.observed_at : null,
             breakBefore: p.break_before === true,
@@ -394,7 +392,9 @@ export async function performanceResponse(request, env, deps) {
       let latestAgreed = null;
       for (const date of dates) {
         const obs = byDate.get(date);
-        if (new Set(obs.map(item => item.value)).size > 1) {
+        // Compare the producer's canonical decimal text before binary64
+        // conversion so distinct high-precision valuations still conflict.
+        if (new Set(obs.map(item => item.amount)).size > 1) {
           conflictingDates.add(date);
           prevConflicted = true;
           continue;
@@ -407,7 +407,7 @@ export async function performanceResponse(request, env, deps) {
         const chosen = orderedObs[0];
         const breakBefore = obs.some(item => item.breakBefore) || prevConflicted;
         prevConflicted = false;
-        mergedPoints.push({ date, value: chosen.value, externalFlow: null, breakBefore });
+        mergedPoints.push({ date, value: number(chosen.amount), externalFlow: null, breakBefore });
         latestAgreed = { date, amount: chosen.amount, observedAt: chosen.observedAt };
       }
       if (conflictingDates.size > 0 && !failed.includes(rep.key)) failed.push(rep.key);

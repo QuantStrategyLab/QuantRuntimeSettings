@@ -1110,6 +1110,32 @@ if (out) await writeFile(out, rec.report());
     assert.deepEqual([distinct.per_currency[0].total, distinct.per_currency[0].account_count], [1500, 2]);
     const single = await runWallet({ scope: "bin-a", walletMap: { "bin-a": { points: pts }, "bin-b": { points: pts } } });
     assert.deepEqual([single.per_currency[0].total, single.per_currency[0].account_count], [1100, 1]);
+    // R3-W: canonical decimals colliding in binary64 must still conflict on
+    // latest and interior dates, while exact canonical equality agrees.
+    const hpAgreed = [
+      { observation_date: "2026-11-17", amount: "1000.00000000000000001", observed_at: "2026-11-17T10:00:00Z", break_before: false },
+      { observation_date: "2026-11-18", amount: "1000.00000000000000001", observed_at: "2026-11-18T10:00:00Z", break_before: false },
+    ];
+    const hpClash = await runWallet({
+      walletMap: {
+        "bin-a": { points: hpAgreed },
+        "bin-b": { points: [hpAgreed[0], { ...hpAgreed[1], amount: "1000.00000000000000002" }] },
+      },
+    });
+    assert.equal(hpClash.per_currency.length, 0);
+    assert.equal(hpClash.account_freshness[0].unavailable_reason, "aggregation_conflict");
+    assert.deepEqual(hpClash.points.map(p => p.date), ["2026-11-17"]);
+    const hpInterior = await runWallet({
+      walletMap: {
+        "bin-a": { points: [hpAgreed[0], { observation_date: "2026-11-18", amount: "1100", observed_at: "2026-11-18T10:00:00Z", break_before: false }] },
+        "bin-b": { points: [{ ...hpAgreed[0], amount: "1000.00000000000000002" }, { observation_date: "2026-11-18", amount: "1100", observed_at: "2026-11-18T10:00:00Z", break_before: false }] },
+      },
+    });
+    assert.equal(hpInterior.curve_status, "partial");
+    assert.equal(hpInterior.per_currency[0].total, 1100);
+    assert.deepEqual(hpInterior.points.map(p => p.date), ["2026-11-18"]);
+    const hpSame = await runWallet({ walletMap: { "bin-a": { points: hpAgreed }, "bin-b": { points: hpAgreed } } });
+    assert.deepEqual([hpSame.per_currency[0].total, hpSame.per_currency[0].account_count, hpSame.points.length], [1000, 1, 2]);
     ok("B2-A17", "b09_and_r3w_physical_group_aggregation");
   }
 }

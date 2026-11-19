@@ -246,9 +246,11 @@ export function PlatformFactsSummary({ rows, expected, phase }: {
     const nonPaper = hasStamped
       ? entries.filter(entry => entry.disposition !== "paper").map(entry => entry.row)
       : rows.filter(row => !isPaperFact(row));
-    const nonPaperEntries = hasStamped ? entries.filter(entry => entry.disposition !== "paper") : [];
-    const allExcludedByManagement = hasStamped && nonPaperEntries.length > 0
-      && nonPaperEntries.every(entry => entry.disposition === "disabled" || entry.disposition === "not_under_management");
+    const allExcludedByManagement = hasStamped && entries.length > 0
+      && entries.every(entry =>
+        entry.disposition === "paper"
+        || entry.disposition === "disabled"
+        || entry.disposition === "not_under_management");
     const anyVerified = nonPaper.some(row => isReadableFact(row) && row.aggregation_status === "included");
     const anyReadable = nonPaper.some(isReadableFact);
     const stateKey = !rows.length

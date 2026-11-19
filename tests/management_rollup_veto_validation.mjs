@@ -87,6 +87,18 @@ try {
   assert.equal(certCov.accounts[1].reason, "paper_account");
   assert.equal(platformCurrencyTotals(certRows, 2)[0].netAssets, "100", "platform rollup excludes certified paper even with live declaration");
 
+  const paperOnlyCohort = managementCohort({ format: "qsl_account_management_readback.v1", status: "available", physical_grouping_complete: true,
+    evidence_scope: "synthetic", observed_at: "2026-11-18T00:00:00.000Z", instance_revision: 1, policy_revision: 1,
+    groups: [{ deployments: [dep("syn-paper-cert")], management_status: "managed", evidence_state: "known", scope: "paper", reasons: [] }] });
+  const paperOnlyRows = [structuredClone(certPaperNoOwn)];
+  const paperOnlyTot = aggregateAccountFactsTotals(paperOnlyRows, new Map([[paperOnlyRows[0], "id-p"]]), paperOnlyCohort);
+  const paperOnlyCov = accountFactsAssetCoverage(paperOnlyRows, paperOnlyTot, paperOnlyCohort);
+  assert.equal(paperOnlyTot.reason, "no_managed_non_paper_accounts");
+  assert.equal(paperOnlyCov.accounts[0].reason, "paper_account");
+  assert.equal(platformCurrencyTotals(paperOnlyRows, 1).length, 0);
+  assert.ok(renderPlatform("zh", paperOnlyRows, 1).includes('data-state="facts.platform_no_managed_accounts"'));
+  assert.ok(renderPlatform("en", paperOnlyRows, 1).includes('data-state="facts.platform_no_managed_accounts"'));
+
   const unkDeclaredPaper = serverRow({ ...managed, broker_environment: null, account_scope: null,
     user_declaration: { source: "user_declared", environment: "paper", account_type: null } }, "syn-unknown");
   const unkRows = [structuredClone(liveSrv), unkDeclaredPaper];

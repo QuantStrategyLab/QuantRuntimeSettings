@@ -6,6 +6,57 @@ const OPTIONAL_FIELDS = ["local_time", "time_zone", "commission", "commission_cu
 const SUBSTANTIVE_FIELDS = [...REQUIRED_FIELDS, ...OPTIONAL_FIELDS];
 const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
 const fieldTupleKey = (row, fields) => JSON.stringify(fields.map(field => row[field] ?? null));
+const entrySortOrder = (left, right) =>
+  compareText(fieldTupleKey(left.row, SUBSTANTIVE_FIELDS), fieldTupleKey(right.row, SUBSTANTIVE_FIELDS))
+  || compareText(left.platform, right.platform)
+  || compareText(left.account_alias, right.account_alias)
+  || compareText(left.row.report_ref || "", right.row.report_ref || "");
+
+function compatibleOptional(leftRow, rightRow) {
+  for (const field of OPTIONAL_FIELDS) {
+    const left = leftRow[field] ?? null;
+    const right = rightRow[field] ?? null;
+    if (left !== null && right !== null && left !== right) return false;
+  }
+  return true;
+}
+
+function mergeGroup(entries) {
+  const sorted = [...entries].sort(entrySortOrder);
+  let merged = { ...sorted[0].row };
+  for (const entry of sorted.slice(1)) merged = mergeExecutionRecord(merged, entry.row);
+  return { platform: sorted[0].platform, account_alias: sorted[0].account_alias, ...merged };
+}
+
+function maximalCliques(adj) {
+  const cliques = [];
+  const expand = (r, p, x) => {
+    if (p.size === 0 && x.size === 0) {
+      cliques.push([...r]);
+      return;
+    }
+    // Pivot with maximum neighbors in p to prune branching on large partitions.
+    let pivot = -1;
+    let best = -1;
+    for (const u of [...p, ...x]) {
+      let deg = 0;
+      for (const v of p) if (adj[u].has(v)) deg++;
+      if (deg > best) { best = deg; pivot = u; }
+    }
+    const candidates = [...p].filter(v => !adj[pivot].has(v));
+    for (const v of candidates) {
+      const nextP = new Set([...p].filter(u => adj[v].has(u)));
+      const nextX = new Set([...x].filter(u => adj[v].has(u)));
+      r.push(v);
+      expand(r, nextP, nextX);
+      r.pop();
+      p.delete(v);
+      x.add(v);
+    }
+  };
+  expand([], new Set(adj.keys()), new Set());
+  return cliques;
+}
 
 function reduceExecutionBucket(bucket) {
   const byRequired = new Map();
@@ -17,28 +68,56 @@ function reduceExecutionBucket(bucket) {
   }
   const out = [];
   for (const partition of byRequired.values()) {
-    // When an optional field carries multiple conflicting non-null values in
-    // the same bucket, keep both distinct values and missing-field rows in
-    // separate deterministic sub-groups so a missing value never depends on
-    // arrival order to choose which conflicting version it merges with.
-    const conflictingOptional = OPTIONAL_FIELDS.filter(field =>
-      new Set(partition.map(entry => entry.row[field] ?? null).filter(value => value !== null)).size > 1);
-    const subGroups = new Map();
+    // Collapse exact substantive repeats first so repeat multiplicity never
+    // alters compatibility or survives as duplicate rows.
+    const bySubstantive = new Map();
     for (const entry of partition) {
-      const key = fieldTupleKey(entry.row, conflictingOptional);
-      const list = subGroups.get(key) || [];
+      const subKey = fieldTupleKey(entry.row, SUBSTANTIVE_FIELDS);
+      const list = bySubstantive.get(subKey) || [];
       list.push(entry);
-      subGroups.set(key, list);
+      bySubstantive.set(subKey, list);
     }
-    for (const entries of subGroups.values()) {
-      const sorted = [...entries].sort((left, right) =>
-        compareText(fieldTupleKey(left.row, SUBSTANTIVE_FIELDS), fieldTupleKey(right.row, SUBSTANTIVE_FIELDS))
-        || compareText(left.platform, right.platform)
-        || compareText(left.account_alias, right.account_alias)
-        || compareText(left.row.report_ref || "", right.row.report_ref || ""));
-      let merged = { ...sorted[0].row };
-      for (const entry of sorted.slice(1)) merged = mergeExecutionRecord(merged, entry.row);
-      out.push({ platform: sorted[0].platform, account_alias: sorted[0].account_alias, ...merged });
+    const nodes = [...bySubstantive.entries()]
+      .sort((a, b) => compareText(a[0], b[0]))
+      .map(([, entries]) => ({ row: entries[0].row, entries }));
+    if (nodes.length === 1) {
+      out.push(mergeGroup(nodes[0].entries));
+      continue;
+    }
+    const adj = nodes.map(() => new Set());
+    let hasConflict = false;
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        if (compatibleOptional(nodes[i].row, nodes[j].row)) {
+          adj[i].add(j);
+          adj[j].add(i);
+        } else {
+          hasConflict = true;
+        }
+      }
+    }
+    if (!hasConflict) {
+      out.push(mergeGroup(nodes.flatMap(node => node.entries)));
+      continue;
+    }
+    // Pairwise compatibility is non-transitive across partial observations:
+    // assign a node to a substantive version only when it belongs to a unique
+    // maximal clique across the whole bucket; ambiguous nodes stay separate.
+    const cliques = maximalCliques(adj);
+    const memberCliques = nodes.map(() => []);
+    for (let c = 0; c < cliques.length; c++) {
+      for (const nodeIndex of cliques[c]) memberCliques[nodeIndex].push(c);
+    }
+    const cliqueEntries = cliques.map(() => []);
+    for (let i = 0; i < nodes.length; i++) {
+      if (memberCliques[i].length === 1) {
+        cliqueEntries[memberCliques[i][0]].push(...nodes[i].entries);
+      } else {
+        out.push(mergeGroup(nodes[i].entries));
+      }
+    }
+    for (const entries of cliqueEntries) {
+      if (entries.length) out.push(mergeGroup(entries));
     }
   }
   return out;

@@ -408,7 +408,18 @@ assert.equal(getPlatformAdapter("binance").capability().canEnable, false);
         expected: 1, phase: "ready",
       });
       assert.ok(!/USD\s*\d/.test(certPaperHtml), "certified paper missing own scope never sums even with live declaration");
-      assert.ok(certPaperHtml.includes('data-state="state.no_data"'));
+      assert.ok(certPaperHtml.includes('data-state="facts.platform_no_managed_accounts"'));
+      const legacyPaperHtml = ui.platform(language, theme, {
+        rows: [baseFact("syn-paper-legacy", {
+          broker_environment: "paper", account_scope: "paper",
+          management_status: undefined, evidence_state: undefined,
+          management_disposition: undefined, management_scope_conflict: undefined,
+        })],
+        expected: 1, phase: "ready",
+      });
+      assert.ok(legacyPaperHtml.includes('data-state="state.no_data"'), "legacy unstamped paper retains state.no_data");
+      const emptyCohortHtml = ui.platform(language, theme, { rows: [], expected: 0, phase: "ready" });
+      assert.ok(emptyCohortHtml.includes('data-state="state.not_connected"'));
       const unkPaperDeclHtml = ui.platform(language, theme, {
         rows: [baseFact("syn-a", { management_status: "managed", evidence_state: "known", management_disposition: "managed" }),
           baseFact("syn-unk", { broker_environment: null, account_scope: null, user_declaration: { source: "user_declared", environment: "paper", account_type: null },
