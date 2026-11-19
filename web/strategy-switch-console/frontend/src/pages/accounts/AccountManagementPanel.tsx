@@ -101,6 +101,35 @@ export function AccountManagementSectionView({
   const disableId = useId();
   const radioName = useId();
 
+  // A write proven committed whose current state is not yet read outranks every
+  // empty-section branch: the operator sees the distinction and can reread.
+  if (!section && editor.committedStateUnknown) {
+    return (
+      <section className="card management-card" data-management-panel="committed_unknown">
+        <div className="accounts-detail-head">
+          <h2 className="card-title">{t("accounts.management.title")}</h2>
+          <ManagementStatusBadges status="unknown" evidenceState="unknown" />
+        </div>
+        <p className="card-note">{t("accounts.management.note")}</p>
+        <p className="accounts-inline-note" role="status" data-state="management.committed_unknown">
+          {t("accounts.management.committed_unknown")}
+        </p>
+        {readState === "failed" && (
+          <p className="accounts-inline-note error" role="alert" data-state="management.read_failed">
+            {t("accounts.management.read_failed")}
+          </p>
+        )}
+        {onRefresh && (
+          <div className="accounts-toolbar">
+            <button type="button" className="button button-secondary" disabled={readState === "loading"} onClick={onRefresh}>
+              {t("accounts.management.reread")}
+            </button>
+          </div>
+        )}
+      </section>
+    );
+  }
+
   if (readState === "loading" && !section) {
     return (
       <section className="card management-card" data-management-panel="loading">
@@ -141,7 +170,10 @@ export function AccountManagementSectionView({
   const isConflict = section.evidence_state === "conflict";
   const isEligible = section.management_class === "eligible" && !policyUnavailable && !isConflict;
   const controlsDisabled = !canAdminWrite || !isEligible || editor.uncertain || Boolean(editor.saving);
-  const canSaveDraft = !controlsDisabled && (editor.draftValue === "true" || editor.draftValue === "false") && (editor.dirty || !section.draft || section.draft.status !== "pending");
+  const canSaveDraft = !controlsDisabled && (editor.draftValue === "true" || editor.draftValue === "false");
+  // An unchanged pending value stays saveable: after a revision conflict and a
+  // reread the stored draft is stale, and only a fresh save (new key, current
+  // expectations) makes it appliable again.
   const canApplyDraft = !controlsDisabled && section.draft?.status === "pending" && !editor.dirty;
   const reasonTexts = section.reasons.map(reason => t(`reason.${reason}`)).filter(Boolean);
 

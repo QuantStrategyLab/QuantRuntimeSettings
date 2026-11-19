@@ -466,6 +466,9 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
   const mgmtStore = managementStoreFor(unresolvedSaves);
   let selected: AccountSettingsAccount | null = null;
   let view = emptyView();
+  // A flagged review blocks a write only while an unreread edit is held against
+  // moved revisions; a clean reread (the pending value restored) may be resaved.
+  const managementReviewBlocks = () => view.review.management && view.management.dirty;
   let lastSettings: Record<string, any> | null = null;
   let saveSnapshot: AccountSettingsSaveSnapshot | null = null;
   let managementSnapshot: ManagementPendingSave | null = null;
@@ -993,6 +996,7 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
           dirty: next !== baseline,
           staleReplayIgnored: false,
         },
+        review: { ...view.review, management: view.management.dirty ? view.review.management : false },
       };
       return true;
     },
@@ -1016,7 +1020,7 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
       if (view.settings.platform !== selected.platform || view.settings.key !== selected.key) return null;
       if (!record(view.settings.identity)) return null;
       const section = view.management.section;
-      if (!canWriteManagement(view.settings, section) || view.review.management) return null;
+      if (!canWriteManagement(view.settings, section) || managementReviewBlocks()) return null;
       if (view.management.draftValue !== "true" && view.management.draftValue !== "false") return null;
       const siblings = managementSiblingKeys(selected, section.siblings);
       if (siblings.some(sibKey => mgmtStore.pending.has(sibKey))) return null;
@@ -1058,7 +1062,7 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
       if (view.settings.platform !== selected.platform || view.settings.key !== selected.key) return null;
       if (!record(view.settings.identity)) return null;
       const section = view.management.section;
-      if (!canWriteManagement(view.settings, section) || view.review.management) return null;
+      if (!canWriteManagement(view.settings, section) || managementReviewBlocks()) return null;
       if (!section.draft || section.draft.status !== "pending" || view.management.dirty) return null;
       const siblings = managementSiblingKeys(selected, section.siblings);
       if (siblings.some(sibKey => mgmtStore.pending.has(sibKey))) return null;

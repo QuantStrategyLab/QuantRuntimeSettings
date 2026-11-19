@@ -1007,9 +1007,41 @@ console.log('account declaration acknowledgement boundaries: PASS');
   assert.equal(blind.applyManagementSuccess(blindSave.op, blindReceipt, null), true);
   assert.deepEqual([blind.view().management.committedStateUnknown, blind.view().management.section, blind.view().management.uncertain], [true, null, false]);
   assert.equal(blind.startManagementDraftSave("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"), null, "no write is offered until a read presents a section");
+  // B03: a repeated failed reread keeps the proven-commit distinction and offers no write.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    assert.equal(blind.applyUnavailable(blind.start("refresh"), ""), true);
+    assert.deepEqual([blind.view().management.committedStateUnknown, blind.view().management.section], [true, null], "failed reread keeps committed-unknown");
+    assert.equal(blind.startManagementDraftSave("cccccccc-cccc-4ccc-8ccc-cccccccccccc"), null);
+  }
   assert.equal(blind.applyRefresh(blind.start("refresh"), mgmtSettings("syn-pair-a")), true);
   assert.equal(blind.view().management.committedStateUnknown, false);
   assert.ok(blind.view().management.section);
+
+  // Q-D: repeat conflict -> reread -> same-value save -> apply on each revision axis.
+  for (const axis of ["management_instance_revision_conflict", "management_policy_revision_conflict"]) {
+    const q = createAccountSettingsController(new Map());
+    assert.equal(q.applyRead(q.select({ platform: "longbridge", key: "syn-pair-a" }), mgmtSettings("syn-pair-a")), true);
+    assert.equal(q.editManagement(false), true);
+    const first = q.startManagementDraftSave("dddddddd-dddd-4ddd-8ddd-dddddddddddd");
+    assert.equal(q.markManagementSubmitting(first.op), true);
+    assert.equal(q.failManagement(first.op, false, axis), true);
+    q.finish(first.op);
+    const moved = axis.includes("instance") ? { instance_revision: 6 } : { policy_revision: 3 };
+    const reread = mgmtSettings("syn-pair-a", { ...moved, draft: { management_enabled: false, revision: 2, base_applied_revision: 1, status: "pending", consumed_applied_revision: null } });
+    assert.equal(q.applyRefresh(q.start("refresh"), reread), true);
+    assert.equal(q.view().management.dirty, false);
+    assert.equal(q.view().management.draftValue, "false", "the reread restores the pending value");
+    assert.ok(q.startManagementApply("12121212-1212-4212-8212-121212121212"), "apply is offered once the reread is clean");
+    const again = q.startManagementDraftSave("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee");
+    assert.ok(again, "same-value save is offered after the reread");
+    assert.deepEqual([again.body.management_draft.management_enabled, again.body.expected_management_draft_revision,
+      again.body.expected_instance_revision, again.body.expected_policy_revision], [false, 2, moved.instance_revision ?? 5, moved.policy_revision ?? 2], "CAS carries the current expectations");
+    assert.notEqual(again.body.request_key, first.body.request_key);
+    // The uncertain-write gate still holds: an unconfirmed save blocks a second one.
+    assert.equal(q.markManagementSubmitting(again.op), true);
+    assert.equal(q.failManagement(again.op, true), true);
+    assert.equal(q.startManagementDraftSave("ffffffff-ffff-4fff-8fff-ffffffffffff"), null, "unconfirmed write gates a new save");
+  }
 
   // A competing writer's matching revision does not acknowledge a lost write either.
   const rival = createAccountSettingsController(new Map());

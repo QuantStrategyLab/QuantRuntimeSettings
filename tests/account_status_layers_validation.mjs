@@ -288,6 +288,27 @@ assert.equal(getPlatformAdapter("binance").capability().canEnable, false);
       assert.ok(pendingHtml.includes("management-draft-pending"));
       recordCell("pending_vs_applied", "B2-A13", language, theme);
 
+      // 3b. B03/Q-D: unchanged pending value keeps an enabled Save (a stale draft needs a fresh save).
+      const buttonDisabled = (html, label) => new RegExp(`<button[^>]*disabled=""[^>]*>${label}</button>`).test(html);
+      const saveLabel = language === "zh" ? "保存管理草案" : "Save management draft";
+      assert.ok(pendingText.includes(saveLabel) && !buttonDisabled(pendingHtml, saveLabel), "Save stays available for an unchanged pending value");
+      const noWrite = ui.management(language, theme, { section: baseSection({ draft: { management_enabled: false, revision: 2, base_applied_revision: 1, status: "pending", consumed_applied_revision: null } }),
+        editor: baseEditor({ draftValue: "false", uncertain: true }), canAdminWrite: true, readState: "ready", feedback: null });
+      assert.ok(buttonDisabled(noWrite, saveLabel), "the uncertain-write gate still disables Save");
+      recordCell("pending_resave", "B2-A13", language, theme);
+
+      // 3c. B03: proven commit with no readable section renders the warning and a reread in every read state.
+      for (const readState of ["ready", "failed", "loading"]) {
+        const html = ui.management(language, theme, { section: null, editor: baseEditor({ committedStateUnknown: true }),
+          canAdminWrite: true, readState, feedback: null, onRefresh: () => {} });
+        assert.ok(html.includes('data-state="management.committed_unknown"'), `committed warning renders (${readState})`);
+        assert.ok(html.includes(language === "zh" ? "重新读取" : "Re-read"), `reread action renders (${readState})`);
+        assert.ok(!html.includes("management-radio"), "no ordinary edit controls without a section");
+      }
+      const plain = ui.management(language, theme, { section: null, editor: baseEditor(), canAdminWrite: true, readState: "ready", feedback: null });
+      assert.equal(plain, "", "without a proven commit an empty ready section still renders nothing");
+      recordCell("committed_unknown_empty", "B2-A13", language, theme);
+
       // 4. Uninitialized eligible account (rev 0, applied === null, never OFF)
       const uninitHtml = ui.management(language, theme, {
         section: baseSection({
