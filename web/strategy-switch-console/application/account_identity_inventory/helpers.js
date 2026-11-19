@@ -155,6 +155,21 @@ function declarationField(object, field) {
   return DECLARATION_VALUES[field].includes(item) ? { present: true, value: item, valid: true }
     : { present: true, valid: false, value_type: Array.isArray(item) ? "array" : typeof item };
 }
+const ADMISSION_IDENTITY_FIELDS = ["platform", "key", "target_name", "broker_environment", "account_selector",
+  "deployment_selector", "account_scope", "service_name"];
+
+function validAdmissionSlotValue(slot) {
+  if (!isObject(slot) || Object.keys(slot).length !== 3) return false;
+  if (typeof slot.platform !== "string" || !slot.platform || typeof slot.legacy_key !== "string" || !slot.legacy_key) return false;
+  const identity = slot.identity;
+  if (!isObject(identity) || Object.keys(identity).length !== ADMISSION_IDENTITY_FIELDS.length) return false;
+  if (!ADMISSION_IDENTITY_FIELDS.every(field => Object.hasOwn(identity, field))) return false;
+  if (identity.platform !== slot.platform || identity.key !== slot.legacy_key) return false;
+  return ADMISSION_IDENTITY_FIELDS.every(field => field === "broker_environment"
+    ? identity[field] === null || identity[field] === "live" || identity[field] === "paper"
+    : typeof identity[field] === "string");
+}
+
 // The admission binding a promotion stored: an outer JSON object holding the
 // applied revision and the admitted group as a serialized membership string.
 // The inner string is projected as one bounded identity document (each member
@@ -171,6 +186,16 @@ export function admissionBindingProjection(text) {
   // membership is invalid cardinality, never zero sibling references.
   if (membership.state === "valid" && !membership.truncated && !(Number.isSafeInteger(membership.counts?.$) && membership.counts.$ >= 1)) {
     return { state: "valid", bytes: parsed.bytes, applied_revision: value.applied_revision, membership: { state: "unexpected_shape", bytes: membership.bytes } };
+  }
+  if (membership.state === "valid" && !membership.truncated) {
+    const parsedMembership = JSON.parse(value.membership_json);
+    if (Array.isArray(parsedMembership)) {
+      const invalidSlots = [];
+      for (let index = 0; index < parsedMembership.length; index += 1) {
+        if (!validAdmissionSlotValue(parsedMembership[index])) invalidSlots.push(index);
+      }
+      if (invalidSlots.length) membership.invalid_slots = invalidSlots;
+    }
   }
   return { state: "valid", bytes: parsed.bytes, applied_revision: value.applied_revision, membership };
 }

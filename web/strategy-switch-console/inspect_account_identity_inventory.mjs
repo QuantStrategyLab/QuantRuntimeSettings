@@ -121,6 +121,32 @@ function chain(pages, reasons, label) {
   return ordered;
 }
 
+const ADMISSION_STRING_IDENTITY_FIELDS = ["target_name", "account_selector", "deployment_selector", "account_scope", "service_name"];
+function validAdmissionMembershipSlots(membership) {
+  if (!membership || membership.state !== "valid") return false;
+  if (Array.isArray(membership.invalid_slots) && membership.invalid_slots.length > 0) return false;
+  if (Array.isArray(membership.redacted) && membership.redacted.length > 0) return false;
+  const count = membership.counts?.$;
+  if (!Number.isSafeInteger(count) || count < 1) return false;
+  const fields = membership.fields || {};
+  const isTextOrLong = value => (typeof value === "string") || (value !== null && typeof value === "object" && Number.isSafeInteger(value.long_string));
+  const isNonEmptyTextOrLong = value => (typeof value === "string" && value.length > 0) || (value !== null && typeof value === "object" && Number.isSafeInteger(value.long_string));
+  for (let index = 0; index < count; index += 1) {
+    const slot = `[${index}]`;
+    const depPlatform = fields[`${slot}.platform`], depKey = fields[`${slot}.legacy_key`];
+    const idPlatform = fields[`${slot}.identity.platform`], idKey = fields[`${slot}.identity.key`];
+    if (!isNonEmptyTextOrLong(depPlatform) || !isNonEmptyTextOrLong(depKey)
+      || !isNonEmptyTextOrLong(idPlatform) || !isNonEmptyTextOrLong(idKey)) return false;
+    if (typeof depPlatform === "string" && typeof idPlatform === "string" && depPlatform !== idPlatform) return false;
+    if (typeof depKey === "string" && typeof idKey === "string" && depKey !== idKey) return false;
+    if (!ADMISSION_STRING_IDENTITY_FIELDS.every(field => isTextOrLong(fields[`${slot}.identity.${field}`]))) return false;
+    if (!Object.hasOwn(fields, `${slot}.identity.broker_environment`)) return false;
+    const brokerEnv = fields[`${slot}.identity.broker_environment`];
+    if (brokerEnv !== null && brokerEnv !== "live" && brokerEnv !== "paper") return false;
+  }
+  return true;
+}
+
 function assembleObject(object, responses) {
   const reasons = [];
   const ok = responses.filter(item => item.request.object === object && item.status === 200 && item.body?.ok === true);
@@ -176,6 +202,7 @@ function assembleObject(object, responses) {
           if (projection.state !== "valid") losses.add(`${name}:${column}:admission_binding_unreadable`);
           else if (projection.membership?.state !== "valid") losses.add(`${name}:${column}:admission_binding_membership_unreadable`);
           else if (projection.membership.truncated) losses.add(`${name}:${column}:identity_projection_truncated`);
+          else if (!validAdmissionMembershipSlots(projection.membership)) losses.add(`${name}:${column}:admission_binding_membership_unreadable`);
         }
       }
       if (name === "account_facts_daily" && walletIdentity(row)?.unresolved) losses.add(`${name}:wallet_history_identity_unresolved`);

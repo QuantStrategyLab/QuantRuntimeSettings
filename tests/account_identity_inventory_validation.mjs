@@ -2994,10 +2994,30 @@ for (const [label, runPlan, adverse] of [["A3-populated-loss-free-control", plan
       ["inner-not-json", JSON.stringify({ membership_json: "{bad", applied_revision: 1 }), "admission_binding_membership_unreadable"],
       ["inner-empty-array", JSON.stringify({ membership_json: "[]", applied_revision: 1 }), "admission_binding_membership_unreadable"],
       ["inner-empty-object", JSON.stringify({ membership_json: "{}", applied_revision: 1 }), "admission_binding_membership_unreadable"],
+      ["slot-empty-object", JSON.stringify({ membership_json: JSON.stringify([{}]), applied_revision: 1 }), "admission_binding_membership_unreadable"],
+      ["slot-missing-identity", JSON.stringify({ membership_json: JSON.stringify([{ platform: "ibkr", legacy_key: "b2-b" }]), applied_revision: 1 }), "admission_binding_membership_unreadable"],
+      ["slot-partial-identity", JSON.stringify({ membership_json: JSON.stringify([{ platform: "ibkr", legacy_key: "b2-b", identity: { platform: "ibkr", key: "b2-b" } }]), applied_revision: 1 }), "admission_binding_membership_unreadable"],
+      ["slot-invalid-broker-env", JSON.stringify({ membership_json: JSON.stringify([{ platform: "ibkr", legacy_key: "b2-b", identity: { ...idBDrift, broker_environment: "staging" } }]), applied_revision: 1 }), "admission_binding_membership_unreadable"],
+      ["slot-key-mismatch", JSON.stringify({ membership_json: JSON.stringify([{ platform: "ibkr", legacy_key: "b2-b", identity: { ...idBDrift, key: "other" } }]), applied_revision: 1 }), "admission_binding_membership_unreadable"],
     ]) {
       const run = await inventoryFull({ sql: [state, promotion(text)] });
       r9Outcome(`B07-${label}`, run, { reasons: [bad(reason)], incomplete: [11], needles: ["b2-a", "b2-b"] });
     }
+    const mixedSlotRun = await inventoryFull({
+      sql: [state, promotion(JSON.stringify({
+        membership_json: JSON.stringify([{ platform: "ibkr", legacy_key: "b2-b", identity: idBDrift }, {}]),
+        applied_revision: 1,
+      }))],
+    });
+    r9Outcome("B07-bad-slot-beside-valid-sibling", mixedSlotRun, {
+      reasons: [bad("admission_binding_membership_unreadable")],
+      incomplete: [11],
+      needles: ["b2-a", "b2-b"],
+    });
+    assert.ok(mixedSlotRun.private.mapping.conflicts.some(item => item.legacy_key === "b2-b"
+      && item.kind === "stored_identity_differs_from_current"
+      && item.records.some(record => record.locator.column === "management_binding_json")),
+    "readable sibling conflict survives alongside an unreadable slot");
   }
 }
 assert.deepEqual(violations, [], "no trap fired in Part A");
