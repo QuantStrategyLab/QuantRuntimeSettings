@@ -45,8 +45,10 @@ export const outbound = { count: 0 };
 globalThis.fetch = async () => { outbound.count += 1; throw new Error("outbound_call_trapped"); };
 
 let sequence = 0;
-export function createStore({ file = ":memory:", seed = true, instances = INSTANCES, revision = INSTANCE_REVISION } = {}) {
+export function createStore({ file = ":memory:", seed = true, init = true, instances = INSTANCES, revision = INSTANCE_REVISION } = {}) {
   const db = new DatabaseSync(file);
+  const kv = new Map();
+  let alarmAt = null;
   const faults = { exec: null, beforeCommit: null, writes: [] };
   const cursor = rows => Object.assign(rows.values(), { toArray: () => rows, one: () => rows[0] });
   const exec = (statement, ...bindings) => {
@@ -76,13 +78,22 @@ export function createStore({ file = ":memory:", seed = true, instances = INSTAN
         throw error;
       }
     },
+    async transaction(fn) { return fn(storage); },
+    async list({ prefix = "" } = {}) { return new Map([...kv.entries()].filter(([k]) => k.startsWith(prefix))); },
+    async get(k) { return kv.get(k); },
+    async put(k, v) { kv.set(k, v); },
+    async delete(k) { kv.delete(k); },
+    async getAlarm() { return alarmAt; },
+    async setAlarm(at) { alarmAt = at; },
+    async deleteAlarm() { alarmAt = null; },
   };
   const object = Object.create(RuntimeInstances.prototype);
   object.storage = storage;
   object.sqlStorage = storage.sql;
   object.storageInitialized = false;
   object.managementRead = readback.managementReadCapability(storage);
-  object.initializeStorage();
+  object.deskReadbacks = { alarm: async () => {} };
+  if (init) object.initializeStorage();
   if (seed) db.prepare("INSERT OR IGNORE INTO instance_state (id, revision, payload) VALUES (1, ?, ?)").run(revision, JSON.stringify(instances));
   const store = {
     db, object, faults,
@@ -104,10 +115,13 @@ export function createStore({ file = ":memory:", seed = true, instances = INSTAN
     // The full content of the management and instance tables, for exact
     // before/after comparison.
     dump() {
-      return Object.fromEntries(["account_mapping_policy", "account_management_draft", "account_management_applied", "account_management_change",
-        "account_management_requests", "instance_state", "instance_history", "account_setting_draft", "account_setting_profile_application",
-        "risk_profile_authority", "research_promotion_applications", "human_decision_record"]
-        .map(table => [table, JSON.stringify(db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all())]));
+      return Object.fromEntries(["account_mapping_policy", "account_management_draft", "account_management_applied", "account_management_invalidation",
+        "account_management_change", "account_management_requests", "instance_state", "instance_history", "account_setting_draft",
+        "account_setting_profile_application", "risk_profile_authority", "research_promotion_applications", "human_decision_record"]
+        .map(table => {
+          const exists = db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = ?").get(table).n === 1;
+          return [table, exists ? JSON.stringify(db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()) : "MISSING_TABLE"];
+        }));
     },
     close() { db.close(); },
   };

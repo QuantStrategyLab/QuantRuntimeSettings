@@ -159,7 +159,23 @@ export const MANAGEMENT_TABLE_SCHEMAS = Object.freeze({
   }),
 });
 
+const MANAGEMENT_SCHEMA_TABLES = Object.freeze(Object.keys(MANAGEMENT_TABLE_SCHEMAS));
+const MANAGEMENT_SCHEMA_INDEXES = Object.freeze(INDEX_SPECS.map(spec => spec.name));
+
+function managementSchemaEstablished(sql) {
+  const tableList = MANAGEMENT_SCHEMA_TABLES.map(name => `'${name}'`).join(", ");
+  const indexList = MANAGEMENT_SCHEMA_INDEXES.map(name => `'${name}'`).join(", ");
+  const rows = sql.exec(
+    `SELECT type, name FROM sqlite_schema WHERE (type = 'table' AND name IN (${tableList})) OR (type = 'index' AND name IN (${indexList}))`,
+  ).toArray();
+  return rows.length > 0;
+}
+
 export function initializeAccountManagement(sql) {
+  // An established management store must keep any observed drift intact for
+  // schema verification and write fencing; ordinary startup only creates
+  // missing objects when none of the management schema exists yet.
+  if (managementSchemaEstablished(sql)) return;
   for (const [table, spec] of Object.entries(MANAGEMENT_TABLE_SCHEMAS)) {
     sql.exec(spec.ddl.replace(/^CREATE TABLE /, "CREATE TABLE IF NOT EXISTS "));
     for (const index of INDEX_SPECS) {
@@ -238,6 +254,11 @@ function schemaIssues(rows) {
     const ddlMatch = ddl.length === 1 && normalizeSql(ddl[0].sql) === normalizeSql(spec.ddl);
     if (!colsMatch || !ddlMatch) issues.push(table);
   }
+  if (present.size > 0) {
+    for (const table of MANAGEMENT_SCHEMA_TABLES) {
+      if (!present.has(table)) issues.push(table);
+    }
+  }
   for (const spec of INDEX_SPECS) {
     if (!present.has(spec.table)) continue;
     const idxDdl = rows(`schema:${spec.name}`, `SELECT tbl_name, sql FROM sqlite_schema WHERE type = 'index' AND name = '${spec.name}'`);
@@ -299,6 +320,19 @@ function consistentRows(siblings, rows, fields) {
   const flat = found.flat();
   const agree = new Set(flat.map(row => JSON.stringify(fields.map(field => row[field])))).size === 1;
   return { state: agree ? "complete" : "conflict", rows: flat };
+}
+
+function validJournalMember(member) {
+  return isObject(member)
+    && Object.keys(member).length === 3
+    && Object.hasOwn(member, "platform")
+    && Object.hasOwn(member, "legacy_key")
+    && Object.hasOwn(member, "identity")
+    && typeof member.platform === "string" && member.platform.length > 0
+    && typeof member.legacy_key === "string" && member.legacy_key.length > 0
+    && validSettingsIdentity(member.identity)
+    && member.identity.platform === member.platform
+    && member.identity.key === member.legacy_key;
 }
 
 const DRAFT_FIELDS = ["revision", "management_enabled", "base_applied_revision", "policy_revision", "instance_revision", "status",
@@ -434,13 +468,29 @@ export function resolveManagement(snapshot, platform, key) {
   for (const row of snapshot.journal) {
     let members, initiator;
     try { members = JSON.parse(row.members_json); initiator = JSON.parse(row.initiating_identity_json); } catch { flag("management_journal_unreadable", "unknown"); continue; }
-    if (!Array.isArray(members) || !validSettingsIdentity(initiator)) { flag("management_journal_unreadable", "unknown"); continue; }
+    if (typeof row.platform !== "string" || !row.platform || typeof row.account_key !== "string" || !row.account_key
+      || !Array.isArray(members) || !members.length || !validSettingsIdentity(initiator)
+      || initiator.platform !== row.platform || initiator.key !== row.account_key) {
+      flag("management_journal_unreadable", "unknown");
+      continue;
+    }
+    // Every retained member must be structurally valid, unique and address-consistent
+    // before any current-group filter runs, so unattributable evidence cannot disappear.
+    const seenMembers = new Set();
+    let membersValid = true;
+    for (const member of members) {
+      if (!validJournalMember(member)) { membersValid = false; break; }
+      const id = deploymentId(member.platform, member.legacy_key);
+      if (seenMembers.has(id)) { membersValid = false; break; }
+      seenMembers.add(id);
+    }
+    if (!membersValid) { flag("management_journal_unreadable", "unknown"); continue; }
     // The addressed initiator must be one of the retained members, with the identity the row recorded for it.
-    const addressed = members.find(member => member?.platform === row.platform && member?.legacy_key === row.account_key);
+    const addressed = members.find(member => member.platform === row.platform && member.legacy_key === row.account_key);
     if (!addressed || !sameSettingsIdentity(addressed.identity, initiator)) { flag("management_journal_unreadable", "unknown"); continue; }
     for (const member of members) {
-      const id = deploymentId(member?.platform, member?.legacy_key);
-      if (current.has(id) && !sameSettingsIdentity(member?.identity, current.get(id))) flag("management_identity_differs_from_current", "conflict");
+      const id = deploymentId(member.platform, member.legacy_key);
+      if (current.has(id) && !sameSettingsIdentity(member.identity, current.get(id))) flag("management_identity_differs_from_current", "conflict");
     }
   }
   const liveDrafts = snapshot.drafts.filter(row => !stale(row, "draft_revision"));
@@ -571,7 +621,12 @@ function managementRequest(command) {
 }
 
 function replayed(sql, command, request) {
-  const row = sql.exec("SELECT operation, actor, fingerprint, receipt_json FROM account_management_requests WHERE request_key = ?", command.request_key).toArray()[0];
+  let row;
+  try {
+    row = sql.exec("SELECT operation, actor, fingerprint, receipt_json FROM account_management_requests WHERE request_key = ?", command.request_key).toArray()[0];
+  } catch {
+    throw new HttpError("management_state_conflict", 409);
+  }
   if (!row) return null;
   if (row.operation !== request.operation || row.actor !== command.actor || row.fingerprint !== request.fingerprint) {
     throw new HttpError("management_request_conflict", 409);

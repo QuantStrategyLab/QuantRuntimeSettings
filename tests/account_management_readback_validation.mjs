@@ -3,7 +3,9 @@
 // the full-projection seam and the Q5 aggregate cohort. Synthetic fixtures
 // only; the results name row IDs, outcome codes and counts, never data.
 import assert from "node:assert/strict";
-import { writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   INSTANCES, INSTANCE_REVISION, FIXTURE_ACCOUNTS, baselineStore, createStore, evidence, managementCommand, outbound, policyOf, provision, readback, ref, setManagement,
 } from "./helpers/account_management_harness.mjs";
@@ -851,5 +853,158 @@ if (out) await writeFile(out, rec.report());
   }
   ok("B2-A08", "schema_and_initiator_drift_withhold_applied");
   ok("B2-A08", "uncertified_schema_fences_writes_zero_mutations");
+
+  // B01 cold-entry certification: restarting over an established store with a
+  // missing index or missing table never heals the drift during initialization,
+  // intervening ordinary reads or alarm(), while preserving replay and clean
+  // first provisioning on pre-B2 / empty databases.
+  {
+    const dir = await mkdtemp(join(tmpdir(), "qrt-b01-cold-"));
+    try {
+      const [first] = eligible[0];
+      const [platform, key] = ref(first);
+      const [other] = eligible[1];
+      const [otherPlatform, otherKey] = ref(other);
+      const hasIndex = (store, name) => store.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'index' AND name = ?").get(name).n === 1;
+      const hasTable = (store, name) => store.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = ?").get(name).n === 1;
+
+      // 1. Direct cold save / apply + intervening GET, account_settings_read and alarm()
+      const file = join(dir, "cold-missing-index.sqlite");
+      const seeded = await baselineStore({ file });
+      const replayCmd = managementCommand(seeded, "account_management_draft_save", platform, key, { management_enabled: false });
+      assert.equal((await seeded.call(replayCmd)).status, 200);
+      const applyCmd = managementCommand(seeded, "account_management_apply", platform, key);
+      const otherSaveCmd = managementCommand(seeded, "account_management_draft_save", otherPlatform, otherKey, { management_enabled: false });
+      seeded.db.exec("DROP INDEX account_management_change_time");
+      seeded.close();
+
+      for (const [label, cmd] of [["cold_save", otherSaveCmd], ["cold_apply", applyCmd]]) {
+        const cold = createStore({ file, seed: false, init: false });
+        const before = cold.dump();
+        const res = await cold.call(cmd);
+        assert.deepEqual([res.status, res.body.error], [409, "management_state_conflict"], `${label}: rejected`);
+        assert.equal(hasIndex(cold, "account_management_change_time"), false, `${label}: index not recreated`);
+        assert.deepEqual(cold.dump(), before, `${label}: zero writes`);
+        cold.close();
+      }
+
+      const coldInterv = createStore({ file, seed: false, init: false });
+      const mgmtTables = ["account_mapping_policy", "account_management_draft", "account_management_applied", "account_management_invalidation", "account_management_change", "account_management_requests"];
+      const snapshotMgmt = d => Object.fromEntries(mgmtTables.map(t => [t, d[t]]));
+      const beforeMgmt = snapshotMgmt(coldInterv.dump());
+      await coldInterv.object.fetch(new Request("https://runtime-instances/", { method: "GET" }));
+      await coldInterv.call({ action: "account_settings_read", actor: "synthetic-admin", platform: otherPlatform, key: otherKey, legacy: { state: "valid", bindings: [] } });
+      await coldInterv.object.alarm();
+      assert.equal(hasIndex(coldInterv, "account_management_change_time"), false, "intervening read/alarm never recreates index");
+      assert.deepEqual(snapshotMgmt(coldInterv.dump()), beforeMgmt, "intervening read/alarm leaves management tables untouched");
+      const beforeInterv = coldInterv.dump();
+      const readAfter = (await coldInterv.read()).body;
+      assert.equal(readAfter.status, "unavailable");
+      assert.ok(readAfter.reasons.includes("management_schema_unverified"));
+      assert.equal(readAfter.effective_export.records.length, 0);
+      assert.throws(() => coldInterv.object.requireManagementAdmission(otherPlatform, otherKey), /management_status_unknown/);
+      const writeAfter = await coldInterv.call(otherSaveCmd);
+      assert.deepEqual([writeAfter.status, writeAfter.body.error], [409, "management_state_conflict"]);
+      assert.deepEqual(coldInterv.dump(), beforeInterv);
+      const replayCold = await coldInterv.call(replayCmd);
+      assert.deepEqual([replayCold.status, replayCold.body.replayed], [200, true], "cold replay preserved");
+      coldInterv.close();
+
+      // 2. Cold missing management table on established store
+      const tableFile = join(dir, "cold-missing-table.sqlite");
+      const tableSeed = await baselineStore({ file: tableFile });
+      const tableCmd = managementCommand(tableSeed, "account_management_draft_save", otherPlatform, otherKey, { management_enabled: false });
+      tableSeed.db.exec("DROP TABLE account_management_applied");
+      tableSeed.close();
+      const coldTable = createStore({ file: tableFile, seed: false, init: false });
+      const beforeTable = coldTable.dump();
+      await coldTable.object.alarm();
+      assert.equal(hasTable(coldTable, "account_management_applied"), false, "missing table is not recreated");
+      const tableWrite = await coldTable.call(tableCmd);
+      assert.deepEqual([tableWrite.status, tableWrite.body.error], [409, "management_state_conflict"]);
+      assert.deepEqual(coldTable.dump(), beforeTable);
+      coldTable.close();
+
+      // 3. Pre-B2 cold initialization control (instance_state exists, zero management tables)
+      const preB2File = join(dir, "pre-b2.sqlite");
+      const preB2Seed = createStore({ file: preB2File });
+      for (const table of ["account_mapping_policy", "account_management_draft", "account_management_applied",
+        "account_management_change", "account_management_invalidation", "account_management_requests"]) {
+        preB2Seed.db.exec(`DROP TABLE ${table}`);
+      }
+      preB2Seed.close();
+      const preB2 = createStore({ file: preB2File, seed: false, init: false });
+      assert.equal((await provision(preB2, policyOf(FIXTURE_ACCOUNTS))).status, 200);
+      assert.equal(hasIndex(preB2, "account_management_change_time"), true, "genuine first provisioning creates index");
+      const initSave = await preB2.call(managementCommand(preB2, "account_management_draft_save", platform, key, { management_enabled: true }));
+      assert.equal(initSave.status, 200);
+      assert.equal((await preB2.call(managementCommand(preB2, "account_management_apply", platform, key))).status, 200);
+      preB2.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+    ok("B2-A09", "b01_cold_schema_certification_and_first_init");
+    ok("B2-A15", "b01_cold_schema_fence");
+    ok("B2-A22", "b01_cold_readback_uncertified");
+  }
+
+  // R3-J: journal certification validates every retained member (shape,
+  // address, full identity and address/identity agreement) before any
+  // current-group filter, attributing identifiable mismatches to the affected
+  // group and propagating management_journal_unreadable when unattributable.
+  {
+    const pairMembers = eligible.find(list => list.length === 2);
+    const [pairP, pairK] = ref(pairMembers[0]);
+    const [otherP, otherK] = ref(eligible.find(list => list.length === 1)[0]);
+
+    const cases = [
+      ["missing_other_address_and_identity", members => [members[0], {}], false],
+      ["null_other_identity", members => [members[0], { platform: members[1].platform, legacy_key: members[1].legacy_key, identity: null }], false],
+      ["other_address_identity_mismatch", members => [members[0], { ...members[1], legacy_key: "syn-wrong-key" }], false],
+      ["duplicate_member", members => [members[0], members[0]], false],
+      ["empty_members", () => [], false],
+      ["identifiable_other_member_drift", members => [members[0], { ...members[1], identity: { ...members[1].identity, service_name: "syn-other-drift" } }], true],
+    ];
+    for (const [label, mutate, attributable] of cases) {
+      const store = await baselineStore();
+      const row = store.rows("account_management_change").find(item => JSON.parse(item.members_json).length === 2);
+      const nextMembers = mutate(JSON.parse(row.members_json));
+      store.db.prepare("UPDATE account_management_change SET members_json = ? WHERE event_id = ?").run(JSON.stringify(nextMembers), row.event_id);
+
+      const rb = (await store.read()).body;
+      const resPair = store.resolve(pairP, pairK);
+      const resOther = store.resolve(otherP, otherK);
+      assert.equal(resPair.processing_eligible, false, `${label}: affected pair ineligible`);
+      assert.equal(resPair.applied, null, `${label}: affected pair applied withheld`);
+      assert.equal(group(rb, pairMembers[0]).applied, null, `${label}: readback applied withheld`);
+      assert.throws(() => store.object.requireManagementAdmission(pairP, pairK), /management_status_unknown/, `${label}: affected admission denied`);
+      const before = store.dump();
+      const savePair = await store.call(managementCommand(store, "account_management_draft_save", pairP, pairK, { management_enabled: false }));
+      const applyPair = await store.call(managementCommand(store, "account_management_apply", pairP, pairK));
+      assert.deepEqual([savePair.status, savePair.body.error], [409, "management_identity_conflict"], `${label}: pair save 409`);
+      assert.deepEqual([applyPair.status, applyPair.body.error], [409, "management_identity_conflict"], `${label}: pair apply 409`);
+      assert.deepEqual(store.dump(), before, `${label}: zero writes on rejected pair`);
+
+      if (attributable) {
+        assert.ok(resPair.reasons.includes("management_identity_differs_from_current"));
+        assert.equal(resOther.processing_eligible, true, `${label}: unaffected group stays eligible`);
+        assert.equal(rb.effective_export.records.length, 8, `${label}: only affected group excluded from export`);
+      } else {
+        assert.ok(resPair.reasons.includes("management_journal_unreadable"), `${label}: unreadable reason recorded`);
+        assert.equal(resOther.processing_eligible, false, `${label}: uncertifiable scope blocks unaffected group`);
+        assert.equal(rb.effective_export.records.length, 0, `${label}: uncertifiable scope empties export`);
+        assert.throws(() => store.object.requireManagementAdmission(otherP, otherK), /management_status_unknown/);
+        const saveOther = await store.call(managementCommand(store, "account_management_draft_save", otherP, otherK, { management_enabled: false }));
+        assert.deepEqual([saveOther.status, saveOther.body.error], [409, "management_identity_conflict"]);
+        assert.deepEqual(store.dump(), before, `${label}: zero writes across uncertifiable scope`);
+      }
+      store.close();
+    }
+    ok("B2-A08", "r3j_journal_member_certification");
+    ok("B2-A09", "r3j_journal_admission_certification");
+    ok("B2-A15", "r3j_journal_identity_certification");
+    ok("B2-A20", "r3j_journal_export_certification");
+    ok("B2-A22", "r3j_journal_readback_certification");
+  }
 }
 console.log(`account_management_readback_validation ok ${Object.values(rec.rows).reduce((total, row) => total + row.checks, 0)} checks outbound=${outbound.count}`);
