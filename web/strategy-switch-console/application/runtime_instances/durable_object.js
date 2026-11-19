@@ -2728,8 +2728,29 @@ export class RuntimeInstances {
     }
     if (command.action === "console_settings_history") {
       this.existingAccountInstance(command.platform, command.key);
-      const approvals = this.sql.exec("SELECT request_key, status, identity_json, instance_revision, old_profile, new_profile, approved_at, approved_by, draft_revision FROM account_setting_profile_application WHERE platform = ? AND account_key = ? ORDER BY approved_at DESC", command.platform, command.key).toArray();
-      const changes = this.sql.exec("SELECT event_id, occurred_at, actor, platform, account_key, members_json, policy_revision, instance_revision, draft_revision, old_applied_revision, new_applied_revision, old_management_enabled, new_management_enabled, result FROM account_management_change ORDER BY occurred_at DESC, event_id ASC").toArray()
+      // Membership is a stable version of the first read: each append-only
+      // source is bounded by the insertion sequence (rowid) captured with the
+      // first page, so an append, equal-time or backdated, never joins a
+      // later page. A pinned sequence whose prefix no longer holds the pinned
+      // row count has expired.
+      const pin = command.snapshot ?? null;
+      const mark = table => this.sql.exec(`SELECT COALESCE(MAX(rowid), 0) AS hwm FROM ${table}`).toArray()[0].hwm;
+      const countTo = (table, hwm) => this.sql.exec(`SELECT COUNT(*) AS n FROM ${table} WHERE rowid <= ?`, hwm).toArray()[0].n;
+      const sources = { journal: "account_management_change", approvals: "account_setting_profile_application" };
+      const snapshot = {};
+      for (const [name, table] of Object.entries(sources)) {
+        if (pin) {
+          const { hwm, count } = pin[name] || {};
+          if (!Number.isSafeInteger(hwm) || !Number.isSafeInteger(count) || hwm < 0 || count < 0) throw new HttpError("invalid_pagination", 400);
+          if (countTo(table, hwm) !== count) return { expired: true };
+          snapshot[name] = { hwm, count };
+        } else {
+          const hwm = mark(table);
+          snapshot[name] = { hwm, count: countTo(table, hwm) };
+        }
+      }
+      const approvals = this.sql.exec("SELECT request_key, status, identity_json, instance_revision, old_profile, new_profile, approved_at, approved_by, draft_revision FROM account_setting_profile_application WHERE platform = ? AND account_key = ? AND rowid <= ? ORDER BY approved_at DESC", command.platform, command.key, snapshot.approvals.hwm).toArray();
+      const changes = this.sql.exec("SELECT event_id, occurred_at, actor, platform, account_key, members_json, policy_revision, instance_revision, draft_revision, old_applied_revision, new_applied_revision, old_management_enabled, new_management_enabled, result FROM account_management_change WHERE rowid <= ? ORDER BY occurred_at DESC, event_id ASC", snapshot.journal.hwm).toArray()
         .filter(row => {
           if (row.platform === command.platform && row.account_key === command.key) return true;
           try {
@@ -2737,7 +2758,7 @@ export class RuntimeInstances {
             return Array.isArray(members) && members.some(member => member?.platform === command.platform && member?.legacy_key === command.key);
           } catch { return false; }
         });
-      return { approvals, management_changes: changes };
+      return { approvals, management_changes: changes, snapshot };
     }
     const drafts = this.sql.exec("SELECT platform, account_key, overrides_json, updated_at FROM account_setting_draft").toArray();
     const approvals = this.sql.exec("SELECT platform, account_key, MAX(approved_at) AS approved_at FROM account_setting_profile_application GROUP BY platform, account_key").toArray();

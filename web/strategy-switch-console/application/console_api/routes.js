@@ -16,6 +16,17 @@ const historyOrder = (left, right) => compareText(right.time, left.time) || comp
 const HISTORY_CURSOR = /^h1\.[A-Za-z0-9_-]{1,2048}$/;
 const encodeHistoryCursor = payload => `h1.${btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(payload)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
 const decodeHistoryCursor = text => JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), char => char.charCodeAt(0))));
+// The first page's stable version: an insertion-sequence high-water mark and
+// row count per append-only source, and the head and length of the bounded
+// legacy log (`h` null with `n` 0 when it was empty or unavailable).
+const sourceMark = value => value && Number.isSafeInteger(value.hwm) && Number.isSafeInteger(value.count) && value.hwm >= 0 && value.count >= 0;
+const validHistorySnapshot = value => Boolean(value) && sourceMark(value.journal) && sourceMark(value.approvals)
+  && value.legacy && (value.legacy.h === null || /^[0-9a-f]{16}$/.test(value.legacy.h)) && Number.isSafeInteger(value.legacy.n) && value.legacy.n >= 0
+  && typeof value.legacy.ok === "boolean";
+async function legacyEntryDigest(entry) {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(entry)));
+  return [...new Uint8Array(bytes)].slice(0, 8).map(byte => byte.toString(16).padStart(2, "0")).join("");
+}
 function historyPageQuery(url) {
   const limit = Number(url.searchParams.get("limit") || 25);
   const cursor = url.searchParams.get("cursor") || "";
@@ -23,8 +34,8 @@ function historyPageQuery(url) {
   if (!cursor) return { limit, cursor: null };
   let payload;
   try { payload = decodeHistoryCursor(cursor.slice(3)); } catch { throw new Error("invalid_pagination"); }
-  if (!payload || ["a", "b", "t", "i", "s"].some(field => typeof payload[field] !== "string")) throw new Error("invalid_pagination");
-  return { limit, cursor: { a: payload.a, b: payload.b, key: { time: payload.t, id: payload.i, source: payload.s } } };
+  if (!payload || ["a", "t", "i", "s"].some(field => typeof payload[field] !== "string") || !validHistorySnapshot(payload.v)) throw new Error("invalid_pagination");
+  return { limit, cursor: { a: payload.a, snapshot: payload.v, key: { time: payload.t, id: payload.i, source: payload.s } } };
 }
 
 export async function consoleApiResponse(request, env, deps) {
@@ -169,7 +180,10 @@ export async function consoleApiResponse(request, env, deps) {
         actor: session.login,
         platform: account.platform,
         key: account.key,
+        ...(page.cursor ? { snapshot: page.cursor.snapshot } : {}),
       });
+      const expired = () => json({ ok: false, error: "history_snapshot_expired" }, 409);
+      if (result.expired === true) return expired();
       let audit = [];
       let auditStatus = {
         status: "partial",
@@ -190,6 +204,26 @@ export async function consoleApiResponse(request, env, deps) {
           status: "unavailable",
           unavailable_reason: "stored_records_unreadable",
         };
+      }
+      // The bounded legacy log is newest-first: the first read's head and length
+      // pin its contents. A continuation keeps only the suffix from that head;
+      // a missing head, a changed length or a source that has become
+      // unavailable means the pinned version is gone.
+      const legacyOk = auditStatus.status === "partial";
+      let legacy;
+      if (!page.cursor) {
+        legacy = { h: audit.length ? await legacyEntryDigest(audit[0]) : null, n: audit.length, ok: legacyOk };
+      } else {
+        legacy = page.cursor.snapshot.legacy;
+        if (legacy.h === null) {
+          audit = [];
+        } else {
+          if (!legacyOk) return expired();
+          const digests = await Promise.all(audit.map(legacyEntryDigest));
+          const head = digests.indexOf(legacy.h);
+          if (head < 0 || audit.length - head !== legacy.n) return expired();
+          audit = audit.slice(head);
+        }
       }
       const saves = audit.filter(
         (row) =>
@@ -243,13 +277,13 @@ export async function consoleApiResponse(request, env, deps) {
         }),
       );
       items.sort(historyOrder);
-      // A later page is the remainder of the first page's snapshot: items newer
-      // than its boundary are ignored, and the page starts strictly after the
-      // last emitted ordering key, so an append never shifts a returned item.
+      // A later page is the remainder of the first page's snapshot: membership
+      // is the pinned version of every source, and the last emitted ordering
+      // key only positions the traversal inside it.
       const accountRef = `${account.platform}/${account.key}`;
       if (page.cursor && page.cursor.a !== accountRef) return json({ ok: false, error: "invalid_pagination" }, 400);
-      const boundary = page.cursor ? page.cursor.b : new Date().toISOString();
-      const remaining = items.filter(item => item.time <= boundary && (!page.cursor || historyOrder(page.cursor.key, item) < 0));
+      const snapshot = page.cursor ? page.cursor.snapshot : { ...result.snapshot, legacy };
+      const remaining = items.filter(item => !page.cursor || historyOrder(page.cursor.key, item) < 0);
       const emitted = remaining.slice(0, page.limit);
       const last = emitted.at(-1);
       return json({
@@ -258,7 +292,7 @@ export async function consoleApiResponse(request, env, deps) {
         platform: account.platform,
         items: emitted,
         next_cursor: remaining.length > emitted.length
-          ? encodeHistoryCursor({ a: accountRef, b: boundary, t: last.time, i: last.id, s: last.source })
+          ? encodeHistoryCursor({ a: accountRef, v: snapshot, t: last.time, i: last.id, s: last.source })
           : null,
         coverage: "bounded_audit_log_and_durable_account_records",
         availability: {

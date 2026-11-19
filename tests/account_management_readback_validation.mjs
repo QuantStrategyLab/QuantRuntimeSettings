@@ -649,6 +649,85 @@ const group = (body, text) => { const [platform, key] = ref(text); return body.g
     ok("B2-A19", "history_cursor_stable_under_append");
   }
 
+  // B06 (Q-C): the traversal from page one is exactly the first page's version of
+  // all three sources, once each: equal-time and backdated appends to the
+  // journal, an approval and a legacy audit entry are invisible to later pages
+  // on both sibling timelines; a new traversal sees them; an expired legacy
+  // version rejects explicitly.
+  {
+    let auditEntries = [
+      { action: "save_account_settings", platform: pA, key: kA, draft_revision: 3, ts: "2026-11-18T00:10:00.000Z", login: "fixture-reader" },
+      { action: "save_account_settings", platform: pA, key: kA, draft_revision: 2, ts: "2026-11-18T00:05:00.000Z", login: "fixture-reader" },
+    ];
+    const kv = { get: async key => (key === "audit_log" ? JSON.stringify(auditEntries) : null), put: async () => {} };
+    const live = bindings(kv);
+    const walk = async (platform, key, between = async () => {}) => {
+      const first = await (await readHistory(live, platform, key, 1)).json();
+      const ids = first.items.map(item => item.id);
+      await between();
+      let cursor = first.next_cursor;
+      for (let i = 0; i < 40 && cursor; i += 1) {
+        const response = await readHistory(live, platform, key, 1, cursor);
+        const page = await response.json();
+        if (response.status !== 200) return { ids, status: response.status, error: page.error };
+        ids.push(...page.items.map(item => item.id));
+        cursor = page.next_cursor;
+      }
+      return { ids, status: 200 };
+    };
+    const template = store.rows("account_management_change")[0];
+    const insertJournal = (id, at) => {
+      const row = { ...template, event_id: id, occurred_at: at };
+      const columns = Object.keys(row);
+      store.db.prepare(`INSERT INTO account_management_change (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`).run(...columns.map(column => row[column]));
+    };
+    const insertApproval = (id, at) => {
+      const cols = store.db.prepare("PRAGMA table_info(account_setting_profile_application)").all();
+      const values = Object.fromEntries(cols.filter(col => col.notnull).map(col => [col.name, /INT/i.test(col.type) ? 1 : ""]));
+      Object.assign(values, { request_key: id, platform: pA, account_key: kA, approved_at: at, approved_by: "synthetic-admin", status: "applied" });
+      const names = Object.keys(values);
+      store.db.prepare(`INSERT INTO account_setting_profile_application (${names.join(", ")}) VALUES (${names.map(() => "?").join(", ")})`).run(...names.map(name => values[name]));
+    };
+    const baseline = {};
+    for (const [platform, key] of [[pA, kA], [pB, kB]]) baseline[key] = (await walk(platform, key)).ids;
+    assert.ok(baseline[kA].length >= 3, "the journal and the legacy log both contribute");
+    const cleanup = [];
+    for (const [platform, key] of [[pA, kA], [pB, kB]]) {
+      const tied = tiedTs;
+      const traversal = await walk(platform, key, async () => {
+        insertJournal(`eeeeeeee-0000-4000-8000-${key === kA ? "000000000001" : "000000000002"}`, tied);       // equal-time
+        insertJournal(`eeeeeeee-0000-4000-8000-${key === kA ? "000000000003" : "000000000004"}`, baseTs);     // backdated
+        insertApproval(`approval-late-${key}`, new Date().toISOString());
+        auditEntries = [{ action: "save_account_settings", platform: pA, key: kA, draft_revision: 9, ts: tied, login: "fixture-reader" }, ...auditEntries];
+        cleanup.push(() => { auditEntries = auditEntries.slice(1); });
+      });
+      assert.equal(traversal.status, 200);
+      assert.deepEqual(traversal.ids.slice().sort(), baseline[key].slice().sort(), `the traversal is exactly the first page's selection (${key})`);
+      assert.equal(new Set(traversal.ids).size, traversal.ids.length, "each entry once");
+      const fresh = (await walk(platform, key)).ids;
+      assert.ok(fresh.length > baseline[key].length, "a new traversal sees the appended entries");
+      // Restore for the next sibling run.
+      store.db.prepare("DELETE FROM account_management_change WHERE event_id LIKE 'eeeeeeee-%'").run();
+      store.db.prepare("DELETE FROM account_setting_profile_application WHERE request_key LIKE 'approval-late-%'").run();
+      for (const undo of cleanup.splice(0)) undo();
+    }
+    // Positive control: with no append the traversal is unchanged.
+    assert.deepEqual((await walk(pA, kA)).ids, baseline[kA]);
+    // An expired pinned version rejects continuation instead of traversing fresh data.
+    const expiredLegacy = await walk(pA, kA, async () => { auditEntries = auditEntries.slice(1); });
+    assert.deepEqual([expiredLegacy.status, expiredLegacy.error], [409, "history_snapshot_expired"], "a vanished legacy head expires the snapshot");
+    auditEntries = [
+      { action: "save_account_settings", platform: pA, key: kA, draft_revision: 3, ts: "2026-11-18T00:10:00.000Z", login: "fixture-reader" },
+      { action: "save_account_settings", platform: pA, key: kA, draft_revision: 2, ts: "2026-11-18T00:05:00.000Z", login: "fixture-reader" },
+    ];
+    const savedRow = store.rows("account_management_change").find(row => row.new_applied_revision === 1);
+    const expiredJournal = await walk(pA, kA, async () => { store.db.prepare("DELETE FROM account_management_change WHERE event_id = ?").run(savedRow.event_id); });
+    assert.deepEqual([expiredJournal.status, expiredJournal.error], [409, "history_snapshot_expired"], "a changed journal prefix expires the snapshot");
+    const columns = Object.keys(savedRow);
+    store.db.prepare(`INSERT INTO account_management_change (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`).run(...columns.map(column => savedRow[column]));
+    ok("B2-A19", "history_snapshot_three_sources");
+  }
+
   // 3. KV failure or missing KV never makes durable management history unavailable (B2-A04 / B2-A19).
   const throwingKv = { get: async key => { if (key === "audit_log") throw new Error("kv_outage"); return null; }, put: async () => {} };
   const noKvResp = await worker.fetch(new Request(`https://console.example/api/account-settings/history?account=${kA}&platform=${pA}`, { headers: { Cookie: cookie } }), {
