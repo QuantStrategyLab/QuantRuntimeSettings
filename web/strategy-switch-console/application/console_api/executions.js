@@ -95,9 +95,12 @@ function reduceExecutionBucket(bucket) {
       out.push(mergeGroup(nodes[0].entries));
       continue;
     }
-    // Attribute strict projections with a unique compatible maximal version
-    // as a batch against the fixed maximal set before forming cliques so
-    // partial-only cliques cannot override unique witnessed attributions.
+    // Attribute strict projections only when their evidence identifies a
+    // single substantive version and excludes competing maximal versions
+    // against the fixed maximal set. Compatibility with an extension shared by
+    // incompatible alternatives supplies no proof, so ambiguous nodes stay
+    // distinct through clique handling while proven unique assignments absorb
+    // before partial-only cliques can form.
     const isMaximal = nodes.map((_, i) => !nodes.some((other, j) => i !== j && strictlyExtends(other.row, nodes[i].row)));
     const maximalIndices = nodes.map((_, i) => i).filter(i => isMaximal[i]);
     const attributedNodes = maximalIndices.map(i => ({ row: nodes[i].row, entries: [...nodes[i].entries] }));
@@ -106,8 +109,8 @@ function reduceExecutionBucket(bucket) {
       if (isMaximal[i]) continue;
       const extensions = maximalIndices.filter(m => strictlyExtends(nodes[m].row, nodes[i].row));
       const compatMaximal = maximalIndices.filter(m => compatibleOptional(nodes[i].row, nodes[m].row));
-      const uniqueTarget = extensions.length > 0 && extensions.every(m =>
-        compatMaximal.every(other => m === other || compatibleOptional(nodes[m].row, nodes[other].row))
+      const uniqueTarget = extensions.length > 0 && compatMaximal.every((left, idx) =>
+        compatMaximal.slice(idx + 1).every(right => compatibleOptional(nodes[left].row, nodes[right].row))
       );
       if (uniqueTarget) {
         attributedNodes[maximalIndices.indexOf(extensions[0])].entries.push(...nodes[i].entries);

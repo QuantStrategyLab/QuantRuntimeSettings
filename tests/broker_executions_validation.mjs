@@ -164,6 +164,19 @@ assert.equal((await executionStatsResponse([{ ...option, platform: "ibkr" }],
   assert.equal(mixedBoth.reported_execution_count, 3);
   assert.deepEqual(mixedBoth.per_currency, [{ currency: "USD", reported_execution_count: 3, buy_execution_count: 3, sell_execution_count: 0 }]);
   assert.deepEqual(mixedBoth.rows.map(r => [r.commission, r.taxes, r.time_zone]), [[null, null, "UTC"], ["1.00", "0.10", null], ["2.00", "0.20", null]]);
+
+  // Two distinct mutually compatible ambiguous observations where one strictly
+  // extends the other must both stay separate across all 24 report orders.
+  const uAmbigShort = sib("u-8", [{ ...record, side: "BUY", report_ref: "7".repeat(64), commission: null, taxes: null, local_time: null, time_zone: "UTC" }]);
+  for (const order of perms([u1, u2, uAmbigShort, uAmbig])) {
+    const out = await run(order, () => "g1");
+    assert.equal(out.reported_execution_count, 4);
+    assert.deepEqual(out.per_currency, [{ currency: "USD", reported_execution_count: 4, buy_execution_count: 4, sell_execution_count: 0 }]);
+    assert.equal(out.coverage.length, 4);
+  }
+  assert.equal((await run([u1, u2, uAmbigShort], () => "g1")).reported_execution_count, 3);
+  assert.equal((await run([u1, u2, uAmbig], () => "g1")).reported_execution_count, 3);
+  assert.equal((await run([u1, u2, uPart, u2Part, uAmbigShort, uAmbig, uAmbigRepeat], () => "g1")).reported_execution_count, 4);
 }
 
 const settings = { SESSION_SECRET: "synthetic-session", ALLOWED_GITHUB_LOGINS: "synthetic-reader",
