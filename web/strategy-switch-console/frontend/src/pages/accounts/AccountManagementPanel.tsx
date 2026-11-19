@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type {
+  AccountManagementApplyRequest,
+  AccountManagementDraftSaveRequest,
   AccountManagementSettingsSection,
   ManagementEvidenceState,
   ManagementStatusCode,
@@ -7,6 +9,7 @@ import type {
 import { applyManagementDraft, loadAccountSettings, saveManagementDraft } from "../../api/endpoints";
 import {
   type AccountManagementEditorState,
+  type AccountSettingsOp,
   createAccountSettingsController,
   refreshAccountSettingsReadback,
 } from "../../accountSettingsState";
@@ -66,7 +69,7 @@ export interface AccountManagementSectionViewProps {
   editor: Pick<
     AccountManagementEditorState,
     "draftValue" | "dirty" | "saving" | "uncertain" | "uncertainRequestKey" | "staleReplayIgnored"
-  >;
+  > & { committedStateUnknown?: boolean };
   canAdminWrite: boolean;
   readState: "loading" | "ready" | "failed";
   feedback: { tone: "success" | "error" | "warn"; text: string } | null;
@@ -75,6 +78,7 @@ export interface AccountManagementSectionViewProps {
   onApplyDraft?: () => void;
   onRevert?: () => void;
   onRefresh?: () => void;
+  onRecover?: () => void;
 }
 
 /** Pure SSR-renderable presentation of the account-settings `management` section. */
@@ -89,6 +93,7 @@ export function AccountManagementSectionView({
   onApplyDraft,
   onRevert,
   onRefresh,
+  onRecover,
 }: AccountManagementSectionViewProps) {
   const t = useT();
   const language = useLanguage();
@@ -201,6 +206,16 @@ export function AccountManagementSectionView({
       {editor.uncertain && (
         <p className="accounts-inline-note error" role="alert" data-state="management.uncertain">
           {t("accounts.management.uncertain_error", { requestKey: editor.uncertainRequestKey ?? "—" })}
+          {onRecover && (
+            <button type="button" className="button button-secondary" disabled={Boolean(editor.saving)} onClick={onRecover}>
+              {t("accounts.management.recover")}
+            </button>
+          )}
+        </p>
+      )}
+      {editor.committedStateUnknown && (
+        <p className="accounts-inline-note" role="status" data-state="management.committed_unknown">
+          {t("accounts.management.committed_unknown")}
         </p>
       )}
       {editor.staleReplayIgnored && (
@@ -378,23 +393,35 @@ export function AccountManagementPanel({
     return () => { cancelled = true; controller.abandon(op); };
   }, [platform, accountKey, readAttempt, controller]);
 
-  const submitSaveDraft = async () => {
-    const started = controller.startManagementDraftSave();
-    if (!started || !controller.markManagementSubmitting(started.op)) return;
+  // One execution path for a first submit and for same-key recovery: the
+  // durable receipt acknowledges the exact write; presenting the current state
+  // needs a valid fresh read, whose absence is reported separately.
+  const execute = async (started: { op: AccountSettingsOp; body: Record<string, unknown> }, kind: "management_draft" | "management_apply") => {
     setFeedback(null);
     sync();
     try {
-      const receipt = await saveManagementDraft(started.body);
+      const receipt = kind === "management_draft"
+        ? await saveManagementDraft(started.body as unknown as AccountManagementDraftSaveRequest)
+        : await applyManagementDraft(started.body as unknown as AccountManagementApplyRequest);
       const fresh = await loadAccountSettings(platform, accountKey).catch(() => null);
+      const acknowledged = controller.applyManagementSuccess(started.op, receipt, fresh);
       if (!controller.isCurrent(started.op)) {
-        controller.applyManagementSuccess(started.op, receipt, fresh);
         onChanged?.();
         return;
       }
-      controller.applyManagementSuccess(started.op, receipt, fresh);
-      setFeedback(controller.view().management.staleReplayIgnored
-        ? { tone: "warn", text: t("accounts.management.replay_stale") }
-        : { tone: "success", text: t("accounts.management.saved_draft") });
+      const editor = controller.view().management;
+      if (!acknowledged) {
+        controller.failManagement(started.op, true);
+        setFeedback({ tone: "error", text: t("accounts.management.uncertain_error", { requestKey: String(started.body.request_key) }) });
+      } else if (editor.committedStateUnknown) {
+        setFeedback({ tone: "warn", text: t("accounts.management.committed_unknown") });
+      } else if (editor.staleReplayIgnored) {
+        setFeedback({ tone: "warn", text: t("accounts.management.replay_stale") });
+      } else if (kind === "management_draft") {
+        setFeedback({ tone: "success", text: t("accounts.management.saved_draft") });
+      } else {
+        setFeedback({ tone: "success", text: receipt.outcome === "no_op" ? t("accounts.management.noop_notice") : t("accounts.management.applied_notice") });
+      }
       onChanged?.();
     } catch (error) {
       const status = Number((error as { status?: number })?.status || 0);
@@ -406,7 +433,7 @@ export function AccountManagementPanel({
           tone: "error",
           text: deterministic
             ? t("accounts.management.conflict_error", { code: t(`reason.${code}`) })
-            : t("accounts.management.uncertain_error", { requestKey: started.body.request_key }),
+            : t("accounts.management.uncertain_error", { requestKey: String(started.body.request_key) }),
         });
       }
     } finally {
@@ -415,46 +442,23 @@ export function AccountManagementPanel({
     }
   };
 
+  const submitSaveDraft = async () => {
+    const started = controller.startManagementDraftSave();
+    if (!started || !controller.markManagementSubmitting(started.op)) return;
+    await execute({ op: started.op, body: started.body as unknown as Record<string, unknown> }, "management_draft");
+  };
+
   const submitApplyDraft = async () => {
     const started = controller.startManagementApply();
     if (!started || !controller.markManagementSubmitting(started.op)) return;
-    setFeedback(null);
-    sync();
-    try {
-      const receipt = await applyManagementDraft(started.body);
-      const fresh = await loadAccountSettings(platform, accountKey).catch(() => null);
-      if (!controller.isCurrent(started.op)) {
-        controller.applyManagementSuccess(started.op, receipt, fresh);
-        onChanged?.();
-        return;
-      }
-      controller.applyManagementSuccess(started.op, receipt, fresh);
-      setFeedback(controller.view().management.staleReplayIgnored
-        ? { tone: "warn", text: t("accounts.management.replay_stale") }
-        : {
-            tone: "success",
-            text: receipt.outcome === "no_op"
-              ? t("accounts.management.noop_notice")
-              : t("accounts.management.applied_notice"),
-          });
-      onChanged?.();
-    } catch (error) {
-      const status = Number((error as { status?: number })?.status || 0);
-      const code = (error as { payload?: { error?: string }; message?: string })?.payload?.error || (error as Error)?.message || "unknown";
-      const deterministic = status === 400 || status === 409;
-      controller.failManagement(started.op, !deterministic, code);
-      if (controller.isCurrent(started.op)) {
-        setFeedback({
-          tone: "error",
-          text: deterministic
-            ? t("accounts.management.conflict_error", { code: t(`reason.${code}`) })
-            : t("accounts.management.uncertain_error", { requestKey: started.body.request_key }),
-        });
-      }
-    } finally {
-      controller.finish(started.op);
-      sync();
-    }
+    await execute({ op: started.op, body: started.body as unknown as Record<string, unknown> }, "management_apply");
+  };
+
+  // Replay the unconfirmed request unchanged (same key); never a new write.
+  const submitRecover = async () => {
+    const started = controller.recoverManagementPending();
+    if (!started || !controller.markManagementSubmitting(started.op)) return;
+    await execute(started, started.op.kind as "management_draft" | "management_apply");
   };
 
   const reread = () => {
@@ -481,6 +485,7 @@ export function AccountManagementPanel({
       }}
       onSaveDraft={() => void submitSaveDraft()}
       onApplyDraft={() => void submitApplyDraft()}
+      onRecover={() => void submitRecover()}
       onRevert={() => {
         if (controller.revertManagement()) sync();
       }}

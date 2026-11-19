@@ -916,12 +916,34 @@ console.log('account declaration acknowledgement boundaries: PASS');
   assert.equal(sibController.view().management.uncertain, true, "sibling shares unresolved lock on pre-write readback");
   assert.equal(sibController.startManagementDraftSave("44444444-4444-4444-8444-444444444444"), null, "sibling blocks blind new-key retry while unresolved");
 
-  // Re-read on sibling B showing advanced draft revision clears lock for both siblings.
+  // A read never acknowledges an unconfirmed write, however advanced or well matched:
+  // it may come from another writer. The lock holds on both siblings.
   const settledB = mgmtSettings("syn-pair-b", {
     draft: { management_enabled: false, revision: 2, base_applied_revision: 1, status: "pending", consumed_applied_revision: null },
   });
   assert.equal(sibController.applyRefresh(sibController.start("refresh"), settledB), true);
-  assert.equal(sibController.view().management.uncertain, false);
+  assert.equal(sibController.view().management.uncertain, true, "a matching read does not acknowledge the write");
+  assert.equal(sibController.view().review.management, true);
+  assert.equal(sibController.view().management.section.draft.revision, 2, "the fresh read is still presented");
+  assert.equal(sibController.startManagementDraftSave("44444444-4444-4444-8444-444444444445"), null);
+  // A receipt for another key or operation cannot acknowledge it either.
+  const wrongReceipt = { ok: true, operation: "account_management_draft_save", request_key: "99999999-9999-4999-8999-999999999999", replayed: false,
+    platform: "longbridge", key: "syn-pair-a", policy_revision: 2, instance_revision: 5,
+    deployments: [{ platform: "longbridge", legacy_key: "syn-pair-a" }, { platform: "longbridge", legacy_key: "syn-pair-b" }],
+    committed_at: "2026-11-18T00:03:00.000Z", no_order: true, execution_authority_granted: false,
+    outcome: "draft_saved", management_draft_revision: 2, management_revision: 1, management_enabled: false };
+  const recovery = c.recoverManagementPending();
+  assert.equal(recovery.body.request_key, "22222222-2222-4222-8222-222222222222", "same-key recovery replays the saved request");
+  assert.deepEqual(recovery.body, saveReq.body);
+  assert.equal(c.markManagementSubmitting(recovery.op), true);
+  assert.equal(c.applyManagementSuccess(recovery.op, wrongReceipt, settledB), false, "a receipt for another key acknowledges nothing");
+  assert.equal(c.applyManagementSuccess(recovery.op, { ...wrongReceipt, request_key: "22222222-2222-4222-8222-222222222222", operation: "account_management_apply" }, settledB), false);
+  const draftReceipt = { ...wrongReceipt, request_key: "22222222-2222-4222-8222-222222222222", replayed: true };
+  assert.equal(c.applyManagementSuccess(recovery.op, draftReceipt, mgmtSettings("syn-pair-a", settledB.management)), true, "the exact durable receipt plus a fresh read acknowledges");
+  assert.equal(c.view().management.uncertain, false);
+  assert.equal(c.view().management.committedStateUnknown, false);
+  assert.equal(sibController.applyRefresh(sibController.start("refresh"), settledB), true);
+  assert.equal(sibController.view().management.uncertain, false, "the sibling lock is released with the acknowledgement");
   assert.equal(sibController.view().review.management, false);
   assert.equal(sibController.view().management.section.applied.management_enabled, true, "pending draft does not change applied state");
   assert.equal(sibController.view().management.section.draft.status, "pending");
@@ -957,11 +979,47 @@ console.log('account declaration acknowledgement boundaries: PASS');
   });
   assert.equal(c2.applyRead(readA2, advancedA), true);
 
-  // Historical replay receipt cannot overwrite newer current readback (B2-A06).
-  assert.equal(c2.applyManagementSuccess(c2.start("management_apply"), { ...appliedReceipt, key: "syn-pair-a", replayed: true }, advancedA), true);
+  // Historical replay receipt cannot overwrite newer current readback (B2-A06): the
+  // same-key replay proves the old commit, a later unseen revision stays presented.
+  const HISTORIC = "88888888-8888-4888-8888-888888888888";
+  assert.equal(c2.editManagement(false), true);
+  const historic = c2.startManagementDraftSave(HISTORIC);
+  assert.equal(c2.markManagementSubmitting(historic.op), true);
+  assert.equal(c2.failManagement(historic.op, true), true);
+  const replayOp = c2.recoverManagementPending();
+  assert.equal(c2.markManagementSubmitting(replayOp.op), true);
+  const replayReceipt = { ok: true, operation: "account_management_draft_save", request_key: HISTORIC, replayed: true, platform: "longbridge", key: "syn-pair-a",
+    policy_revision: 2, instance_revision: 5, deployments: [{ platform: "longbridge", legacy_key: "syn-pair-a" }, { platform: "longbridge", legacy_key: "syn-pair-b" }],
+    committed_at: "2026-11-18T00:03:00.000Z", no_order: true, execution_authority_granted: false, outcome: "draft_saved",
+    management_draft_revision: 2, management_revision: 1, management_enabled: false };
+  assert.equal(c2.applyManagementSuccess(replayOp.op, replayReceipt, advancedA), true);
   assert.equal(c2.view().management.staleReplayIgnored, true);
   assert.equal(c2.view().management.section.applied.revision, 3);
   assert.equal(c2.view().management.section.applied.management_enabled, true);
+
+  // A proven commit whose readback failed: unknown current state, never a section built from the receipt.
+  const blind = createAccountSettingsController(new Map());
+  assert.equal(blind.applyRead(blind.select({ platform: "longbridge", key: "syn-pair-a" }), mgmtSettings("syn-pair-a")), true);
+  assert.equal(blind.editManagement(false), true);
+  const blindSave = blind.startManagementDraftSave("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+  assert.equal(blind.markManagementSubmitting(blindSave.op), true);
+  const blindReceipt = { ...replayReceipt, request_key: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", replayed: false };
+  assert.equal(blind.applyManagementSuccess(blindSave.op, blindReceipt, null), true);
+  assert.deepEqual([blind.view().management.committedStateUnknown, blind.view().management.section, blind.view().management.uncertain], [true, null, false]);
+  assert.equal(blind.startManagementDraftSave("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"), null, "no write is offered until a read presents a section");
+  assert.equal(blind.applyRefresh(blind.start("refresh"), mgmtSettings("syn-pair-a")), true);
+  assert.equal(blind.view().management.committedStateUnknown, false);
+  assert.ok(blind.view().management.section);
+
+  // A competing writer's matching revision does not acknowledge a lost write either.
+  const rival = createAccountSettingsController(new Map());
+  assert.equal(rival.applyRead(rival.select({ platform: "longbridge", key: "syn-pair-a" }), mgmtSettings("syn-pair-a")), true);
+  assert.equal(rival.editManagement(false), true);
+  const lost = rival.startManagementDraftSave("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
+  assert.equal(rival.markManagementSubmitting(lost.op), true);
+  assert.equal(rival.failManagement(lost.op, true), true);
+  assert.equal(rival.applyRefresh(rival.start("refresh"), mgmtSettings("syn-pair-a", settledB.management)), true);
+  assert.equal(rival.view().management.uncertain, true, "an identical-looking revision from another writer is not the write");
 
   // Account-switch isolation while a management write is delayed (B2-A07).
   const isoStore = new Map();

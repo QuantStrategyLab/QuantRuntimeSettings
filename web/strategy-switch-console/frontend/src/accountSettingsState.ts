@@ -67,6 +67,8 @@ export type AccountManagementEditorState = {
   uncertainRequestKey: string | null;
   uncertainOperation: "" | "management_draft" | "management_apply";
   staleReplayIgnored: boolean;
+  /** A durable receipt proved the commit, but no valid fresh read presents the current state. */
+  committedStateUnknown: boolean;
 };
 export type AccountSettingsView = {
   account: AccountSettingsAccount | null;
@@ -99,6 +101,7 @@ type ManagementPendingSave = {
   draftRevision: number;
   appliedRevision: number;
   targetEnabled: boolean | null;
+  body: Record<string, unknown>;
 };
 type AccountSettingsSaveSnapshot = {
   token: number;
@@ -219,6 +222,7 @@ function emptyManagementState(): AccountManagementEditorState {
     uncertainRequestKey: null,
     uncertainOperation: "",
     staleReplayIgnored: false,
+    committedStateUnknown: false,
   };
 }
 
@@ -291,28 +295,13 @@ function managementSiblingKeys(
   return [...keys];
 }
 
-function matchesManagementAcknowledgement(
-  pending: ManagementPendingSave,
-  payload: Record<string, any>,
-): boolean {
-  if (!record(payload) || !sameSavedValue(payload.identity, pending.identity)) return false;
-  const section = payload.management;
-  if (!validManagementSection(section)) return false;
-  const draftRevision = section.draft?.revision ?? 0;
-  const appliedRevision = section.applied?.revision ?? 0;
-  if (pending.operation === "management_draft") {
-    if (draftRevision <= pending.draftRevision) return false;
-    if (draftRevision === pending.draftRevision + 1 && section.draft?.status === "pending") {
-      return section.draft.management_enabled === pending.targetEnabled;
-    }
-    return true;
-  }
-  if (appliedRevision <= pending.appliedRevision) return false;
-  if (appliedRevision === pending.appliedRevision + 1) {
-    return section.applied?.management_enabled === pending.targetEnabled
-      && (section.draft?.consumed_applied_revision ?? 0) >= appliedRevision;
-  }
-  return true;
+// A management write is acknowledged only by its durable receipt: the exact
+// operation and request key, addressed to the same deployment. A read, however
+// advanced, may come from another writer and never acknowledges it.
+function receiptMatchesPending(pending: ManagementPendingSave, receipt: AccountManagementReceipt): boolean {
+  return record(receipt) && receipt.ok === true && receipt.request_key === pending.requestKey
+    && receipt.operation === (pending.operation === "management_draft" ? "account_management_draft_save" : "account_management_apply")
+    && receipt.platform === pending.account.platform && receipt.key === pending.account.key;
 }
 
 const MANAGEMENT_STORES = new WeakMap<
@@ -563,8 +552,6 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
       if (resolved) unresolvedSaves.delete(this.selectedId());
       const incomingSection = validManagementSection(payload.management) ? copyJson(payload.management) : null;
       const pendingMgmt = mgmtStore.pending.get(this.selectedId());
-      const mgmtResolved = Boolean(pendingMgmt && incomingSection && matchesManagementAcknowledgement(pendingMgmt, payload));
-      if (mgmtResolved && pendingMgmt) clearPendingManagement(pendingMgmt);
       if (incomingSection) mgmtStore.cache.set(this.selectedId(), copyJson(incomingSection));
       const draft = payload.draft?.overrides || {};
       const savedPreference = typeof (view.settings || lastSettings)?.risk?.preference === "string" ? (view.settings || lastSettings)!.risk.preference : "";
@@ -623,6 +610,7 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
           uncertainRequestKey: stillPendingMgmt?.requestKey || null,
           uncertainOperation: stillPendingMgmt?.operation || "",
           staleReplayIgnored: options.preserveNotice ? view.management.staleReplayIgnored : false,
+          committedStateUnknown: incomingSection ? false : view.management.committedStateUnknown,
         },
       };
       if (pending) {
@@ -633,9 +621,9 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
       } else if (pendingMgmt) {
         view = {
           ...view,
-          notice: mgmtResolved ? (pendingMgmt.operation === "management_apply" ? "管理设置已应用" : "管理草案已保存") : "状态未知",
-          noticeGroup: mgmtResolved ? "management" : "",
-          review: { ...view.review, management: !mgmtResolved },
+          notice: "状态未知",
+          noticeGroup: "",
+          review: { ...view.review, management: true },
         };
       }
       return true;
@@ -850,8 +838,7 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
           kind === "risk" ? "偏好已保存" : kind === "declaration" ? "声明已保存" : "草案已保存");
       }
       const pendingMgmt = mgmtStore.pending.get(this.selectedId());
-      const mgmtResolvedNow = Boolean(pendingMgmt && validManagementSection(payload.management) && matchesManagementAcknowledgement(pendingMgmt, payload));
-      const notice = (pending || (pendingMgmt && !mgmtResolvedNow)) ? "状态未知" : before.notice;
+      const notice = (pending || pendingMgmt) ? "状态未知" : before.notice;
       const beforeSettings = before.settings || lastSettings;
       const dirtyCash = cashDraftDirty(before.draft);
       const dirtyIncome = before.draft.incomeTouched === true;
@@ -872,18 +859,18 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
       const draftChanged = Number(beforeSettings?.draft?.revision) !== Number(payload?.draft?.revision);
       const riskChanged = Number(beforeSettings?.risk?.revision) !== Number(payload?.risk?.revision);
       const declarationChanged = Number(beforeSettings?.declaration?.revision) !== Number(payload?.declaration?.revision);
-      if (!this.applyRead(op, payload, { preserveNotice: true, keepCash: true, keepPreference: true, keepIncome: true, keepOption: true, keepStrategy: true, keepDeclaration: true, keepManagement: !mgmtRevisionChanged && !mgmtResolvedNow })) return false;
+      if (!this.applyRead(op, payload, { preserveNotice: true, keepCash: true, keepPreference: true, keepIncome: true, keepOption: true, keepStrategy: true, keepDeclaration: true, keepManagement: !mgmtRevisionChanged })) return false;
       const remainingMgmt = mgmtStore.pending.get(this.selectedId());
       view = {
         ...view,
-        notice: mgmtResolvedNow ? (pendingMgmt?.operation === "management_apply" ? "管理设置已应用" : "管理草案已保存") : notice,
-        noticeGroup: mgmtResolvedNow ? "management" : view.noticeGroup,
+        notice,
+        noticeGroup: view.noticeGroup,
         saving: "",
         review: {
           draft: Boolean(before.review?.draft) || (dirtyCash || dirtyIncome || dirtyOption || dirtyStrategy) && (identityChanged || draftChanged),
           risk: Boolean(before.review?.risk) || dirtyRisk && (identityChanged || riskChanged),
           declaration: Boolean(before.review?.declaration) || dirtyDeclaration && (identityChanged || declarationChanged),
-          management: mgmtResolvedNow ? false : Boolean(remainingMgmt) || (Boolean(before.review?.management) && !incomingMgmt) || (before.management.dirty && (identityChanged || mgmtRevisionChanged)),
+          management: Boolean(remainingMgmt) || (Boolean(before.review?.management) && !incomingMgmt) || (before.management.dirty && (identityChanged || mgmtRevisionChanged)),
         },
       };
       return true;
@@ -1060,6 +1047,7 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
         draftRevision,
         appliedRevision,
         targetEnabled: managementEnabled,
+        body: copyJson(body) as unknown as Record<string, unknown>,
       };
       const op: AccountSettingsOp = { token, account: { platform: selected.platform, key: selected.key }, kind: "management_draft", body: copyJson(body) as unknown as Record<string, unknown> };
       return { op, body };
@@ -1099,6 +1087,7 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
         draftRevision,
         appliedRevision,
         targetEnabled: section.draft.management_enabled,
+        body: copyJson(body) as unknown as Record<string, unknown>,
       };
       const op: AccountSettingsOp = { token, account: { platform: selected.platform, key: selected.key }, kind: "management_apply", body: copyJson(body) as unknown as Record<string, unknown> };
       return { op, body };
@@ -1155,129 +1144,66 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
       };
       return true;
     },
+    // Same-key recovery of an unconfirmed write: the saved request is replayed
+    // unchanged (same key, same expectations); the durable receipt is the proof.
+    recoverManagementPending(): { op: AccountSettingsOp; body: Record<string, unknown> } | null {
+      if (!selected || view.saving || view.management.saving) return null;
+      const pending = mgmtStore.pending.get(this.selectedId());
+      if (!pending || pending.account.platform !== selected.platform || pending.account.key !== selected.key) return null;
+      const token = gate.begin();
+      managementSnapshot = { ...pending, token };
+      const op: AccountSettingsOp = { token, account: { platform: selected.platform, key: selected.key }, kind: pending.operation, body: copyJson(pending.body) };
+      return { op, body: copyJson(pending.body) };
+    },
     applyManagementSuccess(op: AccountSettingsOp, receipt: AccountManagementReceipt, readbackPayload?: Record<string, any> | null) {
-      if (!record(receipt) || receipt.ok !== true || receipt.platform !== op.account.platform || receipt.key !== op.account.key) {
-        return false;
-      }
       const targetKey = `${op.account.platform}:${op.account.key}`;
       const match = (managementSnapshot && managementSnapshot.token === op.token ? managementSnapshot : null)
         ?? (mgmtStore.pending.get(targetKey)?.token === op.token ? mgmtStore.pending.get(targetKey)! : null);
-      const siblingKeys = managementSiblingKeys(op.account, [
-        ...(receipt.deployments || []),
-        ...((match?.siblings || []).map(k => {
-          const idx = k.indexOf(":");
-          return idx > 0 ? { platform: k.slice(0, idx), key: k.slice(idx + 1) } : {};
-        })),
-      ]);
-      const freshSection = readbackPayload && validManagementSection(readbackPayload.management)
-        ? copyJson(readbackPayload.management)
-        : null;
-      let highestKnown = freshSection;
-      for (const sibKey of siblingKeys) {
-        const cached = mgmtStore.cache.get(sibKey);
-        if (!highestKnown && cached) highestKnown = cached;
-        if (cached && highestKnown) {
-          const cApp = cached.applied?.revision ?? 0;
-          const hApp = highestKnown.applied?.revision ?? 0;
-          const cDraft = cached.draft?.revision ?? 0;
-          const hDraft = highestKnown.draft?.revision ?? 0;
-          if (cApp > hApp || (cApp === hApp && cDraft > hDraft)) highestKnown = cached;
-        }
-      }
-      const isHistoricalReplay = receipt.replayed === true && Boolean(highestKnown) && (
-        (highestKnown!.applied?.revision ?? 0) > receipt.management_revision
-        || (highestKnown!.draft?.revision ?? 0) > receipt.management_draft_revision
+      // Only the exact operation and key, addressed to this deployment, acknowledges the pending write.
+      if (!match || !receiptMatchesPending(match, receipt)) return false;
+      const freshSection = readbackPayload && validManagementSection(readbackPayload.management) && readbackPayload.platform === op.account.platform
+        && readbackPayload.key === op.account.key && sameSavedValue(readbackPayload.identity, match.identity)
+        ? copyJson(readbackPayload.management) : null;
+      // The commit is proven by the receipt whatever the read says; a later
+      // revision in the fresh read only means someone else wrote after it.
+      const isHistoricalReplay = receipt.replayed === true && Boolean(freshSection) && (
+        (freshSection!.applied?.revision ?? 0) > receipt.management_revision
+        || (freshSection!.draft?.revision ?? 0) > receipt.management_draft_revision
       );
-      if (match) clearPendingManagement(match);
-      for (const sibKey of siblingKeys) {
-        mgmtStore.cache.delete(sibKey);
-        const existingPending = mgmtStore.pending.get(sibKey);
-        if (existingPending && (existingPending.token === op.token || existingPending.requestKey === receipt.request_key)) {
-          mgmtStore.pending.delete(sibKey);
-        }
-      }
-      if (isHistoricalReplay) {
+      clearPendingManagement(match);
+      for (const sibKey of match.siblings) mgmtStore.cache.delete(sibKey);
+      if (!current(op)) {
         if (freshSection) mgmtStore.cache.set(targetKey, copyJson(freshSection));
-        if (!current(op)) return false;
-        if (readbackPayload) {
-          this.applyRead(op, readbackPayload, { preserveNotice: false });
-        }
+        return false;
+      }
+      if (!freshSection || !this.applyRead(op, readbackPayload!, { preserveNotice: false })) {
+        // Proven committed, current state unknown: no section is built from the receipt, and no write is offered until a read presents one.
         view = {
           ...view,
+          notice: "已提交，当前状态待读取",
+          noticeGroup: "",
+          review: { ...view.review, management: true },
           management: {
-            ...view.management,
-            saving: "",
-            staleReplayIgnored: true,
+            ...emptyManagementState(),
+            committedStateUnknown: true,
           },
         };
         return true;
       }
-      if (freshSection) mgmtStore.cache.set(targetKey, copyJson(freshSection));
-      if (!current(op)) return false;
-      if (readbackPayload && this.applyRead(op, readbackPayload, { preserveNotice: false })) {
-        view = {
-          ...view,
-          notice: receipt.outcome === "applied" ? "管理设置已应用" : receipt.outcome === "no_op" ? "管理设置未变更" : "管理草案已保存",
-          noticeGroup: "management",
-          management: {
-            ...view.management,
-            saving: "",
-            uncertain: false,
-            uncertainRequestKey: null,
-            uncertainOperation: "",
-            staleReplayIgnored: false,
-          },
-        };
-        return true;
-      }
-      const prevSection = view.management.section;
-      const nextSection: AccountManagementSettingsSection | null = prevSection ? copyJson(prevSection) : null;
-      if (nextSection) {
-        nextSection.policy_revision = receipt.policy_revision;
-        nextSection.instance_revision = receipt.instance_revision;
-        if (receipt.outcome === "draft_saved") {
-          nextSection.draft = {
-            management_enabled: receipt.management_enabled,
-            revision: receipt.management_draft_revision,
-            base_applied_revision: receipt.management_revision,
-            status: "pending",
-            consumed_applied_revision: null,
-          };
-        } else if (receipt.outcome === "applied") {
-          nextSection.applied = {
-            management_enabled: receipt.management_enabled,
-            revision: receipt.management_revision,
-            effective_at: receipt.committed_at,
-          };
-          nextSection.management_status = receipt.management_enabled ? "managed" : "management_disabled";
-          nextSection.evidence_state = "known";
-          nextSection.processing_eligible = receipt.management_enabled;
-          nextSection.reasons = [];
-          nextSection.draft = {
-            management_enabled: receipt.management_enabled,
-            revision: receipt.management_draft_revision,
-            base_applied_revision: receipt.previous_management_revision ?? nextSection.draft?.base_applied_revision ?? 0,
-            status: "consumed",
-            consumed_applied_revision: receipt.management_revision,
-          };
-        }
-        mgmtStore.cache.set(targetKey, copyJson(nextSection));
-      }
-      const nextBaseline = managementDraftBaseline(nextSection);
+      mgmtStore.cache.set(targetKey, copyJson(freshSection));
       view = {
         ...view,
-        notice: receipt.outcome === "applied" ? "管理设置已应用" : receipt.outcome === "no_op" ? "管理设置未变更" : "管理草案已保存",
-        noticeGroup: "management",
-        review: { ...view.review, management: false },
+        notice: isHistoricalReplay ? view.notice
+          : receipt.outcome === "applied" ? "管理设置已应用" : receipt.outcome === "no_op" ? "管理设置未变更" : "管理草案已保存",
+        noticeGroup: isHistoricalReplay ? "" : "management",
         management: {
-          section: nextSection,
-          draftValue: nextBaseline,
-          dirty: false,
+          ...view.management,
           saving: "",
           uncertain: false,
           uncertainRequestKey: null,
           uncertainOperation: "",
-          staleReplayIgnored: false,
+          staleReplayIgnored: isHistoricalReplay,
+          committedStateUnknown: false,
         },
       };
       return true;
