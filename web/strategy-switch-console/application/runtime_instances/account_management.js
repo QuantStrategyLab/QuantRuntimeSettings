@@ -343,7 +343,7 @@ export function resolveManagement(snapshot, platform, key) {
   result.applied_revision_floor = Math.max(0, ...siblingRows(snapshot.applied).map(row => Number(row.revision) || 0));
   result.draft_revision_floor = Math.max(0, ...siblingRows(snapshot.drafts).map(row => Number(row.revision) || 0));
   // Only the five effective fields reach the strict effective-record parser.
-  const records = applied.rows.map(row => ({ platform: row.platform, legacy_key: row.account_key,
+  const records = staleApplied ? [] : applied.rows.map(row => ({ platform: row.platform, legacy_key: row.account_key,
     management_enabled: row.management_enabled === 1 ? true : row.management_enabled === 0 ? false : row.management_enabled,
     revision: row.revision, effective_at: row.effective_at }));
   const effective = effectiveManagementState(account, records);

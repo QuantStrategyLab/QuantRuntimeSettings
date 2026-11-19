@@ -495,7 +495,7 @@ for (const point of [0, 1, 2, 3, 4, 5, "commit"]) {
   // Only the five effective fields reach the strict parser; extra stored
   // data is rejected, not trimmed.
   const source = await readFile(new URL("../web/strategy-switch-console/application/runtime_instances/account_management.js", import.meta.url), "utf8");
-  ok("B2-A20", "five_field_effective_records", /records = applied\.rows\.map\(row => \(\{ platform: row\.platform, legacy_key: row\.account_key,\s*management_enabled: [^\n]+\n\s*revision: row\.revision, effective_at: row\.effective_at \}\)\)/.test(source));
+  ok("B2-A20", "five_field_effective_records", /records = (?:staleApplied \? \[\] : )?applied\.rows\.map\(row => \(\{ platform: row\.platform, legacy_key: row\.account_key,\s*management_enabled: [^\n]+\n\s*revision: row\.revision, effective_at: row\.effective_at \}\)\)/.test(source));
 }
 
 // --- B2-A21: races the store decides -----------------------------------------

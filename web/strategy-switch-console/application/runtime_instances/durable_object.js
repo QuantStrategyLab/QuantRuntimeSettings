@@ -27,7 +27,7 @@ import { accountFactsIdentityDates } from "../account_facts/read.js";
 import { runtimeInstanceConflict } from "./command.js";
 import { projectAccountManagement } from "./mapping_projection.js";
 import {
-  applyManagementDraft, initializeAccountManagement, processingDenial, readManagementSnapshot, replaceMappingPolicy,
+  applyManagementDraft, initializeAccountManagement, managementBinding, processingDenial, readManagementSnapshot, replaceMappingPolicy,
   requireProcessingAdmission, resolveManagement, saveManagementDraft,
 } from "./account_management.js";
 import { deskErrorResponse } from "../desk/http.js";
@@ -1595,6 +1595,12 @@ export class RuntimeInstances {
     if (command.action === "account_mapping_policy_replace") return replaceMappingPolicy(this.sql, command);
     if (command.action === "account_management_draft_save") return saveManagementDraft(this.sql, this.read(), command);
     if (command.action === "account_management_apply") return applyManagementDraft(this.sql, this.read(), command);
+    // Read-only: the same local admission every processing entrance re-resolves, with no write.
+    if (command.action === "account_management_admission_check") {
+      if (typeof command.platform !== "string" || typeof command.key !== "string") throw new HttpError("management_request_invalid", 400);
+      this.requireManagementAdmission(command.platform, command.key);
+      return { ok: true, admitted: true };
+    }
     throw new HttpError("unsupported_account_settings_action", 400);
   }
 

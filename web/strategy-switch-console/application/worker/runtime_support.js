@@ -2563,6 +2563,17 @@ export async function dispatchSwitch(request, env) {
   const accountConfig = await loadAccountOptionsConfig(env);
   const accountOption = assertConfiguredAccount(inputs, accountConfig.options);
   assertStrategyAllowedForAccount(inputs, accountOption, await loadStrategyProfilesConfig(env));
+  // A switch needs a positive current local management admission before any
+  // dispatch branch. An absent store or an unreadable answer is a denial too.
+  if (!hasRuntimeInstanceStore(env)) {
+    return json({ ok: false, error: "management_status_unknown", workflow_dispatched: false, no_order: true, execution_authority_granted: false }, 409);
+  }
+  try {
+    await runtimeInstanceCommand(env, { action: "account_management_admission_check", actor: "strategy-switch-entrance", platform: inputs.platform, key: accountOption.key });
+  } catch (error) {
+    const denial = error instanceof HttpError && error.status === 409 ? error.message : "management_status_unknown";
+    return json({ ok: false, error: denial, workflow_dispatched: false, no_order: true, execution_authority_granted: false }, 409);
+  }
   if (!SWITCH_ACTIVATION_CONNECTED) {
     return json({
       ok: false,

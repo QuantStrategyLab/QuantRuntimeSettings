@@ -6,7 +6,7 @@
 // and the gate inventory, never fixture content.
 import assert from "node:assert/strict";
 import {
-  FIXTURE_ACCOUNTS, INSTANCES, baselineStore, createStore, evidence, management, outbound, policyOf, provision, ref, setManagement,
+  FIXTURE_ACCOUNTS, INSTANCES, POLICY_REVISION, baselineStore, createStore, evidence, management, outbound, policyOf, provision, ref, setManagement,
 } from "./helpers/account_management_harness.mjs";
 
 const CONSOLE = new URL("../web/strategy-switch-console/", import.meta.url);
@@ -43,6 +43,7 @@ const inventory = [
   ["paper_application_result", "application_result(applied_paused)", "applicationCommand → managementDenialFor (uncertain/management_state_changed)"],
   ["default_sync", "instance_state:sync_defaults", "requireSyncDefaultsAdmission (multi-match picks no winner)"],
   ["management_control", "account_management_draft_save/apply", "account_management.js controlTarget"],
+  ["strategy_switch", "POST /api/switch → account_management_admission_check", "dispatchSwitch → requireManagementAdmission (before the activation interlock and any dispatch)"],
 ];
 
 function riskBinding(text, store) {
@@ -269,7 +270,7 @@ const entrances = {
       candidate_id: "synthetic-candidate", config_sha256: "0".repeat(64), source_commit: "synthetic", approved_ues_revision: "synthetic", created_at: TS });
   };
   const created = await create("ticket-enabled", ENABLED);
-  same("B2-A21", "application_create_eligible_positive_control", [created.status, created.body.created], [200, true]);
+  same("B2-A21", "application_create_eligible_positive_control", [created.status, created.body.created, created.body.error], [200, true, undefined]);
   await setManagement(store, DISABLED, false);
   const before = store.dump().research_promotion_applications;
   const refused = await create("ticket-disabled", DISABLED);
@@ -482,6 +483,44 @@ const entrances = {
     same("B2-A09", "risk_preflight_target_naming_none_is_unknown", riskTargetDeployment(options, "ibkr", "syn-none"), { platform: "ibkr", key: null });
   }
   store.close();
+}
+
+// B2-A01 / A09 (gate inventory): the strategy-switch entrance asks for a positive
+// current local management admission first. The independent activation interlock
+// stays off: every case here ends before any workflow dispatch.
+{
+  const { default: worker, __test } = await import(new URL("worker.js", CONSOLE));
+  const unprovisioned = createStore();
+  const store = await baselineStore();
+  const base = {
+    SESSION_SECRET: "synthetic-only-session-key", STRATEGY_SWITCH_ADMIN_LOGINS: "fixture-admin", RUNTIME_SETTINGS_DISPATCH_TOKEN: "synthetic-dispatch-token",
+    STRATEGY_SWITCH_STRATEGY_PROFILES_JSON: JSON.stringify([{ profile: "synthetic-strategy", label: "Synthetic", domain: "us_equity", allowed_execution_modes: ["dry_run"], runtime_enabled: false }]),
+  };
+  const namespaceOf = target => ({ idFromName: name => name, get: () => ({ fetch: (url, init) => target.object.fetch(new Request(url, init)) }) });
+  const cookie = `qsl_switch_session=${await __test.makeSession("fixture-admin", [], base)}`;
+  const attempt = async (target, text) => {
+    const [platform, key] = ref(text);
+    const config = target.instance(platform, key).config;
+    const before = outbound.count;
+    const response = await worker.fetch(new Request("https://console.example/api/switch", { method: "POST", headers: { Cookie: cookie, Origin: "https://console.example", "Content-Type": "application/json" },
+      body: JSON.stringify({ platform, target_name: config.target_name, account_selector: config.account_selector, deployment_selector: config.deployment_selector,
+        account_scope: config.account_scope, service_name: config.service_name, strategy_profile: "synthetic-strategy", execution_mode: "dry_run",
+        variable_scope: "repository", plugin_mode: "none", option_overlay_mode: "current", cash_only_execution_mode: "current", apply: true,
+        trigger_platform_sync: true, confirm_apply: "APPLY_AND_SYNC" }) }), { ...base, STRATEGY_SWITCH_RUNTIME_INSTANCES: namespaceOf(target) });
+    const body = await response.json();
+    same("B2-A21", "switch_zero_external_calls", outbound.count, before, text);
+    return { status: response.status, error: body.error, dispatched: body.workflow_dispatched };
+  };
+  await setManagement(store, DISABLED, false);
+  same("B2-A21", "switch_disabled_typed_denial", await attempt(store, DISABLED), { status: 409, error: "management_disabled", dispatched: false });
+  const displayOnly = FIXTURE_ACCOUNTS.map(([managementClass, deployments]) => [deployments.includes(ENABLED2) ? "display_only" : managementClass, deployments]);
+  assert.equal((await provision(store, policyOf(displayOnly, INSTANCES, POLICY_REVISION + 1), POLICY_REVISION)).status, 200);
+  same("B2-A21", "switch_display_only_typed_denial", await attempt(store, ENABLED2), { status: 409, error: "management_not_under_management", dispatched: false });
+  same("B2-A21", "switch_unknown_typed_denial", (await attempt(unprovisioned, ENABLED)).error, "management_policy_unavailable");
+  const eligible = await attempt(store, ENABLED);
+  same("B2-A21", "switch_eligible_reaches_the_interlock_only", [eligible.status, eligible.dispatched, /接通/.test(eligible.error)], [409, false, true]);
+  store.close();
+  unprovisioned.close();
 }
 
 assert.equal(outbound.count, 0, "zero outbound calls");

@@ -20,7 +20,7 @@ export const ACCOUNT_SETTINGS_DO_ACTIONS = new Set([
   "account_settings_read", "account_settings_save", "account_declarations_read",
   "account_settings_profile_application_lookup", "account_settings_profile_application_approve",
   "account_settings_profile_application_claim",
-  "account_mapping_policy_replace", "account_management_draft_save", "account_management_apply",
+  "account_mapping_policy_replace", "account_management_draft_save", "account_management_apply", "account_management_admission_check",
 ]);
 
 export const ACCOUNT_SETTING_OVERRIDE_FIELDS = [
