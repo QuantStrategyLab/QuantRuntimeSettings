@@ -33,7 +33,6 @@ jobs:
     environment: runtime-strategy-switch
     timeout-minutes: 10
     env:
-      GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_WRANGLER_CONFIG_TOML: ${{ secrets.CLOUDFLARE_WRANGLER_CONFIG_TOML }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
@@ -54,7 +53,24 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Mint short-lived GitHub App token
+        id: app-token
+        if: vars.RUNTIME_SETTINGS_APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RUNTIME_SETTINGS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RUNTIME_SETTINGS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-actions: read
+          permission-contents: read
+          permission-environments: write
+          permission-metadata: read
+        env:
+          INPUT_PERMISSION-ACTIONS-VARIABLES: write
+
       - name: Prepare protected Wrangler credentials
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.RUNTIME_SETTINGS_GH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -79,6 +95,8 @@ jobs:
           fi
 
       - name: Validate exact target and preview or apply once
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.RUNTIME_SETTINGS_GH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail

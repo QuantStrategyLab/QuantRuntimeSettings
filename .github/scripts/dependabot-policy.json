@@ -1,0 +1,6 @@
+{
+  "action_files": [
+    ".github/workflows/validate.yml",
+    ".github/workflows/docs-check.yml"
+  ]
+}

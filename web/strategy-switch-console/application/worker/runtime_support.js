@@ -650,6 +650,271 @@ import {
   parseCookies,
   randomToken,
 } from "../auth/cookies.js";
+import {
+  cleanBoolean,
+  cleanChoice,
+  cleanLabel,
+  cleanNonNegativeNumber,
+  cleanNumberText,
+  cleanOptionalBoolean,
+  cleanPositiveNumber,
+  cleanRatio,
+  cleanRepositoryName,
+  cleanSlug,
+} from "../schema_validators.js";
+import {
+  STRATEGY_HEALTH_SNAPSHOT_KEY,
+  STRATEGY_HEALTH_MAX_BODY_BYTES,
+  STRATEGY_HEALTH_DEFAULT_STALE_TTL_SECONDS,
+  STRATEGY_HEALTH_STATUSES,
+  STRATEGY_HEALTH_DOMAINS,
+  STRATEGY_HEALTH_DATA_STATUSES,
+} from "../strategy_health_snapshot/constants.js";
+import {
+  normalizeStrategyHealthSnapshot,
+  normalizeStrategyHealthStrategies,
+  normalizeStrategyHealthSummary,
+  normalizeStrategyHealthComponents,
+  normalizeStrategyHealthDecision,
+  normalizeStrategyHealthReview,
+  normalizeStrategyHealthSummaryObject,
+  normalizeStrategyHealthFreshness,
+  normalizeStrategyHealthAge,
+  normalizeStrategyHealthScore,
+  normalizeStrategyHealthTimestamp,
+  normalizeStrategyHealthText,
+  sanitizeStrategyHealthText,
+  normalizeStrategyHealthErrors,
+  normalizeStrategyHealthPolicy,
+  emptyStrategyHealthPayload,
+  strategyHealthStaleTtlSeconds,
+} from "../strategy_health_snapshot/helpers.js";
+import {
+  syncStrategyHealthResponseImpl,
+  strategyHealthResponseImpl,
+} from "../strategy_health_snapshot/http.js";
+import {
+  ADAPTIVE_SELECTION_SOURCE_PREFIX,
+  ADAPTIVE_SELECTION_SOURCE_SCHEMA_VERSION,
+  ADAPTIVE_SELECTION_DASHBOARD_SCHEMA_VERSION,
+  ADAPTIVE_SELECTION_DECISION_SCHEMA_VERSION,
+  ADAPTIVE_SELECTION_MAX_SOURCES,
+  ADAPTIVE_SELECTION_MAX_BODY_BYTES,
+  ADAPTIVE_SELECTION_DEFAULT_STALE_TTL_SECONDS,
+  ADAPTIVE_SELECTION_AUTHORITY,
+} from "../adaptive_selection_snapshot/constants.js";
+import {
+  adaptiveSelectionSourceKey,
+  normalizeAdaptiveSelectionSourceSnapshot,
+  normalizeAdaptiveSelectionDecision,
+  normalizeAdaptiveSelectionMarketContext,
+  normalizeAdaptiveSelectionCandidate,
+  normalizeAdaptiveSelectionReleaseDigest,
+  normalizeAdaptiveSelectionDigest,
+  isAdaptiveSelectionFloatPath,
+  canonicalAdaptiveSelectionNumber,
+  canonicalAdaptiveSelectionDecisionJson,
+  calculateAdaptiveSelectionDecisionDigest,
+  normalizeAdaptiveSelectionSummary,
+  emptyAdaptiveSelectionSourceSnapshot,
+  emptyAdaptiveSelectionPayload,
+  adaptiveSelectionStaleTtlSeconds,
+} from "../adaptive_selection_snapshot/helpers.js";
+import {
+  readAdaptiveSelectionSourcesImpl,
+  aggregateAdaptiveSelectionSourcesImpl,
+  syncAdaptiveSelectionSourceResponseImpl,
+  adaptiveSelectionResponseImpl,
+} from "../adaptive_selection_snapshot/http.js";
+import {
+  BINANCE_PRIVATE_SCOPE_KEY,
+  BINANCE_PRIVATE_SCOPE_MAX_BODY_BYTES,
+  BINANCE_PRIVATE_SCOPE_MAX_ASSETS,
+  BINANCE_PRIVATE_SCOPE_WRITE_TTL_SECONDS,
+  BINANCE_PRIVATE_SCOPE_INGEST_MAX_AGE_MS,
+  BINANCE_PRIVATE_SCOPE_FUTURE_SKEW_MS,
+  BINANCE_PRIVATE_SCOPE_READ_MAX_AGE_MS,
+} from "../binance_private_scope/constants.js";
+import {
+  normalizeBinancePrivateScopeReport,
+  normalizeBinancePrivateScopeDecimal,
+  binancePrivateScopeDecimalIsZero,
+} from "../binance_private_scope/helpers.js";
+import {
+  syncBinancePrivateScopeResponseImpl,
+  binancePrivateScopeResponseImpl,
+} from "../binance_private_scope/http.js";
+import {
+  EXECUTION_EVIDENCE_SOURCE_PREFIX,
+  EXECUTION_EVIDENCE_SOURCE_SCHEMA_VERSION,
+  EXECUTION_EVIDENCE_DASHBOARD_SCHEMA_VERSION,
+  EXECUTION_EVIDENCE_MAX_SOURCES,
+  EXECUTION_EVIDENCE_MAX_BODY_BYTES,
+  EXECUTION_EVIDENCE_DEFAULT_STALE_TTL_SECONDS,
+  EXECUTION_EVIDENCE_PLATFORMS,
+  EXECUTION_EVIDENCE_ENVIRONMENTS,
+  EXECUTION_EVIDENCE_CAPABILITIES,
+  EXECUTION_EVIDENCE_STATUSES,
+} from "../execution_evidence_snapshot/constants.js";
+import {
+  executionEvidenceSourceKey,
+  normalizeExecutionEvidenceSourceSnapshot,
+  normalizeExecutionEvidenceDeployment,
+  normalizeExecutionEvidenceReceipt,
+  normalizeExecutionEvidenceSummary,
+  emptyExecutionEvidenceSourceSnapshot,
+  emptyExecutionEvidencePayload,
+  executionEvidenceStaleTtlSeconds,
+} from "../execution_evidence_snapshot/helpers.js";
+import {
+  readExecutionEvidenceSourcesImpl,
+  aggregateExecutionEvidenceSourcesImpl,
+  syncExecutionEvidenceSourceResponseImpl,
+  executionEvidenceResponseImpl,
+} from "../execution_evidence_snapshot/http.js";
+import {
+  RUNTIME_TARGET_LIFECYCLE_SOURCE_PREFIX,
+  RUNTIME_TARGET_LIFECYCLE_SOURCE_SCHEMA_VERSION,
+  RUNTIME_TARGET_LIFECYCLE_DASHBOARD_SCHEMA_VERSION,
+  RUNTIME_TARGET_LIFECYCLE_MAX_SOURCES,
+  RUNTIME_TARGET_LIFECYCLE_MAX_BODY_BYTES,
+  RUNTIME_TARGET_LIFECYCLE_CONFIGURED_STATES,
+  RUNTIME_TARGET_LIFECYCLE_EXECUTION_MODES,
+  RUNTIME_TARGET_LIFECYCLE_CHECK_STATUSES,
+  RUNTIME_TARGET_LIFECYCLE_DISPOSITIONS,
+  RUNTIME_TARGET_LIFECYCLE_EXECUTION_OBSERVATIONS,
+} from "../runtime_target_lifecycle/constants.js";
+import {
+  runtimeTargetLifecycleAuditState,
+  projectRuntimeAccountState,
+  runtimeTargetLifecycleExecutionObservation,
+  runtimeTargetLifecycleSourceKey,
+  normalizeRuntimeTargetLifecycleSourceSnapshot,
+  normalizeRuntimeTargetLifecycleTarget,
+  emptyRuntimeTargetLifecycleSourceSnapshot,
+  emptyRuntimeTargetLifecyclePayload,
+} from "../runtime_target_lifecycle/helpers.js";
+import {
+  readRuntimeTargetLifecycleSourcesImpl,
+  aggregateRuntimeTargetLifecycleSourcesImpl,
+  syncRuntimeTargetLifecycleSourceResponseImpl,
+  runtimeReadbackResponseImpl,
+  runtimeTargetLifecycleResponseImpl,
+} from "../runtime_target_lifecycle/http.js";
+import {
+  RUNTIME_DAILY_KEY_PREFIX,
+  RUNTIME_DAILY_MAX_BODY_BYTES,
+  RUNTIME_DAILY_MAX_RUNS,
+  RUNTIME_DAILY_MAX_LIST,
+  RUNTIME_DAILY_HISTORY_PAGE,
+  RUNTIME_DAILY_HISTORY_MAX_PAGES,
+  RUNTIME_DAILY_STALE_MS,
+  RUNTIME_DAILY_FUTURE_SKEW_MS,
+  RUNTIME_DAILY_SCHEDULE_ONLY,
+  RUNTIME_DAILY_LANES,
+  RUNTIME_DAILY_SCHEDULE_STATES,
+  RUNTIME_DAILY_KINDS,
+} from "../runtime_daily_projection/constants.js";
+import {
+  runtimeDailyReadModelEnabled,
+  runtimeDailyKey,
+  runtimeDailyToday,
+  runtimeDailyCalendarDate,
+  runtimeDailyInstant,
+  runtimeDailyExactKeys,
+  runtimeDailyBoundedText,
+  runtimeDailyChoice,
+  runtimeDailyReject,
+  runtimeDailyOptionalInstant,
+  runtimeDailyScheduleInstants,
+  validateSchwabRuntimeDailyRun,
+  validateSchwabRuntimeDailySummary,
+  validateSchwabRuntimeDailySchedule,
+  normalizeRuntimeDailyRun,
+  normalizeRuntimeDailyProjection,
+  runtimeDailyStoredProjection,
+  runtimeDailyPublicRecord,
+  runtimeDailyReadSummary,
+  runtimeDailyReadStatus,
+} from "../runtime_daily_projection/helpers.js";
+import {
+  runtimeDailyDisabledResponse,
+  runtimeDailyUnattributedResponse,
+  runtimeDailyHistory,
+} from "../runtime_daily_projection/http.js";
+import {
+  RISK_PROFILE_BINDINGS_KEY,
+  RISK_PROFILE_BINDING_REGISTRY_SCHEMA_VERSION,
+  RISK_PROFILE_BINDING_SCHEMA_VERSION,
+  RISK_PROFILE_SELECTION_SCHEMA_VERSION,
+  RISK_PROFILE_PREFERENCES,
+} from "../risk_profile_bindings/constants.js";
+import {
+  riskProfileScopeId,
+  riskProfileBindingTargets,
+  utcTimestampSeconds,
+  calculateRiskProfileSelectionSha256,
+  normalizeRiskProfileSelection,
+  calculateRiskProfileBindingSha256,
+  normalizeRiskProfileBinding,
+  normalizeRiskProfileBindingRegistry,
+  buildRiskProfileBindings,
+} from "../risk_profile_bindings/helpers.js";
+import {
+  SUPPORTED_PLATFORMS,
+  LEGACY_CASH_ONLY_EXECUTION_VARIABLE,
+  CASH_ONLY_EXECUTION_MODES,
+  INCOME_LAYER_ENABLED_VARIABLE,
+  INCOME_LAYER_START_USD_VARIABLE,
+  INCOME_LAYER_MAX_RATIO_VARIABLE,
+  OPTION_OVERLAY_ENABLED_VARIABLE,
+  RUNTIME_TARGET_ENABLED_VARIABLE,
+  DCA_MODE_VARIABLE,
+  DCA_BASE_INVESTMENT_VARIABLE,
+  IBIT_ZSCORE_EXIT_MODE_VARIABLE,
+  IBIT_ZSCORE_EXIT_ENABLED_VARIABLE,
+  IBIT_ZSCORE_EXIT_PARKING_SYMBOL_VARIABLE,
+  OPTION_OVERLAY_VARIABLES,
+  OPTION_OVERLAY_MODES,
+} from "../strategy_and_account_normalizers/constants.js";
+import {
+  validateAccountOptionsSchemaOrThrow,
+  normalizeBrokerEnvironment,
+  parseAccountOptions,
+  normalizeAccountOptionsInput,
+  parseStrategyProfiles,
+  isFrozenStrategyProfile,
+  normalizeStrategyProfilesPayload,
+  normalizeResearchCandidateIdentity,
+  normalizeLiveContinuityPolicy,
+  rejectResearchOnlyExtraVariables,
+  incomeLayerConfigFromProfileItem,
+  optionOverlayConfigFromProfileItem,
+  addOptionalOptionFamilyConfig,
+  cleanIncomeLayerAllocations,
+  cleanProfileBoolean,
+  normalizeAccountOptionsPayload,
+  cleanAccountOption,
+  shouldInferSupportedDomains,
+  supportedDomainsForAccount,
+  inferAccountSupportedDomains,
+  platformRepositories,
+  normalizeSupportedDomains,
+  cleanStrategyDomain,
+  cleanCashCurrency,
+  addConfigOptional,
+  addOptional,
+  isDcaProfile,
+  assertDcaPlatform,
+  cleanDcaMode,
+  cleanLifecycleStage,
+  canonicalLifecycleStage,
+  cleanAllowedExecutionModes,
+  cleanExecutionMode,
+  supportedExecutionModesForPlatform,
+  cleanCurrentStrategy,
+  cleanCsv,
+} from "../strategy_and_account_normalizers/helpers.js";
 
 export {
   AUTH_CONFIG_KEY,
@@ -828,16 +1093,13 @@ export const STRATEGY_PROFILES_KEY = "strategy_profiles";
 // Risk preferences are a separate, low-frequency owner-intent record.  They
 // must never be merged into a strategy switch input, runtime target, or any
 // execution credential/policy path.
-export const RISK_PROFILE_BINDINGS_KEY = "risk_profile_bindings";
-export const RISK_PROFILE_BINDING_REGISTRY_SCHEMA_VERSION = "qsl.risk_profile_binding_registry.v1";
-export const RISK_PROFILE_BINDING_SCHEMA_VERSION = "qsl.risk_profile_binding.v1";
-export const RISK_PROFILE_SELECTION_SCHEMA_VERSION = "qsl.risk_profile_selection.v1";
-const RISK_PROFILE_IDS = {
-  CAPITAL_PRESERVATION: "capital_preservation_v1",
-  BALANCED_COMPOUNDING: "balanced_compounding_v1",
-  GROWTH_COMPOUNDING: "growth_compounding_v1",
+export {
+  RISK_PROFILE_BINDINGS_KEY,
+  RISK_PROFILE_BINDING_REGISTRY_SCHEMA_VERSION,
+  RISK_PROFILE_BINDING_SCHEMA_VERSION,
+  RISK_PROFILE_SELECTION_SCHEMA_VERSION,
+  RISK_PROFILE_PREFERENCES,
 };
-export const RISK_PROFILE_PREFERENCES = Object.keys(RISK_PROFILE_IDS);
 export const DECISION_ACTION_SCHEMA_VERSION = "qsl.decision_action_result.v1";
 export const OPERATION_SCHEMA_VERSION = "qsl.operation.v1";
 export const AUDIT_EVENTS_SCHEMA_VERSION = "qsl.audit_events.v1";
@@ -856,16 +1118,14 @@ export const CURRENT_STRATEGIES_STALE_TTL_MS = 7_200_000;  // 120 min — return
 export const CURRENT_STRATEGIES_KV_BUMP_MS = 3_600_000;    // 60 min — ceiling for ts-only rewrites when the content did not change
 export const GITHUB_API_TIMEOUT_MS = 8000;
 export const GITHUB_LOGIN_REQUEST_TIMEOUT_MS = 20000;
-export const STRATEGY_HEALTH_SNAPSHOT_KEY = "strategy_health_snapshot";
-export const STRATEGY_HEALTH_MAX_BODY_BYTES = 256 * 1024;
-export const STRATEGY_HEALTH_DEFAULT_STALE_TTL_SECONDS = 2 * 60 * 60;
-export const STRATEGY_HEALTH_STATUSES = ["healthy", "watch", "review", "critical"];
-// Derived from the generated platform config so a domain is declared once.
-const SUPPORTED_STRATEGY_DOMAINS = Object.freeze([
-  ...new Set(Object.values(PLATFORM_CONFIG).flatMap((platform) => platform.supported_domains || [])),
-]);
-export const STRATEGY_HEALTH_DOMAINS = SUPPORTED_STRATEGY_DOMAINS;
-export const STRATEGY_HEALTH_DATA_STATUSES = ["ready", "unavailable", "stale"];
+export {
+  STRATEGY_HEALTH_SNAPSHOT_KEY,
+  STRATEGY_HEALTH_MAX_BODY_BYTES,
+  STRATEGY_HEALTH_DEFAULT_STALE_TTL_SECONDS,
+  STRATEGY_HEALTH_STATUSES,
+  STRATEGY_HEALTH_DOMAINS,
+  STRATEGY_HEALTH_DATA_STATUSES,
+};
 export {
   CONTROL_PLANE_SNAPSHOT_KEY,
   CONTROL_PLANE_SOURCE_PREFIX,
@@ -886,14 +1146,16 @@ export {
 
 // M1 adaptive selections are a separate read-only projection. They are not
 // lifecycle evidence, an account instruction, or an execution permission.
-export const ADAPTIVE_SELECTION_SOURCE_PREFIX = "adaptive_selection_source:";
-export const ADAPTIVE_SELECTION_SOURCE_SCHEMA_VERSION = "qsl.adaptive_selection_source_snapshot.v1";
-export const ADAPTIVE_SELECTION_DASHBOARD_SCHEMA_VERSION = "qsl.adaptive_selection_dashboard.v1";
-export const ADAPTIVE_SELECTION_DECISION_SCHEMA_VERSION = "qsl.selection_decision.v1";
-export const ADAPTIVE_SELECTION_MAX_SOURCES = 100;
-export const ADAPTIVE_SELECTION_MAX_BODY_BYTES = 256 * 1024;
-export const ADAPTIVE_SELECTION_DEFAULT_STALE_TTL_SECONDS = 36 * 60 * 60;
-export const ADAPTIVE_SELECTION_AUTHORITY = "shadow_only";
+export {
+  ADAPTIVE_SELECTION_SOURCE_PREFIX,
+  ADAPTIVE_SELECTION_SOURCE_SCHEMA_VERSION,
+  ADAPTIVE_SELECTION_DASHBOARD_SCHEMA_VERSION,
+  ADAPTIVE_SELECTION_DECISION_SCHEMA_VERSION,
+  ADAPTIVE_SELECTION_MAX_SOURCES,
+  ADAPTIVE_SELECTION_MAX_BODY_BYTES,
+  ADAPTIVE_SELECTION_DEFAULT_STALE_TTL_SECONDS,
+  ADAPTIVE_SELECTION_AUTHORITY,
+};
 // M0 research arrives through a separate, signed-at-transport-boundary
 // snapshot.  It is deliberately neither an M1 selection input nor a research
 // task: this Worker only retains a closed, no-order ledger for authenticated
@@ -952,86 +1214,53 @@ export {
 };
 // Private Binance holdings use one isolated KV record. They are never folded
 // into public health, recovery, control-plane, or admin aggregates.
-export const BINANCE_PRIVATE_SCOPE_KEY = "private_binance_scope_report";
-export const BINANCE_PRIVATE_SCOPE_MAX_BODY_BYTES = 256 * 1024;
-export const BINANCE_PRIVATE_SCOPE_MAX_ASSETS = 5000;
-export const BINANCE_PRIVATE_SCOPE_WRITE_TTL_SECONDS = 24 * 60 * 60;
-export const BINANCE_PRIVATE_SCOPE_INGEST_MAX_AGE_MS = 10 * 60 * 1000;
-export const BINANCE_PRIVATE_SCOPE_FUTURE_SKEW_MS = 60 * 1000;
-export const BINANCE_PRIVATE_SCOPE_READ_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-// Execution evidence is deliberately a separate, read-only projection.  A
-// candidate's research lifecycle is portable; a broker/data/execution result
-// is only meaningful for the exact target platform and lane that produced it.
-// Keeping this contract separate prevents a P1/P3 source from accidentally
-// turning into an execution or P6 authority source.
-export const EXECUTION_EVIDENCE_SOURCE_PREFIX = "execution_evidence_source:";
-export const RUNTIME_DAILY_KEY_PREFIX = "runtime_daily:";
-export const RUNTIME_DAILY_MAX_BODY_BYTES = 64 * 1024;
-export const RUNTIME_DAILY_MAX_RUNS = 20;
-export const RUNTIME_DAILY_MAX_LIST = 20;
-// History coverage lists the already-stored business dates for one target. It
-// never reads record bodies and stays bounded so a large backlog cannot stall
-// the read model; hitting the page cap only marks the listing as truncated.
-export const RUNTIME_DAILY_HISTORY_PAGE = 100;
-export const RUNTIME_DAILY_HISTORY_MAX_PAGES = 10;
-export const RUNTIME_DAILY_STALE_MS = 36 * 60 * 60 * 1000;
-export const RUNTIME_DAILY_FUTURE_SKEW_MS = 5 * 60 * 1000;
-const RUNTIME_DAILY_STATUSES = [
-  "no_submission", "no_signal", "no_rebalance", "submitted", "broker_acknowledged", "partially_filled", "filled",
-  "reconciliation_required", "unknown", "failed", "blocked", "dry_run", "shadow", "validation",
-  "not_due", "market_closed", "outside_window", "within_grace", "missing_report", "read_incomplete", "insufficient", "conflict",
-];
-export const RUNTIME_DAILY_SCHEDULE_ONLY = ["not_due", "market_closed", "outside_window", "within_grace"];
-const RUNTIME_DAILY_ANOMALY_STATUSES = [
-  "reconciliation_required", "unknown", "failed", "blocked", "conflict", "missing_report", "read_incomplete", "insufficient",
-  "dry_run", "shadow", "validation",
-];
-const RUNTIME_DAILY_ACTIVITIES = [
-  "no_submission", "no_signal", "no_rebalance", "submitted", "broker_acknowledged", "partially_filled", "filled",
-  "reconciliation_required", "unknown", "failed", "blocked", "previewed", "insufficient",
-];
-export const RUNTIME_DAILY_LANES = ["paper", "live", "dry_run", "shadow", "validation", "insufficient"];
-export const RUNTIME_DAILY_SCHEDULE_STATES = ["unevaluable", "not_due", "market_closed", "within_grace", "due", "outside_window"];
-export const RUNTIME_DAILY_KINDS = ["run", "schedule", "incomplete"];
-export const EXECUTION_EVIDENCE_SOURCE_SCHEMA_VERSION = "qsl_execution_evidence_source_snapshot.v1";
-export const EXECUTION_EVIDENCE_DASHBOARD_SCHEMA_VERSION = "qsl_execution_evidence_dashboard.v1";
-export const EXECUTION_EVIDENCE_MAX_SOURCES = 100;
-export const EXECUTION_EVIDENCE_MAX_BODY_BYTES = 256 * 1024;
-export const EXECUTION_EVIDENCE_DEFAULT_STALE_TTL_SECONDS = 36 * 60 * 60;
-export const EXECUTION_EVIDENCE_PLATFORMS = OBSERVABILITY_PLATFORM_IDS;
-export const EXECUTION_EVIDENCE_ENVIRONMENTS = ["shadow", "paper", "live"];
-export const EXECUTION_EVIDENCE_CAPABILITIES = ["available", "unavailable", "unknown"];
-export const EXECUTION_EVIDENCE_STATUSES = ["verified", "pending", "unavailable", "not_applicable"];
-const EXECUTION_RECEIPT_OUTCOMES = [
-  "not_due", "no_action", "no_signal", "no_rebalance", "risk_blocked", "submitted", "broker_acknowledged", "partially_filled", "filled", "reconciliation_required", "failed",
-];
-const EXECUTION_RECEIPT_CONFIRMATIONS = [
-  "not_applicable", "not_observed", "acknowledged", "partially_filled", "filled", "reconciliation_required",
-];
-const EXECUTION_EVIDENCE_RECOMMENDATIONS = [
-  "continue_autonomous_shadow", "run_autonomous_paper", "owner_limited_live_canary_decision", "parked",
-];
-const EXECUTION_EVIDENCE_REASON_CODES = [
-  "none", "target_execution_evidence_missing", "paper_not_supported", "paper_execution_evidence_needed",
-  "policy_not_active", "source_stale", "manual_live_decision_required", "target_execution_receipt_observed",
-  "target_execution_reconciliation_required", "target_execution_receipt_failed",
-];
-// Runtime target lifecycle is intentionally separate from execution evidence:
-// it records whether a target is enabled and whether its no-order monitors are
-// healthy. A disabled target is not a missing broker or a paper/live result.
-export const RUNTIME_TARGET_LIFECYCLE_SOURCE_PREFIX = "runtime_target_lifecycle_source:";
-export const RUNTIME_TARGET_LIFECYCLE_SOURCE_SCHEMA_VERSION = "qsl_runtime_target_lifecycle_source_snapshot.v1";
-export const RUNTIME_TARGET_LIFECYCLE_DASHBOARD_SCHEMA_VERSION = "qsl_runtime_target_lifecycle_dashboard.v1";
-export const RUNTIME_TARGET_LIFECYCLE_MAX_SOURCES = 100;
-export const RUNTIME_TARGET_LIFECYCLE_MAX_BODY_BYTES = 256 * 1024;
-export const RUNTIME_TARGET_LIFECYCLE_CONFIGURED_STATES = ["enabled", "disabled"];
-export const RUNTIME_TARGET_LIFECYCLE_EXECUTION_MODES = ["dry_run", "paper", "live"];
-export const RUNTIME_TARGET_LIFECYCLE_CHECK_STATUSES = ["pass", "attention", "not_due", "not_applicable", "unavailable"];
-export const RUNTIME_TARGET_LIFECYCLE_DISPOSITIONS = ["continue_enabled_monitoring", "continue_disabled_validation", "parked"];
-export const RUNTIME_TARGET_LIFECYCLE_EXECUTION_OBSERVATIONS = ["not_due", "monitoring_only", "not_applicable", "attention", "unavailable"];
-const RUNTIME_TARGET_LIFECYCLE_REASON_CODES = [
-  "none", "target_intentionally_disabled", "runtime_guard_attention", "execution_heartbeat_attention", "monitoring_unavailable",
-];
+export {
+  BINANCE_PRIVATE_SCOPE_KEY,
+  BINANCE_PRIVATE_SCOPE_MAX_BODY_BYTES,
+  BINANCE_PRIVATE_SCOPE_MAX_ASSETS,
+  BINANCE_PRIVATE_SCOPE_WRITE_TTL_SECONDS,
+  BINANCE_PRIVATE_SCOPE_INGEST_MAX_AGE_MS,
+  BINANCE_PRIVATE_SCOPE_FUTURE_SKEW_MS,
+  BINANCE_PRIVATE_SCOPE_READ_MAX_AGE_MS,
+};
+export {
+  RUNTIME_DAILY_KEY_PREFIX,
+  RUNTIME_DAILY_MAX_BODY_BYTES,
+  RUNTIME_DAILY_MAX_RUNS,
+  RUNTIME_DAILY_MAX_LIST,
+  RUNTIME_DAILY_HISTORY_PAGE,
+  RUNTIME_DAILY_HISTORY_MAX_PAGES,
+  RUNTIME_DAILY_STALE_MS,
+  RUNTIME_DAILY_FUTURE_SKEW_MS,
+  RUNTIME_DAILY_SCHEDULE_ONLY,
+  RUNTIME_DAILY_LANES,
+  RUNTIME_DAILY_SCHEDULE_STATES,
+  RUNTIME_DAILY_KINDS,
+};
+export {
+  EXECUTION_EVIDENCE_SOURCE_PREFIX,
+  EXECUTION_EVIDENCE_SOURCE_SCHEMA_VERSION,
+  EXECUTION_EVIDENCE_DASHBOARD_SCHEMA_VERSION,
+  EXECUTION_EVIDENCE_MAX_SOURCES,
+  EXECUTION_EVIDENCE_MAX_BODY_BYTES,
+  EXECUTION_EVIDENCE_DEFAULT_STALE_TTL_SECONDS,
+  EXECUTION_EVIDENCE_PLATFORMS,
+  EXECUTION_EVIDENCE_ENVIRONMENTS,
+  EXECUTION_EVIDENCE_CAPABILITIES,
+  EXECUTION_EVIDENCE_STATUSES,
+};
+export {
+  RUNTIME_TARGET_LIFECYCLE_SOURCE_PREFIX,
+  RUNTIME_TARGET_LIFECYCLE_SOURCE_SCHEMA_VERSION,
+  RUNTIME_TARGET_LIFECYCLE_DASHBOARD_SCHEMA_VERSION,
+  RUNTIME_TARGET_LIFECYCLE_MAX_SOURCES,
+  RUNTIME_TARGET_LIFECYCLE_MAX_BODY_BYTES,
+  RUNTIME_TARGET_LIFECYCLE_CONFIGURED_STATES,
+  RUNTIME_TARGET_LIFECYCLE_EXECUTION_MODES,
+  RUNTIME_TARGET_LIFECYCLE_CHECK_STATUSES,
+  RUNTIME_TARGET_LIFECYCLE_DISPOSITIONS,
+  RUNTIME_TARGET_LIFECYCLE_EXECUTION_OBSERVATIONS,
+};
 export { HUMAN_DECISION_DO_ACTIONS, RESEARCH_PROMOTION_REVIEW_INVALID };
 export {
   ResearchPromotionReviewMaterialError,
@@ -1081,12 +1310,24 @@ export const SWITCH_ACTIVATION_CONNECTED = false;
 
 
 
-export const SUPPORTED_PLATFORMS = Object.keys(PLATFORM_CONFIG);
-
-export function validateAccountOptionsSchemaOrThrow(payload, fieldName = "account_options") {
-  return normalizeAccountOptionsSchemaPayload(payload, fieldName);
-}
-
+export {
+  SUPPORTED_PLATFORMS,
+  validateAccountOptionsSchemaOrThrow,
+  LEGACY_CASH_ONLY_EXECUTION_VARIABLE,
+  CASH_ONLY_EXECUTION_MODES,
+  INCOME_LAYER_ENABLED_VARIABLE,
+  INCOME_LAYER_START_USD_VARIABLE,
+  INCOME_LAYER_MAX_RATIO_VARIABLE,
+  OPTION_OVERLAY_ENABLED_VARIABLE,
+  RUNTIME_TARGET_ENABLED_VARIABLE,
+  DCA_MODE_VARIABLE,
+  DCA_BASE_INVESTMENT_VARIABLE,
+  IBIT_ZSCORE_EXIT_MODE_VARIABLE,
+  IBIT_ZSCORE_EXIT_ENABLED_VARIABLE,
+  IBIT_ZSCORE_EXIT_PARKING_SYMBOL_VARIABLE,
+  OPTION_OVERLAY_VARIABLES,
+  OPTION_OVERLAY_MODES,
+};
 
 const LIVE_CONTINUITY_STATES = [
   "NONE",
@@ -1097,57 +1338,6 @@ const LIVE_CONTINUITY_STATES = [
   "PAUSED",
   "ROLLBACK_LKG",
 ];
-export const LEGACY_CASH_ONLY_EXECUTION_VARIABLE = "CASH_ONLY_EXECUTION";
-export const CASH_ONLY_EXECUTION_MODES = ["current", "enabled", "disabled"];
-export const INCOME_LAYER_ENABLED_VARIABLE = "INCOME_LAYER_ENABLED";
-export const INCOME_LAYER_START_USD_VARIABLE = "INCOME_LAYER_START_USD";
-export const INCOME_LAYER_MAX_RATIO_VARIABLE = "INCOME_LAYER_MAX_RATIO";
-export const OPTION_OVERLAY_ENABLED_VARIABLE = "OPTION_OVERLAY_ENABLED";
-export const RUNTIME_TARGET_ENABLED_VARIABLE = "RUNTIME_TARGET_ENABLED";
-export const DCA_MODE_VARIABLE = "DCA_MODE";
-export const DCA_BASE_INVESTMENT_VARIABLE = "DCA_BASE_INVESTMENT_USD";
-export const IBIT_ZSCORE_EXIT_MODE_VARIABLE = "IBIT_ZSCORE_EXIT_MODE";
-export const IBIT_ZSCORE_EXIT_ENABLED_VARIABLE = "IBIT_ZSCORE_EXIT_ENABLED";
-export const IBIT_ZSCORE_EXIT_PARKING_SYMBOL_VARIABLE = "IBIT_ZSCORE_EXIT_PARKING_SYMBOL";
-const LEGACY_INCOME_LAYER_CONTROL_FIELDS = [
-  "income_threshold_usd",
-  "qqqi_income_ratio",
-  "income_layer_qqqi_weight",
-  "income_layer_spyi_weight",
-];
-const LEGACY_INCOME_LAYER_VARIABLES = [
-  "INCOME_THRESHOLD_USD",
-  "QQQI_INCOME_RATIO",
-  "INCOME_LAYER_QQQI_WEIGHT",
-  "INCOME_LAYER_SPYI_WEIGHT",
-];
-const OPTION_OVERLAY_CONTROL_FIELDS = [
-  "option_overlay_enabled",
-  "option_growth_overlay_enabled",
-  "option_growth_overlay_recipe",
-  "option_growth_overlay_start_usd",
-  "option_growth_overlay_nav_budget_ratio",
-  "option_income_overlay_enabled",
-  "option_income_overlay_recipe",
-  "option_income_overlay_start_usd",
-  "option_income_overlay_nav_risk_ratio",
-];
-export const OPTION_OVERLAY_VARIABLES = OPTION_OVERLAY_CONTROL_FIELDS.map((field) => field.toUpperCase());
-const OPTION_OVERLAY_PROFILE_FIELDS = [
-  ...OPTION_OVERLAY_CONTROL_FIELDS,
-  "option_overlay_live_gate",
-  "option_overlay_live_status",
-];
-export const OPTION_OVERLAY_MODES = ["current", "enabled", "disabled"];
-const DCA_PROFILE_CONFIG = Object.fromEntries(
-  Object.entries(DCA_PROFILE_DEFAULTS).map(([profile, defaults]) => [
-    profile,
-    {
-      default_mode: defaults.defaultMode || "fixed",
-      default_base_investment_usd: defaults.defaultBaseInvestmentUsd || "1000",
-    },
-  ]),
-);
 const SECURITY_HEADERS = {
   "Content-Security-Policy": [
     "default-src 'self'",
@@ -2500,114 +2690,25 @@ export async function syncStrategyProfilesResponse(request, env) {
   );
 }
 
-function stripAuditCompareFields(value, keys) {
-  if (!value || typeof value !== "object") return value;
-  const clone = structuredClone(value);
-  for (const key of keys) delete clone[key];
-  return clone;
-}
-
-function strategyHealthAuditSignature(snapshot) {
-  const clone = stripAuditCompareFields(snapshot, ["generated_at", "computed_at"]);
-  if (Array.isArray(clone?.strategies)) {
-    clone.strategies = clone.strategies.map((item) => {
-      if (!item || typeof item !== "object" || !item.freshness || typeof item.freshness !== "object") return item;
-      const freshness = { ...item.freshness };
-      delete freshness.age_seconds;
-      return { ...item, freshness };
-    });
-  }
-  return JSON.stringify(clone);
-}
-
-function executionEvidenceAuditSignature(snapshot) {
-  return JSON.stringify(stripAuditCompareFields(snapshot, ["generated_at", "computed_at"]));
+function strategyHealthRuntimeDeps() {
+  return {
+    requireDedicatedStrategyHealthSyncToken,
+    hasConfigStore,
+    json,
+    readBoundedJson,
+    readConfigJson,
+    writeConfigJson,
+    appendAuditLog,
+    readSession,
+  };
 }
 
 export async function syncStrategyHealthResponse(request, env) {
-  requireDedicatedStrategyHealthSyncToken(request, env);
-  if (!hasConfigStore(env)) {
-    return json({ ok: false, error: "strategy health KV is not configured" }, 503);
-  }
-
-  let raw;
-  try {
-    raw = await readBoundedJson(request, STRATEGY_HEALTH_MAX_BODY_BYTES);
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid strategy health payload" }, error.status || 400);
-  }
-
-  let snapshot;
-  try {
-    snapshot = normalizeStrategyHealthSnapshot(raw, "strategy health snapshot");
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid strategy health payload" }, 400);
-  }
-
-  let materialChanged = true;
-  try {
-    const stored = await readConfigJson(env, STRATEGY_HEALTH_SNAPSHOT_KEY);
-    if (stored) {
-      const normalizedPrev = normalizeStrategyHealthSnapshot(stored, STRATEGY_HEALTH_SNAPSHOT_KEY);
-      materialChanged = strategyHealthAuditSignature(normalizedPrev) !== strategyHealthAuditSignature(snapshot);
-    }
-  } catch {
-    materialChanged = true;
-  }
-
-  await writeConfigJson(env, STRATEGY_HEALTH_SNAPSHOT_KEY, snapshot);
-  if (materialChanged) {
-    try {
-      await appendAuditLog(env, {
-        ts: new Date().toISOString(),
-        login: "strategy-health-sync",
-        action: "sync_strategy_health",
-        schema_version: snapshot.schema_version,
-        strategy_count: snapshot.summary.strategy_count,
-        data_status: snapshot.data_status,
-      });
-    } catch {
-      // Snapshot delivery remains successful; audit data must never expose the payload.
-    }
-  }
-  return json({
-    ok: true,
-    schema_version: snapshot.schema_version,
-    strategy_count: snapshot.summary.strategy_count,
-    generated_at: snapshot.generated_at,
-  });
+  return syncStrategyHealthResponseImpl(request, env, strategyHealthRuntimeDeps());
 }
 
 export async function strategyHealthResponse(request, env) {
-  const session = await readSession(request, env);
-  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
-  if (!hasConfigStore(env)) return json(emptyStrategyHealthPayload("snapshot_unavailable"));
-
-  let snapshot;
-  try {
-    const stored = await readConfigJson(env, STRATEGY_HEALTH_SNAPSHOT_KEY);
-    if (!stored) return json(emptyStrategyHealthPayload("snapshot_unavailable"));
-    snapshot = normalizeStrategyHealthSnapshot(stored, STRATEGY_HEALTH_SNAPSHOT_KEY);
-  } catch {
-    return json(emptyStrategyHealthPayload("snapshot_invalid"));
-  }
-
-  const ttlSeconds = strategyHealthStaleTtlSeconds(env);
-  const freshnessTimestamps = [snapshot.generated_at, snapshot.computed_at]
-    .filter(Boolean)
-    .map((value) => Date.parse(value));
-  const freshnessAt = freshnessTimestamps.length ? Math.min(...freshnessTimestamps) : Number.NaN;
-  const now = Date.now();
-  const futureBeyondClockSkew = Number.isFinite(freshnessAt) && freshnessAt > now + 5 * 60 * 1000;
-  const ageSeconds = futureBeyondClockSkew
-    ? Number.POSITIVE_INFINITY
-    : Number.isFinite(freshnessAt)
-      ? Math.max(0, (now - freshnessAt) / 1000)
-      : Number.POSITIVE_INFINITY;
-  if (["ready", "partial"].includes(snapshot.data_status) && ageSeconds > ttlSeconds) {
-    snapshot.data_status = "stale";
-  }
-  return json(snapshot);
+  return strategyHealthResponseImpl(request, env, strategyHealthRuntimeDeps());
 }
 
 export async function mirrorConfigJson(env, key, value) {
@@ -2840,35 +2941,11 @@ export async function reconciliationRecoveryResponse(request, env) {
 }
 
 export async function syncBinancePrivateScopeResponse(request, env) {
-  requireDedicatedReconciliationRecoverySyncToken(request, env);
-  const store = configStore(env);
-  if (!store) {
-    return json({ ok: false, error: "binance_private_scope_storage_unavailable" }, 503);
-  }
-  let raw;
-  try {
-    raw = await readBoundedJson(request, BINANCE_PRIVATE_SCOPE_MAX_BODY_BYTES);
-  } catch (error) {
-    return json({ ok: false, error: "invalid_binance_private_scope_payload" }, error.status === 413 ? 413 : 400);
-  }
-  let report;
-  try {
-    report = normalizeBinancePrivateScopeReport(raw, { requireIngestFreshness: true });
-  } catch {
-    return json({ ok: false, error: "invalid_binance_private_scope_payload" }, 400);
-  }
-  try {
-    await store.put(BINANCE_PRIVATE_SCOPE_KEY, JSON.stringify(report), {
-      expirationTtl: BINANCE_PRIVATE_SCOPE_WRITE_TTL_SECONDS,
-    });
-  } catch {
-    return json({ ok: false, error: "binance_private_scope_storage_unavailable" }, 503);
-  }
-  return json({
-    ok: true,
-    observed_at: report.observed_at,
-    source_run_id: report.source_run_id,
-    asset_count: report.assets.length,
+  return syncBinancePrivateScopeResponseImpl(request, env, {
+    requireDedicatedReconciliationRecoverySyncToken,
+    configStore,
+    json,
+    readBoundedJson,
   });
 }
 
@@ -3104,22 +3181,12 @@ export async function binanceAccountFactsResponse(request, env) {
 }
 
 export async function binancePrivateScopeResponse(request, env) {
-  const session = await readSession(request, env);
-  if (!session) return json({ ok: false, error: "login required" }, 401);
-  if (!session.allowed || !session.admin) return json({ ok: false, error: "admin required" }, 403);
-  if (!hasConfigStore(env)) return json({ ok: true, report: null });
-  try {
-    const raw = await readConfigJson(env, BINANCE_PRIVATE_SCOPE_KEY);
-    if (!raw) return json({ ok: true, report: null });
-    const report = normalizeBinancePrivateScopeReport(raw);
-    const ageMs = Date.now() - Date.parse(report.observed_at);
-    if (ageMs > BINANCE_PRIVATE_SCOPE_READ_MAX_AGE_MS || ageMs < -BINANCE_PRIVATE_SCOPE_FUTURE_SKEW_MS) {
-      return json({ ok: true, report: null });
-    }
-    return json({ ok: true, report });
-  } catch {
-    return json({ ok: true, report: null });
-  }
+  return binancePrivateScopeResponseImpl(request, env, {
+    readSession,
+    hasConfigStore,
+    readConfigJson,
+    json,
+  });
 }
 
 // This is a least-privilege service-to-service read for a platform-owned
@@ -3171,366 +3238,6 @@ export async function readReconciliationRecoverySources(env) {
 }
 
 export { reconciliationRecoverySourceKey };
-
-export function runtimeDailyReadModelEnabled(env) {
-  return String(env.RUNTIME_DAILY_READ_MODEL_ENABLED || "") === "true";
-}
-
-export function runtimeDailyDisabledResponse() {
-  return json({ ok: false, error: "runtime_daily_disabled" }, 404);
-}
-
-export function runtimeDailyKey(businessDate, target = RUNTIME_DAILY_TARGET) {
-  return `${RUNTIME_DAILY_KEY_PREFIX}${target.target_key}:${businessDate}`;
-}
-
-export function runtimeDailyToday(now = Date.now()) {
-  return runtimeDailyBusinessDate(now);
-}
-
-export function runtimeDailyCalendarDate(value) {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const [year, month, day] = value.split("-").map(Number);
-  const utc = new Date(Date.UTC(year, month - 1, day));
-  if (utc.getUTCFullYear() !== year || utc.getUTCMonth() !== month - 1 || utc.getUTCDate() !== day) return null;
-  return value;
-}
-
-export function runtimeDailyInstant(value) {
-  if (typeof value !== "string") return null;
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-](\d{2}):(\d{2}))$/.exec(value);
-  if (!match) return null;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const hour = Number(match[4]);
-  const minute = Number(match[5]);
-  const second = Number(match[6]);
-  if (hour > 23 || minute > 59 || second > 59) return null;
-  if (match[7] !== "Z" && (Number(match[8]) > 23 || Number(match[9]) > 59)) return null;
-  const utc = new Date(Date.UTC(year, month - 1, day));
-  if (utc.getUTCFullYear() !== year || utc.getUTCMonth() !== month - 1 || utc.getUTCDate() !== day) return null;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-export function runtimeDailyExactKeys(value, keys) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const present = Object.keys(value);
-  return present.length === keys.length && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
-}
-
-export function runtimeDailyBoundedText(value, max) {
-  if (typeof value !== "string" || !value || value.length > max) return false;
-  if (/[\u0000-\u001f\u007f]/.test(value)) return false;
-  const lowered = value.toLowerCase();
-  return !["secret", "token", "password", "bearer", "traceback", "/users/", "/home/"].some((marker) => lowered.includes(marker));
-}
-
-export function runtimeDailyChoice(value, allowed) {
-  return typeof value === "string" && allowed.includes(value);
-}
-
-export function runtimeDailyReject(code) {
-  throw new HttpError(code, 400);
-}
-
-export function runtimeDailyOptionalInstant(value, observedMs) {
-  if (value === null) return null;
-  const parsed = runtimeDailyInstant(value);
-  if (parsed === null) runtimeDailyReject("invalid_runtime_daily_time");
-  if (parsed > observedMs + RUNTIME_DAILY_FUTURE_SKEW_MS) runtimeDailyReject("runtime_daily_future_observation");
-  return parsed;
-}
-
-export function runtimeDailyScheduleInstants(schedule, observedMs) {
-  const latest = schedule.latest_due_at === null ? null : runtimeDailyInstant(schedule.latest_due_at);
-  const next = schedule.next_due_at === null ? null : runtimeDailyInstant(schedule.next_due_at);
-  const grace = schedule.grace_ends_at === null ? null : runtimeDailyInstant(schedule.grace_ends_at);
-  if (schedule.latest_due_at !== null && latest === null) runtimeDailyReject("invalid_runtime_daily_time");
-  if (schedule.next_due_at !== null && next === null) runtimeDailyReject("invalid_runtime_daily_time");
-  if (schedule.grace_ends_at !== null && grace === null) runtimeDailyReject("invalid_runtime_daily_time");
-  // latest_due is the last cron time already reached. next_due and grace_ends are plans.
-  if (latest !== null && latest > observedMs + RUNTIME_DAILY_FUTURE_SKEW_MS) runtimeDailyReject("invalid_runtime_daily_time");
-  if (next !== null && next <= observedMs) runtimeDailyReject("invalid_runtime_daily_time");
-  if (latest !== null && next !== null && next <= latest) runtimeDailyReject("invalid_runtime_daily_time");
-  if (latest !== null && grace !== null && grace < latest) runtimeDailyReject("invalid_runtime_daily_time");
-}
-
-// These additional constraints describe only the merged Schwab projector. The
-// original LongBridge key sets, time tolerance and receipt protocol stay intact.
-export function validateSchwabRuntimeDailyRun(run, observedMs, started, finished) {
-  const evidence = run.evidence;
-  const confirmations = {
-    not_due: ["not_applicable"], no_action: ["not_applicable"], no_signal: ["not_applicable"], no_rebalance: ["not_applicable"],
-    risk_blocked: ["not_applicable"], submitted: ["not_observed"], broker_acknowledged: ["acknowledged"],
-    partially_filled: ["partially_filled"], filled: ["filled"], reconciliation_required: ["reconciliation_required"],
-    failed: ["not_applicable", "not_observed", "reconciliation_required"],
-  };
-  if ((run.run_id !== null && !/^run\.[0-9a-f]{32}$/.test(run.run_id))
-    || run.source_object !== null || run.source_objects.length !== 0 || run.object_updated_at !== null
-    || run.execution_lane === "paper" || run.run_time_known !== (started !== null || finished !== null)) runtimeDailyReject("invalid_runtime_daily_run");
-  if ((started !== null && started > observedMs) || (finished !== null && finished > observedMs)) runtimeDailyReject("invalid_runtime_daily_time");
-  if (run.report_status !== null && !["ok", "skipped", "success", "completed", "no_action", "error", "failed", "failure", "cancelled", "canceled", "timed_out"].includes(run.report_status)) runtimeDailyReject("invalid_runtime_daily_run");
-  if (evidence.execution_status !== null && !["no_op", "no_action", "no_signal", "no_rebalance", "skipped", "outside_market_hours", "submitted", "pending_reconciliation", "reconciliation_required", "unknown", "unknown_order", "blocked", "risk_blocked", "error", "failed", "failure", "dry_run", "previewed", "partial", "partially_filled", "filled", "completed"].includes(evidence.execution_status)) runtimeDailyReject("invalid_runtime_daily_run");
-  if (!runtimeDailyChoice(evidence.receipt_state, ["valid", "missing", "invalid"])) runtimeDailyReject("invalid_runtime_daily_run");
-  if (evidence.receipt_state === "valid") {
-    if (typeof evidence.receipt_id !== "string" || !/^execution-receipt\.[0-9a-f]{32}$/.test(evidence.receipt_id)
-      || started === null || finished === null
-      || !Object.prototype.hasOwnProperty.call(confirmations, evidence.receipt_outcome)
-      || !confirmations[evidence.receipt_outcome].includes(evidence.receipt_broker_confirmation)) runtimeDailyReject("invalid_runtime_daily_run");
-  } else if (evidence.receipt_id !== null || evidence.receipt_outcome !== null || evidence.receipt_broker_confirmation !== null) runtimeDailyReject("invalid_runtime_daily_run");
-  const completedReceipt = { no_submission: "no_action", no_signal: "no_signal", no_rebalance: "no_rebalance", filled: "filled" };
-  if (Object.prototype.hasOwnProperty.call(completedReceipt, run.activity)
-    && (evidence.receipt_state !== "valid" || evidence.receipt_outcome !== completedReceipt[run.activity]
-      || !["ok", "skipped", "success", "completed", "no_action"].includes(run.report_status)
-      || run.execution_lane !== "live" || runtimeDailyRunIssue(run) !== null)) runtimeDailyReject("runtime_daily_summary_conflict");
-  if (["no_submission", "no_signal", "no_rebalance"].includes(run.activity)
-    && (evidence.broker_submission_done !== false || evidence.action_done === true || evidence.orders_pending_count !== 0
-      || (evidence.execution_status !== null && !["no_op", "no_action", "no_signal", "no_rebalance", "skipped", "outside_market_hours", "completed"].includes(evidence.execution_status)))) runtimeDailyReject("runtime_daily_summary_conflict");
-}
-
-export function validateSchwabRuntimeDailySummary(raw, record, runs, observedMs) {
-  if (raw.completeness !== (record.completeness === "complete" ? "complete" : "incomplete")) runtimeDailyReject("runtime_daily_summary_conflict");
-  const runSignatures = new Map();
-  for (const run of runs) {
-    if (run.run_id === null) continue;
-    const signature = canonicalResearchTaskJson(run);
-    const previous = runSignatures.get(run.run_id);
-    if (previous !== undefined && previous !== signature && !record.conflicts.includes(run.run_id)) runtimeDailyReject("runtime_daily_summary_conflict");
-    runSignatures.set(run.run_id, signature);
-  }
-  const incomplete = raw.read_errors.length > 0 || record.conflicts.length > 0 || record.schedule.state === "unevaluable"
-    || record.excluded_reports.some(item => item.reason !== "other_business_date")
-    || runs.some(run => run.run_id === null || run.evidence.receipt_state !== "valid" || !run.run_time_known);
-  if (record.completeness === "complete" && incomplete) runtimeDailyReject("runtime_daily_summary_conflict");
-  // A run that only finishes after the due time cannot prove that due cycle.
-  // This is a receiver invariant of the existing producer, not a new scheduler.
-  const latest = runtimeDailyInstant(record.schedule.latest_due_at);
-  const covering = latest === null ? [] : runs.filter(run => {
-    const started = runtimeDailyInstant(run.started_at), finished = runtimeDailyInstant(run.finished_at);
-    return started !== null && finished !== null && started >= latest && finished <= observedMs
-      && runtimeDailyToday(started) === record.business_date;
-  });
-  const quiet = ["no_submission", "no_signal", "no_rebalance"];
-  if ([...quiet, "filled", ...RUNTIME_DAILY_SCHEDULE_ONLY].includes(record.status)
-    && record.completeness !== "complete") runtimeDailyReject("runtime_daily_summary_conflict");
-  if ([...quiet, "filled"].includes(record.status)) {
-    if (record.kind !== "run" || covering.length === 0 || covering.some(run => run.execution_lane !== "live")) runtimeDailyReject("runtime_daily_summary_conflict");
-    if (quiet.includes(record.status) && (!['due', 'within_grace'].includes(record.schedule.state)
-      || covering.some(run => run.activity !== record.status))) runtimeDailyReject("runtime_daily_summary_conflict");
-    if (record.status === "filled" && !covering.some(run => run.activity === "filled")) runtimeDailyReject("runtime_daily_summary_conflict");
-  }
-  if (RUNTIME_DAILY_SCHEDULE_ONLY.includes(record.status)
-    && (record.kind !== "schedule" || record.schedule.state !== record.status || covering.length > 0)) runtimeDailyReject("runtime_daily_summary_conflict");
-}
-
-export function validateSchwabRuntimeDailySchedule(schedule, observedMs) {
-  const { state, reason, publication_grace_ended: ended, expected_window: window } = schedule;
-  const latest = schedule.latest_due_at === null ? null : runtimeDailyInstant(schedule.latest_due_at);
-  const next = schedule.next_due_at === null ? null : runtimeDailyInstant(schedule.next_due_at);
-  const grace = schedule.grace_ends_at === null ? null : runtimeDailyInstant(schedule.grace_ends_at);
-  const reasons = { due: ["publication_grace_ended"], within_grace: ["publication_grace_open"],
-    not_due: ["before_schedule", "no_cron_on_business_date"], market_closed: ["market_closed"],
-    outside_window: ["outside_expected_window"], unevaluable: ["schedule_missing", "schedule_invalid"] };
-  if (!reasons[state]?.includes(reason)
-    || (latest !== null && (latest > observedMs || runtimeDailyToday(latest) !== schedule.business_date))
-    || (next !== null && (next <= observedMs || runtimeDailyToday(next) !== schedule.business_date))) runtimeDailyReject("invalid_runtime_daily_projection");
-  let valid;
-  if (state === "unevaluable") valid = latest === null && next === null && grace === null && ended === null && window === "unspecified";
-  else if (state === "due" || state === "within_grace") valid = latest !== null && grace !== null && next === null && window !== "outside"
-    && (state === "due" ? ended === true && grace <= observedMs : ended === false && grace > observedMs);
-  else if (state === "not_due") valid = latest === null && grace === null && ended === null && window !== "outside"
-    && ((reason === "before_schedule") === (next !== null));
-  else if (state === "market_closed") valid = latest !== null && grace === null && ended === null;
-  else valid = window === "outside" && ended === null && ((latest === null) === (grace === null)) && !(grace !== null && next !== null);
-  if (!valid) runtimeDailyReject("invalid_runtime_daily_projection");
-}
-
-export function normalizeRuntimeDailyRun(run, observedMs, target) {
-  if (!runtimeDailyExactKeys(run, [
-    "run_id", "source_object", "source_objects", "started_at", "finished_at", "object_updated_at",
-    "report_status", "execution_lane", "activity", "run_time_known", "evidence",
-  ])) runtimeDailyReject("invalid_runtime_daily_run");
-  if (run.run_id !== null && !runtimeDailyBoundedText(run.run_id, 120)) runtimeDailyReject("invalid_runtime_daily_run");
-  if (run.source_object !== null && !runtimeDailyBoundedText(run.source_object, 512)) runtimeDailyReject("invalid_runtime_daily_run");
-  if (!Array.isArray(run.source_objects) || run.source_objects.length > 8 || run.source_objects.some((item) => !runtimeDailyBoundedText(item, 512))) {
-    runtimeDailyReject("invalid_runtime_daily_run");
-  }
-  const started = runtimeDailyOptionalInstant(run.started_at, observedMs);
-  const finished = runtimeDailyOptionalInstant(run.finished_at, observedMs);
-  runtimeDailyOptionalInstant(run.object_updated_at, observedMs);
-  if (started !== null && finished !== null && finished < started) runtimeDailyReject("invalid_runtime_daily_time");
-  if (run.report_status !== null && !runtimeDailyBoundedText(run.report_status, 64)) runtimeDailyReject("invalid_runtime_daily_run");
-  if (!runtimeDailyChoice(run.execution_lane, RUNTIME_DAILY_LANES) || !runtimeDailyChoice(run.activity, RUNTIME_DAILY_ACTIVITIES)) {
-    runtimeDailyReject("invalid_runtime_daily_run");
-  }
-  if (typeof run.run_time_known !== "boolean") runtimeDailyReject("invalid_runtime_daily_run");
-  const evidenceKeys = [
-    "execution_status", "broker_submission_done", "action_done", "orders_pending_count", "errors_present",
-    "receipt_outcome", "receipt_broker_confirmation",
-  ];
-  if (target.platform === "schwab") evidenceKeys.push("receipt_state", "receipt_id");
-  if (!runtimeDailyExactKeys(run.evidence, evidenceKeys)) runtimeDailyReject("invalid_runtime_daily_run");
-  const evidence = run.evidence;
-  if (evidence.execution_status !== null && !runtimeDailyBoundedText(evidence.execution_status, 64)) runtimeDailyReject("invalid_runtime_daily_run");
-  for (const field of ["broker_submission_done", "action_done"]) {
-    if (evidence[field] !== null && typeof evidence[field] !== "boolean") runtimeDailyReject("invalid_runtime_daily_run");
-  }
-  if (evidence.orders_pending_count !== null && (!Number.isInteger(evidence.orders_pending_count) || evidence.orders_pending_count < 0 || evidence.orders_pending_count > 100000)) {
-    runtimeDailyReject("invalid_runtime_daily_run");
-  }
-  if (typeof evidence.errors_present !== "boolean") runtimeDailyReject("invalid_runtime_daily_run");
-  for (const field of ["receipt_outcome", "receipt_broker_confirmation"]) {
-    if (evidence[field] !== null && !runtimeDailyBoundedText(evidence[field], 64)) runtimeDailyReject("invalid_runtime_daily_run");
-  }
-  if (target.platform === "schwab") validateSchwabRuntimeDailyRun(run, observedMs, started, finished);
-  return {
-    run_id: run.run_id,
-    source_object: run.source_object,
-    source_objects: [...run.source_objects],
-    started_at: run.started_at,
-    finished_at: run.finished_at,
-    object_updated_at: run.object_updated_at,
-    report_status: run.report_status,
-    execution_lane: run.execution_lane,
-    activity: run.activity,
-    run_time_known: run.run_time_known,
-    evidence: { ...evidence },
-  };
-}
-
-export function normalizeRuntimeDailyProjection(raw, now = Date.now(), registeredTarget = null) {
-  if (!runtimeDailyExactKeys(raw, ["platform", "observed_at", "completeness", "read_errors", "records", "unmatched_reports"])) {
-    runtimeDailyReject("invalid_runtime_daily_projection");
-  }
-  const target = registeredTarget || runtimeDailyTarget(raw.platform);
-  if (target && raw.platform !== target.platform) runtimeDailyReject("invalid_runtime_daily_target");
-  if (!target || !runtimeDailyChoice(raw.completeness, ["complete", "incomplete"])) {
-    runtimeDailyReject("invalid_runtime_daily_projection");
-  }
-  const observedMs = runtimeDailyInstant(raw.observed_at);
-  if (observedMs === null) runtimeDailyReject("invalid_runtime_daily_time");
-  if (observedMs > now + RUNTIME_DAILY_FUTURE_SKEW_MS) runtimeDailyReject("runtime_daily_future_observation");
-  if (!Array.isArray(raw.read_errors) || raw.read_errors.length > RUNTIME_DAILY_MAX_LIST || raw.read_errors.some((item) => !runtimeDailyBoundedText(item, 120))) {
-    runtimeDailyReject("invalid_runtime_daily_projection");
-  }
-  if (!Array.isArray(raw.records) || raw.records.length !== 1) runtimeDailyReject("invalid_runtime_daily_target");
-  if (!Array.isArray(raw.unmatched_reports) || raw.unmatched_reports.length > RUNTIME_DAILY_MAX_LIST) {
-    runtimeDailyReject("invalid_runtime_daily_projection");
-  }
-  const record = raw.records[0];
-  if (!runtimeDailyExactKeys(record, [
-    "platform", "target_key", "target", "business_date", "timezone", "observed_at", "status", "kind",
-    "completeness", "execution_lane", "schedule", "runs", "excluded_reports", "conflicts", "fills",
-  ])) runtimeDailyReject("invalid_runtime_daily_projection");
-  if (record.platform !== target.platform || record.target_key !== target.target_key || record.timezone !== RUNTIME_DAILY_TIMEZONE) {
-    runtimeDailyReject(record.timezone === RUNTIME_DAILY_TIMEZONE ? "invalid_runtime_daily_target" : "invalid_runtime_daily_timezone");
-  }
-  if (!runtimeDailyExactKeys(record.target, ["service", "strategy_profile", "account_scope"])) runtimeDailyReject("invalid_runtime_daily_target");
-  if (record.target.service !== target.service || record.target.strategy_profile !== target.strategy_profile || record.target.account_scope !== target.account_scope) {
-    runtimeDailyReject("invalid_runtime_daily_target");
-  }
-  const businessDate = runtimeDailyCalendarDate(record.business_date);
-  if (!businessDate || businessDate > runtimeDailyToday(now)) runtimeDailyReject("invalid_runtime_daily_date");
-  if (target.platform === "schwab" && businessDate > runtimeDailyToday(observedMs)) runtimeDailyReject("invalid_runtime_daily_date");
-  if (record.observed_at !== raw.observed_at) runtimeDailyReject("invalid_runtime_daily_time");
-  if (!runtimeDailyChoice(record.status, RUNTIME_DAILY_STATUSES) || !runtimeDailyChoice(record.kind, RUNTIME_DAILY_KINDS)) {
-    runtimeDailyReject("invalid_runtime_daily_projection");
-  }
-  if (!runtimeDailyChoice(record.completeness, ["complete", "incomplete", "insufficient"]) || !runtimeDailyChoice(record.execution_lane, RUNTIME_DAILY_LANES)) {
-    runtimeDailyReject("invalid_runtime_daily_projection");
-  }
-  if (!runtimeDailyExactKeys(record.schedule, [
-    "state", "business_date", "timezone", "latest_due_at", "next_due_at", "grace_ends_at",
-    "publication_grace_ended", "expected_window", "reason",
-  ])) runtimeDailyReject("invalid_runtime_daily_projection");
-  const schedule = record.schedule;
-  if (!runtimeDailyChoice(schedule.state, RUNTIME_DAILY_SCHEDULE_STATES) || schedule.business_date !== businessDate || schedule.timezone !== RUNTIME_DAILY_TIMEZONE) {
-    runtimeDailyReject("invalid_runtime_daily_projection");
-  }
-  runtimeDailyScheduleInstants(schedule, observedMs);
-  if (schedule.publication_grace_ended !== null && typeof schedule.publication_grace_ended !== "boolean") {
-    runtimeDailyReject("invalid_runtime_daily_projection");
-  }
-  if (!runtimeDailyChoice(schedule.expected_window, ["unspecified", "inside", "outside"])) {
-    runtimeDailyReject("invalid_runtime_daily_projection");
-  }
-  if (schedule.reason !== null && !runtimeDailyBoundedText(schedule.reason, 120)) runtimeDailyReject("invalid_runtime_daily_projection");
-  if (target.platform === "schwab") validateSchwabRuntimeDailySchedule(schedule, observedMs);
-  if (!Array.isArray(record.runs) || record.runs.length > RUNTIME_DAILY_MAX_RUNS) runtimeDailyReject("runtime_daily_run_limit");
-  const runs = record.runs.map((run) => normalizeRuntimeDailyRun(run, observedMs, target));
-  if (!Array.isArray(record.excluded_reports) || record.excluded_reports.length > RUNTIME_DAILY_MAX_LIST) runtimeDailyReject("invalid_runtime_daily_projection");
-  const excluded = record.excluded_reports.map((item) => {
-    const keys = Object.keys(item || {});
-    const allowed = keys.length === 3 ? ["run_id", "reason", "business_date"] : ["run_id", "reason"];
-    if (!runtimeDailyExactKeys(item, allowed) || !runtimeDailyBoundedText(item.reason, 64)) runtimeDailyReject("invalid_runtime_daily_projection");
-    if (item.run_id !== null && !runtimeDailyBoundedText(item.run_id, 120)) runtimeDailyReject("invalid_runtime_daily_projection");
-    if (allowed.length === 3 && runtimeDailyCalendarDate(item.business_date) === null) runtimeDailyReject("invalid_runtime_daily_date");
-    if (target.platform === "schwab" && (allowed.length !== 2
-      || !runtimeDailyChoice(item.reason, ["missing_run_time", "invalid_run_time", "inverted_run_time", "future_run_time", "other_business_date"])
-      || (item.run_id !== null && !/^run\.[0-9a-f]{32}$/.test(item.run_id)))) runtimeDailyReject("invalid_runtime_daily_projection");
-    return allowed.length === 3
-      ? { run_id: item.run_id, reason: item.reason, business_date: item.business_date }
-      : { run_id: item.run_id, reason: item.reason };
-  });
-  if (!Array.isArray(record.conflicts) || record.conflicts.length > RUNTIME_DAILY_MAX_LIST || record.conflicts.some((item) => !runtimeDailyBoundedText(item, 160))) {
-    runtimeDailyReject("invalid_runtime_daily_projection");
-  }
-  if (["no_submission", "no_signal", "no_rebalance", "filled", ...RUNTIME_DAILY_SCHEDULE_ONLY].includes(record.status)
-    && (record.conflicts.length || runs.some(run => runtimeDailyRunIssue(run) !== null))) {
-    runtimeDailyReject("runtime_daily_summary_conflict");
-  }
-  if (!runtimeDailyExactKeys(record.fills, ["source", "records", "count"]) || record.fills.source !== "not_connected" || record.fills.count !== null || !Array.isArray(record.fills.records) || record.fills.records.length !== 0) {
-    runtimeDailyReject("invalid_runtime_daily_fills");
-  }
-  const unmatched = raw.unmatched_reports.map((item) => {
-    if (target.platform === "schwab") {
-      if (!runtimeDailyExactKeys(item, ["reason"]) || !runtimeDailyChoice(item.reason, ["invalid_report", "wrong_platform", "wrong_target", "invalid_source_object"])) runtimeDailyReject("invalid_runtime_daily_projection");
-      return { reason: item.reason };
-    }
-    if (!runtimeDailyExactKeys(item, ["run_id", "platform", "service", "strategy_profile", "account_scope", "reason"])) {
-      runtimeDailyReject("invalid_runtime_daily_projection");
-    }
-    for (const field of ["platform", "service", "strategy_profile", "account_scope", "reason"]) {
-      if (item[field] !== null && !runtimeDailyBoundedText(item[field], 120)) runtimeDailyReject("invalid_runtime_daily_projection");
-    }
-    if (item.run_id !== null && !runtimeDailyBoundedText(item.run_id, 120)) runtimeDailyReject("invalid_runtime_daily_projection");
-    return { ...item };
-  });
-  if (target.platform === "schwab") {
-    if (raw.read_errors.some(item => !["report_read_error", "coverage_unconfirmed", "report_rejected"].includes(item))
-      || record.conflicts.some(item => !/^run\.[0-9a-f]{32}$/.test(item))
-      || record.execution_lane === "paper") runtimeDailyReject("invalid_runtime_daily_projection");
-    const lanes = new Set(runs.map(run => run.execution_lane));
-    if (record.execution_lane !== (lanes.size === 1 ? runs[0].execution_lane : "insufficient")) runtimeDailyReject("invalid_runtime_daily_projection");
-    validateSchwabRuntimeDailySummary(raw, record, runs, observedMs);
-  }
-  return {
-    platform: target.platform,
-    observed_at: raw.observed_at,
-    completeness: raw.completeness,
-    read_errors: [...raw.read_errors],
-    records: [{
-      platform: target.platform,
-      target_key: target.target_key,
-      target: { ...record.target },
-      business_date: businessDate,
-      timezone: RUNTIME_DAILY_TIMEZONE,
-      observed_at: raw.observed_at,
-      status: record.status,
-      kind: record.kind,
-      completeness: record.completeness,
-      execution_lane: record.execution_lane,
-      schedule: { ...schedule },
-      runs,
-      excluded_reports: excluded,
-      conflicts: [...record.conflicts],
-      fills: { source: "not_connected", records: [], count: null },
-    }],
-    unmatched_reports: unmatched,
-  };
-}
 
 export async function runtimeDailyTrustedBinding(env, target, accountOptions = null) {
   const config = accountOptions ? { options: accountOptions } : await loadAccountOptionsConfig(env);
@@ -3621,113 +3328,31 @@ export async function runtimeDailyPublicBindings(env, accountOptions, readRegist
   }
 }
 
-export function runtimeDailyStoredProjection(raw, target, binding) {
-  if (target.platform === "longbridge" && !binding.fingerprint) return raw;
-  if (!runtimeDailyExactKeys(raw, ["binding_fingerprint", "projection"])) throw new HttpError("runtime_daily_record_invalid", 503);
-  if (raw.binding_fingerprint !== binding.fingerprint) throw new HttpError("runtime_daily_binding_changed", 409);
-  return raw.projection;
-}
-
-export function runtimeDailyUnattributedResponse() {
-  return json({ ok: false, error: "runtime_daily_account_unattributed" }, 409);
-}
-
-export function runtimeDailyPublicRecord(record) {
-  return {
-    target_key: record.target_key,
-    service: record.target.service,
-    strategy_profile: record.target.strategy_profile,
-    account_scope: record.target.account_scope,
-    business_date: record.business_date,
-    timezone: record.timezone,
-    observed_at: record.observed_at,
-    status: record.status,
-    kind: record.kind,
-    completeness: record.completeness,
-    execution_lane: record.execution_lane,
-    schedule: {
-      state: record.schedule.state,
-      business_date: record.schedule.business_date,
-      timezone: record.schedule.timezone,
-      latest_due_at: record.schedule.latest_due_at,
-      next_due_at: record.schedule.next_due_at,
-      grace_ends_at: record.schedule.grace_ends_at,
-      publication_grace_ended: record.schedule.publication_grace_ended,
-      expected_window: record.schedule.expected_window,
-      // Only Schwab's validated, fixed closed-session facts may reach health UI.
-      // Legacy LongBridge reasons remain private bounded diagnostic text.
-      ...(record.platform === "schwab" && ["no_cron_on_business_date", "market_closed"].includes(record.schedule.reason)
-        ? { reason: record.schedule.reason } : {}),
-    },
-    runs: record.runs.map((run) => ({
-      run_id: run.run_id,
-      started_at: run.started_at,
-      finished_at: run.finished_at,
-      activity: run.activity,
-      execution_lane: run.execution_lane,
-      errors_present: run.evidence.errors_present,
-      ...(record.platform === "schwab" ? { issue: runtimeDailyRunIssue(run) } : {}),
-    })),
-    conflict_count: record.conflicts.length,
-    excluded_count: record.excluded_reports.length,
-  };
-}
-
-// The directory contains only successfully discovered or registered record keys.
-// Unknown coverage remains null; it must never look like an empty history.
-export async function runtimeDailyHistory(env, target) {
-  const prefix = `${RUNTIME_DAILY_KEY_PREFIX}${target.target_key}:`;
-  try {
-    const listing = await directoryList(env, prefix, RUNTIME_DAILY_HISTORY_PAGE * RUNTIME_DAILY_HISTORY_MAX_PAGES);
-    const dates = listing.keys.map(entry => runtimeDailyCalendarDate(entry.name.slice(prefix.length))).filter(Boolean).sort();
-    return { available_from: dates[0] || null, available_through: dates.at(-1) || null,
-      stored_days: dates.length, truncated: false };
-  } catch {
-    return null;
-  }
-}
-
-export function runtimeDailyReadSummary(status, reason, observedRunCount = null) {
-  return {
-    source: "stored_runtime_daily_projection", status, reason,
-    observed_run_count: observedRunCount,
-    total_run_count: status === "complete" ? observedRunCount : null,
-  };
-}
-
-export function runtimeDailyReadStatus(stored, now) {
-  const record = stored.records[0];
-  // Preserve partial observations without turning their length into a day total.
-  // Read completeness and execution outcome/freshness are separate facts.
-  const complete = stored.completeness === "complete" && record.completeness === "complete"
-    && !stored.read_errors.length && !stored.unmatched_reports.length && !record.conflicts.length
-    && record.kind !== "incomplete" && !["read_incomplete", "missing_report", "insufficient", "conflict"].includes(record.status);
-  const observedMs = runtimeDailyInstant(stored.observed_at);
-  const today = record.business_date === runtimeDailyToday(now);
-  let dataStatus = "historical";
-  if (today) {
-    const fresh = observedMs !== null && observedMs <= now + RUNTIME_DAILY_FUTURE_SKEW_MS && now - observedMs <= RUNTIME_DAILY_STALE_MS;
-    dataStatus = fresh ? "fresh" : "stale";
-  }
-  return {
-    data_status: dataStatus,
-    read_summary: runtimeDailyReadSummary(complete ? "complete" : "partial",
-      complete ? null : "runtime_daily_incomplete", record.runs.length),
-    read_error_count: stored.read_errors.length,
-    // These producer codes contain no object paths, identities or exception text.
-    // Unknown legacy diagnostics remain private and retain an explicit error.
-    read_error_codes: stored.read_errors.map(error => {
-      if (["report_read_error", "coverage_unconfirmed", "report_rejected", "read_failed", "read_truncated", "list_failed"].includes(error)) return error;
-      if (error === "listing truncated") return "listing_truncated";
-      if (error === "runtime_target_enabled_schedule_unverified") return "schedule_unverified";
-      if (error === "runtime_target_disabled") return "target_disabled";
-      return "source_read_error";
-    }),
-    unmatched_count: stored.unmatched_reports.length,
-    record: runtimeDailyPublicRecord(record),
-    fills: { source: "not_connected", records: [], count: null },
-  };
-}
+export {
+  runtimeDailyReadModelEnabled,
+  runtimeDailyDisabledResponse,
+  runtimeDailyKey,
+  runtimeDailyToday,
+  runtimeDailyCalendarDate,
+  runtimeDailyInstant,
+  runtimeDailyExactKeys,
+  runtimeDailyBoundedText,
+  runtimeDailyChoice,
+  runtimeDailyReject,
+  runtimeDailyOptionalInstant,
+  runtimeDailyScheduleInstants,
+  validateSchwabRuntimeDailyRun,
+  validateSchwabRuntimeDailySummary,
+  validateSchwabRuntimeDailySchedule,
+  normalizeRuntimeDailyRun,
+  normalizeRuntimeDailyProjection,
+  runtimeDailyStoredProjection,
+  runtimeDailyUnattributedResponse,
+  runtimeDailyPublicRecord,
+  runtimeDailyHistory,
+  runtimeDailyReadSummary,
+  runtimeDailyReadStatus,
+};
 
 export async function syncRuntimeDailyResponse(request, env) {
   if (!runtimeDailyReadModelEnabled(env)) return runtimeDailyDisabledResponse();
@@ -3917,275 +3542,68 @@ export async function runtimeDailyResponse(request, env, url, context = null) {
   return json({ ...base, ...runtimeDailyReadStatus(projection, Date.now()) });
 }
 
-export async function syncExecutionEvidenceSourceResponse(request, env) {
-  requireDedicatedExecutionEvidenceSyncToken(request, env);
-  if (!hasConfigStore(env)) {
-    return json({ ok: false, error: "execution evidence KV is not configured" }, 503);
-  }
-
-  const receiptId = request.headers.get("X-QSL-Execution-Evidence-Receipt");
-  if (receiptId !== null && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(receiptId)) {
-    return json({ ok: false, error: "invalid execution evidence receipt identifier" }, 400);
-  }
-
-  let raw;
-  try {
-    raw = await readBoundedJson(request, EXECUTION_EVIDENCE_MAX_BODY_BYTES);
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid execution evidence payload" }, error.status || 400);
-  }
-
-  let source;
-  try {
-    source = normalizeExecutionEvidenceSourceSnapshot(raw, "execution evidence source snapshot");
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid execution evidence payload" }, 400);
-  }
-
-  const sourceKey = executionEvidenceSourceKey(source.source_id);
-  let materialChanged = true;
-  try {
-    const stored = await readConfigJson(env, sourceKey);
-    if (stored) {
-      const normalizedPrev = normalizeExecutionEvidenceSourceSnapshot(stored, sourceKey);
-      materialChanged = executionEvidenceAuditSignature(normalizedPrev) !== executionEvidenceAuditSignature(source);
-    }
-  } catch {
-    materialChanged = true;
-  }
-
-  await writeConfigJson(env, sourceKey, source);
-
-  let shouldLogAudit = materialChanged;
-  if (!shouldLogAudit && receiptId !== null) {
-    try {
-      const existingAudit = await loadAuditLog(env);
-      const latestForSource = existingAudit.find(
-        (entry) => entry.action === "sync_execution_evidence_source" && entry.source_id === source.source_id,
-      );
-      shouldLogAudit = typeof latestForSource?.receipt_id !== "string" || !latestForSource.receipt_id;
-    } catch {
-      shouldLogAudit = true;
-    }
-  }
-
-  if (shouldLogAudit) {
-    try {
-      await appendAuditLog(env, {
-        ts: new Date().toISOString(),
-        login: "execution-evidence-source-sync",
-        action: "sync_execution_evidence_source",
-        source_id: source.source_id,
-        schema_version: source.schema_version,
-        deployment_count: source.deployments.length,
-        data_status: source.data_status,
-        ...(receiptId === null ? {} : { receipt_id: receiptId }),
-      });
-    } catch {
-      // The source snapshot is accepted independently of optional audit retention.
-    }
-  }
-  return json({
-    ok: true,
-    source_id: source.source_id,
-    schema_version: source.schema_version,
-    deployment_count: source.deployments.length,
-    generated_at: source.generated_at,
-    ...(receiptId === null ? {} : { receipt_id: receiptId }),
-  });
-}
-
-export async function executionEvidenceResponse(request, env) {
-  const session = await readSession(request, env);
-  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
-  if (!hasConfigStore(env)) return json(emptyExecutionEvidencePayload("snapshot_unavailable"));
-  return json(await aggregateExecutionEvidenceSources(env));
-}
-
-export async function aggregateExecutionEvidenceSources(env) {
-  const sources = await readExecutionEvidenceSources(env);
-  if (!sources.length) return emptyExecutionEvidencePayload("snapshot_unavailable");
-
-  const ttlSeconds = executionEvidenceStaleTtlSeconds(env);
-  const now = Date.now();
-  const deployments = [];
-  const deploymentIds = new Set();
-  const duplicateDeploymentIds = new Set();
-  const errors = [];
-  const timestamps = [];
-  let hasReadySource = false;
-  let hasStaleSource = false;
-
-  for (const source of sources) {
-    const freshness = controlPlaneSnapshotFreshness(source, ttlSeconds, now);
-    if (source.generated_at) timestamps.push(source.generated_at);
-    if (source.computed_at) timestamps.push(source.computed_at);
-    if (freshness.data_status === "ready") hasReadySource = true;
-    if (freshness.data_status === "stale") {
-      hasStaleSource = true;
-      errors.push("execution_evidence_source_stale");
-    }
-    for (const deployment of source.deployments) {
-      if (deploymentIds.has(deployment.deployment_id)) {
-        duplicateDeploymentIds.add(deployment.deployment_id);
-        errors.push("execution_evidence_duplicate_deployment");
-        continue;
-      }
-      deploymentIds.add(deployment.deployment_id);
-      deployments.push({ source_id: source.source_id, freshness, deployment });
-    }
-    errors.push(...source.errors);
-  }
-
-  const uniqueDeployments = deployments.filter((entry) => !duplicateDeploymentIds.has(entry.deployment.deployment_id));
-  const dataStatus = hasStaleSource ? "stale" : (hasReadySource ? "ready" : "unavailable");
+function executionEvidenceRuntimeDeps() {
   return {
-    schema_version: EXECUTION_EVIDENCE_DASHBOARD_SCHEMA_VERSION,
-    generated_at: earliestControlPlaneTimestamp(timestamps),
-    computed_at: earliestControlPlaneTimestamp(timestamps),
-    data_status: dataStatus,
-    summary: normalizeExecutionEvidenceSummary(uniqueDeployments.map((entry) => entry.deployment)),
-    deployments: uniqueDeployments,
-    policy: {
-      execution_evidence_read_only: true,
-      p6_owner_decision_required: true,
-      limited_live_canary_active: false,
-      notice: "执行证据按策略、平台和执行通道分别记录；它不授权订单或实盘。",
-    },
-    errors: uniqueStrings(errors),
+    requireDedicatedExecutionEvidenceSyncToken,
+    hasConfigStore,
+    configStore,
+    directoryList,
+    json,
+    readBoundedJson,
+    readConfigJson,
+    writeConfigJson,
+    loadAuditLog,
+    appendAuditLog,
+    readSession,
   };
 }
 
+export async function syncExecutionEvidenceSourceResponse(request, env) {
+  return syncExecutionEvidenceSourceResponseImpl(request, env, executionEvidenceRuntimeDeps());
+}
+
+export async function executionEvidenceResponse(request, env) {
+  return executionEvidenceResponseImpl(request, env, executionEvidenceRuntimeDeps());
+}
+
+export async function aggregateExecutionEvidenceSources(env) {
+  return aggregateExecutionEvidenceSourcesImpl(env, executionEvidenceRuntimeDeps());
+}
+
 export async function readExecutionEvidenceSources(env) {
-  const store = configStore(env);
-  if (!store) return [];
-  let listing;
-  try {
-    listing = await directoryList(env, EXECUTION_EVIDENCE_SOURCE_PREFIX, EXECUTION_EVIDENCE_MAX_SOURCES);
-  } catch {
-    return [emptyExecutionEvidenceSourceSnapshot("execution_evidence_source_list_unavailable")];
-  }
-  const keys = Array.isArray(listing?.keys) ? listing.keys : [];
-  const sources = [];
-  for (const entry of keys.slice(0, EXECUTION_EVIDENCE_MAX_SOURCES)) {
-    const key = typeof entry?.name === "string" ? entry.name : "";
-    if (!key.startsWith(EXECUTION_EVIDENCE_SOURCE_PREFIX)) continue;
-    try {
-      const stored = await readConfigJson(env, key);
-      if (!stored) throw new Error("indexed_record_unavailable");
-      sources.push(normalizeExecutionEvidenceSourceSnapshot(stored, key));
-    } catch {
-      sources.push(emptyExecutionEvidenceSourceSnapshot("execution_evidence_source_invalid"));
-    }
-  }
-  return sources;
+  return readExecutionEvidenceSourcesImpl(env, executionEvidenceRuntimeDeps());
 }
 
-export function executionEvidenceSourceKey(sourceId) {
-  return `${EXECUTION_EVIDENCE_SOURCE_PREFIX}${sourceId}`;
-}
-
-export function runtimeTargetLifecycleAuditState(source, ttlSeconds, now) {
-  if (!source) return null;
-  const state = structuredClone(source);
-  state.freshness = controlPlaneSnapshotFreshness(source, ttlSeconds, now).data_status;
-  delete state.generated_at;
-  delete state.computed_at;
-  for (const target of state.targets) {
-    if (target.deployment?.observed_at) {
-      target.deployment.observed_at = controlPlaneSnapshotFreshness({
-        data_status: "ready", computed_at: target.deployment.observed_at,
-      }, ttlSeconds, now).data_status;
-    }
-  }
-  return JSON.stringify(state);
+function runtimeTargetLifecycleRuntimeDeps() {
+  return {
+    requireDedicatedExecutionEvidenceSyncToken,
+    hasConfigStore,
+    configStore,
+    directoryList,
+    json,
+    readBoundedJson,
+    readConfigJson,
+    writeConfigJson,
+    appendAuditLog,
+    readSession,
+    loadAccountOptionsConfig,
+    maybeAutoDispatchAccountDiagnosis,
+  };
 }
 
 export async function syncRuntimeTargetLifecycleSourceResponse(request, env) {
-  // This publisher has the same narrow scope as execution evidence: sanitized
-  // platform status only, never credentials, accounts, orders, or commands.
-  requireDedicatedExecutionEvidenceSyncToken(request, env);
-  if (!hasConfigStore(env)) {
-    return json({ ok: false, error: "runtime target lifecycle KV is not configured" }, 503);
-  }
-  let raw;
-  try {
-    raw = await readBoundedJson(request, RUNTIME_TARGET_LIFECYCLE_MAX_BODY_BYTES);
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid runtime target lifecycle payload" }, error.status || 400);
-  }
-  let source;
-  try {
-    source = normalizeRuntimeTargetLifecycleSourceSnapshot(raw, "runtime target lifecycle source snapshot");
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid runtime target lifecycle payload" }, 400);
-  }
-  const sourceKey = runtimeTargetLifecycleSourceKey(source.source_id);
-  let previous = null;
-  try {
-    previous = normalizeRuntimeTargetLifecycleSourceSnapshot(await readConfigJson(env, sourceKey));
-  } catch {
-    // Missing/unreadable history must not prevent a fresh, valid observation.
-  }
-  // Always retain the new evidence timestamps. Only the optional rolling audit
-  // skips unchanged polling records; operator actions are audited separately.
-  await writeConfigJson(env, sourceKey, source);
-  try {
-    const ttlSeconds = executionEvidenceStaleTtlSeconds(env);
-    const now = Date.now();
-    if (runtimeTargetLifecycleAuditState(previous, ttlSeconds, now) !== runtimeTargetLifecycleAuditState(source, ttlSeconds, now)) {
-      await appendAuditLog(env, {
-        ts: new Date().toISOString(),
-        login: "runtime-target-lifecycle-source-sync",
-        action: "sync_runtime_target_lifecycle_source",
-        source_id: source.source_id,
-        schema_version: source.schema_version,
-        target_count: source.targets.length,
-        data_status: source.data_status,
-      });
-    }
-  } catch {
-    // A valid no-order snapshot remains useful when convenience audit retention fails.
-  }
-  await maybeAutoDispatchAccountDiagnosis(env, source);
-  return json({
-    ok: true,
-    source_id: source.source_id,
-    schema_version: source.schema_version,
-    target_count: source.targets.length,
-    generated_at: source.generated_at,
-  });
+  return syncRuntimeTargetLifecycleSourceResponseImpl(request, env, runtimeTargetLifecycleRuntimeDeps());
 }
 
 export async function runtimeReadbackResponse(request, env, url) {
-  const session = await readSession(request, env);
-  if (!session?.allowed) return json({ ok: false, error: "login required", error_state: "unauthorized" }, 401);
-  if ([...url.searchParams.keys()].some(key => key !== "scope") || url.searchParams.getAll("scope").length !== 1
-    || !/^[a-z0-9_-]+:[a-zA-Z0-9_.-]+$/.test(url.searchParams.get("scope") || ""))
-    return json({ ok: false, error: "invalid_runtime_scope" }, 400);
-  const scope = url.searchParams.get("scope");
-  try {
-    const config = await loadAccountOptionsConfig(env);
-    const accounts = Object.entries(config.options || {}).flatMap(([platform, rows]) => rows.map(row => ({ ...row, platform })));
-    const matches = accounts.filter(row => `${row.platform}:${row.key}` === scope);
-    if (!matches.length) return json({ ok: false, error: "runtime_scope_not_found" }, 404);
-    if (matches.length !== 1) return json({ ok: false, error: "runtime_binding_conflict" }, 409);
-    if (!hasConfigStore(env)) return json({ ok: false, error: "runtime_readback_unavailable" }, 503);
-    const snapshot = await aggregateRuntimeTargetLifecycleSources(env);
-    if (snapshot.errors?.some(code => /source_list_unavailable|source_invalid/.test(code)))
-      return json({ ok: false, error: "runtime_readback_failed" }, 503);
-    return json(runtimeReadbackProjection(matches[0], accounts, snapshot));
-  } catch {
-    return json({ ok: false, error: "runtime_readback_failed" }, 503);
-  }
+  return runtimeReadbackResponseImpl(request, env, url, runtimeTargetLifecycleRuntimeDeps());
 }
 
 export async function runtimeTargetLifecycleResponse(request, env) {
-  const session = await readSession(request, env);
-  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
-  if (!hasConfigStore(env)) return json(emptyRuntimeTargetLifecyclePayload("snapshot_unavailable"));
-  return json(await aggregateRuntimeTargetLifecycleSources(env));
+  return runtimeTargetLifecycleResponseImpl(request, env, runtimeTargetLifecycleRuntimeDeps());
 }
+
+export { executionEvidenceSourceKey, runtimeTargetLifecycleAuditState };
 
 function accountDiagnosisRuntimeDeps() {
   return {
@@ -4255,172 +3673,19 @@ export async function accountDiagnosisInternalResponse(request, env, url) {
   return accountDiagnosisInternalResponseImpl(request, env, url, accountDiagnosisRuntimeDeps());
 }
 
-export function projectRuntimeAccountState(entry) {
-  const base = { scope: "monitoring_only", limit: "not_trading_or_books" };
-  const target = entry?.target || {};
-  const monitoring = target.monitoring || {};
-  const disposition = target.disposition || {};
-  const deployment = target.deployment;
-  const sourceFresh = entry?.freshness?.data_status === "ready";
-  const deploymentFresh = Boolean(deployment?.observed_at) && entry?.deployment_freshness?.data_status === "ready";
-  let activation = "unknown";
-  if (deploymentFresh && deployment.runtime_enabled === true && deployment.scheduler_state === "enabled") activation = "enabled";
-  else if (deploymentFresh && deployment.runtime_enabled === false && deployment.scheduler_state === "paused") activation = "disabled";
-  const configured = target.target?.configured_state;
-  const retainedFault = monitoring.runtime_guard === "attention"
-    || monitoring.execution_heartbeat === "attention"
-    || disposition.code === "parked";
-  if (retainedFault) return { ...base, health: "abnormal", activation, reason: "retained_attention" };
-  if ((configured === "enabled" && activation === "disabled") || (configured === "disabled" && activation === "enabled")) {
-    return { ...base, health: "abnormal", activation, reason: "config_inconsistent" };
-  }
-  if (monitoring.execution_heartbeat === "not_due") {
-    return { ...base, health: "unknown", activation, reason: "check_not_due" };
-  }
-  const enabledAgrees = configured === "enabled"
-    && activation === "enabled"
-    && monitoring.runtime_guard === "pass"
-    && monitoring.execution_heartbeat === "pass"
-    && disposition.code === "continue_enabled_monitoring";
-  const disabledAgrees = configured === "disabled"
-    && activation === "disabled"
-    && monitoring.runtime_guard === "pass"
-    && monitoring.execution_heartbeat === "not_applicable"
-    && disposition.code === "continue_disabled_validation";
-  if (sourceFresh && (enabledAgrees || disabledAgrees)) {
-    return { ...base, health: "normal", activation, reason: "monitoring_agrees" };
-  }
-  let reason = "evidence_insufficient";
-  if (!sourceFresh) reason = "source_not_fresh";
-  else if (!deployment) reason = "deployment_missing";
-  else if (!deploymentFresh) reason = "deployment_not_fresh";
-  else if (activation === "unknown") reason = "activation_unconfirmed";
-  return { ...base, health: "unknown", activation, reason };
-}
-
 export async function aggregateRuntimeTargetLifecycleSources(env) {
-  const sources = await readRuntimeTargetLifecycleSources(env);
-  if (!sources.length) return emptyRuntimeTargetLifecyclePayload("snapshot_unavailable");
-  const ttlSeconds = executionEvidenceStaleTtlSeconds(env);
-  const now = Date.now();
-  const targets = [];
-  const targetIds = new Set();
-  const duplicateTargetIds = new Set();
-  const errors = [];
-  const timestamps = [];
-  let hasReadySource = false;
-  let hasStaleSource = false;
-  for (const source of sources) {
-    const freshness = controlPlaneSnapshotFreshness(source, ttlSeconds, now);
-    if (source.generated_at) timestamps.push(source.generated_at);
-    if (source.computed_at) timestamps.push(source.computed_at);
-    if (freshness.data_status === "ready") hasReadySource = true;
-    if (freshness.data_status === "stale") {
-      hasStaleSource = true;
-      errors.push("runtime_target_lifecycle_source_stale");
-    }
-    for (const target of source.targets) {
-      if (targetIds.has(target.target_id)) {
-        duplicateTargetIds.add(target.target_id);
-        errors.push("runtime_target_lifecycle_duplicate_target");
-        continue;
-      }
-      targetIds.add(target.target_id);
-      const entry = {
-        source_id: source.source_id,
-        observed_at: earliestControlPlaneTimestamp([source.generated_at, source.computed_at].filter(Boolean)),
-        evidence_valid_for_seconds: ttlSeconds,
-        freshness,
-        target,
-        // A lifecycle source is deliberately no-order.  Keep this derived
-        // observation separate from the monitoring checks so a green check
-        // cannot be mistaken for a broker submission or fill receipt.
-        execution_observation: runtimeTargetLifecycleExecutionObservation(target),
-        ...(target.deployment ? {deployment_freshness: target.deployment.observed_at
-          ? controlPlaneSnapshotFreshness({data_status:"ready", computed_at:target.deployment.observed_at}, ttlSeconds, now)
-          : freshness} : {}),
-      };
-      entry.account_state = projectRuntimeAccountState(entry);
-      targets.push(entry);
-    }
-    errors.push(...source.errors);
-  }
-  const uniqueTargets = targets.filter((entry) => !duplicateTargetIds.has(entry.target.target_id));
-  const dataStatus = hasStaleSource ? "stale" : (hasReadySource ? "ready" : "unavailable");
-  return {
-    schema_version: RUNTIME_TARGET_LIFECYCLE_DASHBOARD_SCHEMA_VERSION,
-    generated_at: earliestControlPlaneTimestamp(timestamps),
-    computed_at: earliestControlPlaneTimestamp(timestamps),
-    data_status: dataStatus,
-    summary: {
-      target_count: uniqueTargets.length,
-      enabled: uniqueTargets.filter((entry) => entry.target.target.configured_state === "enabled").length,
-      disabled: uniqueTargets.filter((entry) => entry.target.target.configured_state === "disabled").length,
-      attention: uniqueTargets.filter((entry) => entry.target.disposition.code === "parked").length,
-    },
-    targets: uniqueTargets,
-    policy: {
-      lifecycle_status_read_only: true,
-      execution_observation_read_only: true,
-      no_order: true,
-      order_or_fill_evidence: "not_collected",
-      notice: "已启用目标持续监控；已停用目标持续进行无执行验证。运行或心跳通过只说明监测正常，不代表已提交订单或已成交。",
-    },
-    errors: uniqueStrings(errors),
-  };
-}
-
-export function runtimeTargetLifecycleExecutionObservation(target) {
-  const monitoring = target?.monitoring || {};
-  const configuredState = target?.target?.configured_state;
-  let code = "unavailable";
-  if (monitoring.runtime_guard === "attention" || monitoring.execution_heartbeat === "attention") {
-    code = "attention";
-  } else if (monitoring.runtime_guard === "unavailable" || monitoring.execution_heartbeat === "unavailable") {
-    code = "unavailable";
-  } else if (configuredState === "disabled") {
-    code = "not_applicable";
-  } else if (monitoring.execution_heartbeat === "not_due") {
-    code = "not_due";
-  } else if (monitoring.execution_heartbeat === "pass") {
-    code = "monitoring_only";
-  }
-  return {
-    code: cleanChoice(code, RUNTIME_TARGET_LIFECYCLE_EXECUTION_OBSERVATIONS, "runtime target lifecycle execution observation"),
-    // The source contract always declares no_order=true.  Only the separate
-    // execution-receipt chain may later provide an order/fill attestation.
-    order_or_fill_evidence: "not_collected",
-  };
+  return aggregateRuntimeTargetLifecycleSourcesImpl(env, runtimeTargetLifecycleRuntimeDeps());
 }
 
 export async function readRuntimeTargetLifecycleSources(env) {
-  const store = configStore(env);
-  if (!store) return [];
-  let listing;
-  try {
-    listing = await directoryList(env, RUNTIME_TARGET_LIFECYCLE_SOURCE_PREFIX, RUNTIME_TARGET_LIFECYCLE_MAX_SOURCES);
-  } catch {
-    return [emptyRuntimeTargetLifecycleSourceSnapshot("runtime_target_lifecycle_source_list_unavailable")];
-  }
-  const keys = Array.isArray(listing?.keys) ? listing.keys : [];
-  const sources = [];
-  for (const entry of keys.slice(0, RUNTIME_TARGET_LIFECYCLE_MAX_SOURCES)) {
-    const key = typeof entry?.name === "string" ? entry.name : "";
-    if (!key.startsWith(RUNTIME_TARGET_LIFECYCLE_SOURCE_PREFIX)) continue;
-    try {
-      const stored = await readConfigJson(env, key);
-      if (!stored) throw new Error("indexed_record_unavailable");
-      sources.push(normalizeRuntimeTargetLifecycleSourceSnapshot(stored, key));
-    } catch {
-      sources.push(emptyRuntimeTargetLifecycleSourceSnapshot("runtime_target_lifecycle_source_invalid"));
-    }
-  }
-  return sources;
+  return readRuntimeTargetLifecycleSourcesImpl(env, runtimeTargetLifecycleRuntimeDeps());
 }
 
-export function runtimeTargetLifecycleSourceKey(sourceId) {
-  return `${RUNTIME_TARGET_LIFECYCLE_SOURCE_PREFIX}${sourceId}`;
-}
+export {
+  projectRuntimeAccountState,
+  runtimeTargetLifecycleExecutionObservation,
+  runtimeTargetLifecycleSourceKey,
+};
 
 export async function syncResearchTaskSourceResponse(request, env) {
   return syncResearchTaskSourceResponseImpl(request, env, {
@@ -4462,49 +3727,23 @@ export async function readControlPlaneSources(env) {
 
 export { controlPlaneSourceKey };
 
+function adaptiveSelectionRuntimeDeps() {
+  return {
+    requireDedicatedAdaptiveSelectionSyncToken,
+    hasConfigStore,
+    configStore,
+    directoryList,
+    json,
+    readBoundedJson,
+    readConfigJson,
+    writeConfigJson,
+    appendAuditLog,
+    readSession,
+  };
+}
+
 export async function syncAdaptiveSelectionSourceResponse(request, env) {
-  requireDedicatedAdaptiveSelectionSyncToken(request, env);
-  if (!hasConfigStore(env)) {
-    return json({ ok: false, error: "adaptive selection KV is not configured" }, 503);
-  }
-
-  let raw;
-  try {
-    raw = await readBoundedJson(request, ADAPTIVE_SELECTION_MAX_BODY_BYTES);
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid adaptive selection payload" }, error.status || 400);
-  }
-
-  let source;
-  try {
-    source = await normalizeAdaptiveSelectionSourceSnapshot(raw, "adaptive selection source snapshot");
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid adaptive selection payload" }, 400);
-  }
-
-  await writeConfigJson(env, adaptiveSelectionSourceKey(source.source_id), source);
-  try {
-    await appendAuditLog(env, {
-      ts: new Date().toISOString(),
-      login: "adaptive-selection-source-sync",
-      action: "sync_adaptive_selection_source",
-      source_id: source.source_id,
-      schema_version: source.schema_version,
-      candidate_count: source.decision?.candidates.length || 0,
-      data_status: source.data_status,
-      no_order: true,
-    });
-  } catch {
-    // This source remains safe and usable if the rolling convenience log fails.
-  }
-  return json({
-    ok: true,
-    source_id: source.source_id,
-    schema_version: source.schema_version,
-    candidate_count: source.decision?.candidates.length || 0,
-    generated_at: source.generated_at,
-    no_order: true,
-  });
+  return syncAdaptiveSelectionSourceResponseImpl(request, env, adaptiveSelectionRuntimeDeps());
 }
 
 function m0ResearchRuntimeDeps() {
@@ -4527,82 +3766,18 @@ export {
 };
 
 export async function adaptiveSelectionResponse(request, env) {
-  const session = await readSession(request, env);
-  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
-  if (!hasConfigStore(env)) return json(emptyAdaptiveSelectionPayload("adaptive_selection_source_unavailable"));
-  return json(await aggregateAdaptiveSelectionSources(env));
+  return adaptiveSelectionResponseImpl(request, env, adaptiveSelectionRuntimeDeps());
 }
 
 export async function aggregateAdaptiveSelectionSources(env) {
-  const sources = await readAdaptiveSelectionSources(env);
-  if (!sources.length) return emptyAdaptiveSelectionPayload("adaptive_selection_source_unavailable");
-
-  const ttlSeconds = adaptiveSelectionStaleTtlSeconds(env);
-  const now = Date.now();
-  const selections = [];
-  const errors = [];
-  const timestamps = [];
-  let hasReadySource = false;
-  let hasStaleSource = false;
-
-  for (const source of sources) {
-    const freshness = controlPlaneSnapshotFreshness(source, ttlSeconds, now);
-    if (source.generated_at) timestamps.push(source.generated_at);
-    if (source.computed_at) timestamps.push(source.computed_at);
-    if (freshness.data_status === "ready") hasReadySource = true;
-    if (freshness.data_status === "stale") {
-      hasStaleSource = true;
-      errors.push("adaptive_selection_source_stale");
-    }
-    if (source.decision) selections.push({ source_id: source.source_id, freshness, decision: source.decision });
-    errors.push(...source.errors);
-  }
-
-  return {
-    schema_version: ADAPTIVE_SELECTION_DASHBOARD_SCHEMA_VERSION,
-    generated_at: earliestControlPlaneTimestamp(timestamps),
-    computed_at: earliestControlPlaneTimestamp(timestamps),
-    data_status: hasStaleSource ? "stale" : (hasReadySource ? "ready" : "unavailable"),
-    summary: normalizeAdaptiveSelectionSummary(selections),
-    selections: selections.sort((left, right) => left.source_id.localeCompare(right.source_id)),
-    policy: {
-      authority: ADAPTIVE_SELECTION_AUTHORITY,
-      no_order: true,
-      execution_authority_granted: false,
-      notice: "M1 仅展示 Shadow 建议和拒绝原因；不会修改策略、平台、资金、运行状态或订单。",
-    },
-    errors: uniqueStrings(errors),
-  };
+  return aggregateAdaptiveSelectionSourcesImpl(env, adaptiveSelectionRuntimeDeps());
 }
 
 export async function readAdaptiveSelectionSources(env) {
-  const store = configStore(env);
-  if (!store) return [];
-  let listing;
-  try {
-    listing = await directoryList(env, ADAPTIVE_SELECTION_SOURCE_PREFIX, ADAPTIVE_SELECTION_MAX_SOURCES);
-  } catch {
-    return [emptyAdaptiveSelectionSourceSnapshot("adaptive_selection_source_list_unavailable")];
-  }
-  const keys = Array.isArray(listing?.keys) ? listing.keys : [];
-  const sources = [];
-  for (const entry of keys.slice(0, ADAPTIVE_SELECTION_MAX_SOURCES)) {
-    const key = typeof entry?.name === "string" ? entry.name : "";
-    if (!key.startsWith(ADAPTIVE_SELECTION_SOURCE_PREFIX)) continue;
-    try {
-      const stored = await readConfigJson(env, key);
-      if (!stored) throw new Error("indexed_record_unavailable");
-      sources.push(await normalizeAdaptiveSelectionSourceSnapshot(stored, key));
-    } catch {
-      sources.push(emptyAdaptiveSelectionSourceSnapshot("adaptive_selection_source_invalid"));
-    }
-  }
-  return sources;
+  return readAdaptiveSelectionSourcesImpl(env, adaptiveSelectionRuntimeDeps());
 }
 
-export function adaptiveSelectionSourceKey(sourceId) {
-  return `${ADAPTIVE_SELECTION_SOURCE_PREFIX}${sourceId}`;
-}
+export { adaptiveSelectionSourceKey };
 
 export {
   controlPlaneSnapshotFreshness,
@@ -5048,13 +4223,7 @@ export {
 
 
 
-export function normalizeBrokerEnvironment(value, fieldName = "broker_environment") {
-  const environment = String(value || "").trim();
-  if (!BROKER_ENVIRONMENTS.includes(environment)) {
-    throw new Error(`${fieldName} must be live or paper`);
-  }
-  return environment;
-}
+export { normalizeBrokerEnvironment };
 
 export function validateResearchPromotionSelectedAccount(args) {
   return validateResearchPromotionSelectedAccountImpl(args, {
@@ -6439,214 +5608,25 @@ export async function normalizeResearchTaskSourceSnapshot(payload, fieldName = "
   });
 }
 
-export function normalizeStrategyHealthSnapshot(payload, fieldName = "strategy health snapshot") {
-  if (!payload || Array.isArray(payload) || typeof payload !== "object") {
-    throw new Error(`${fieldName} must be an object`);
-  }
-  if (payload.schema_version !== "strategy_health_dashboard.v1") {
-    throw new Error(`${fieldName}.schema_version is unsupported`);
-  }
-  const status = cleanChoice(payload.data_status || "unavailable", [...STRATEGY_HEALTH_DATA_STATUSES, "partial"], `${fieldName}.data_status`);
-  const strategies = status === "unavailable"
-    ? []
-    : normalizeStrategyHealthStrategies(payload.strategies, fieldName);
-  const summary = normalizeStrategyHealthSummary(payload.summary, strategies);
-  const errors = normalizeStrategyHealthErrors(payload.errors);
-  return {
-    schema_version: "strategy_health_dashboard.v1",
-    generated_at: normalizeStrategyHealthTimestamp(payload.generated_at, `${fieldName}.generated_at`, true),
-    computed_at: normalizeStrategyHealthTimestamp(payload.computed_at, `${fieldName}.computed_at`, true),
-    data_status: status,
-    summary,
-    strategies,
-    policy: normalizeStrategyHealthPolicy(payload.policy),
-    errors,
-  };
-}
-
-export function normalizeStrategyHealthStrategies(value, fieldName) {
-  if (!Array.isArray(value) || value.length > 100) {
-    throw new Error(`${fieldName}.strategies must be an array with at most 100 items`);
-  }
-  const seen = new Set();
-  return value.map((item, index) => {
-    if (!item || Array.isArray(item) || typeof item !== "object") {
-      throw new Error(`${fieldName}.strategies[${index}] must be an object`);
-    }
-    const profile = cleanSlug(item.profile, `${fieldName}.strategies[${index}].profile`).toLowerCase();
-    if (seen.has(profile)) throw new Error(`${fieldName}.strategies contains duplicate profile`);
-    seen.add(profile);
-    return {
-      profile,
-      domain: cleanChoice(item.domain, STRATEGY_HEALTH_DOMAINS, `${fieldName}.strategies[${index}].domain`),
-      as_of: sanitizeStrategyHealthText(item.as_of, `${fieldName}.strategies[${index}].as_of`, 64, true),
-      status: cleanChoice(item.status, STRATEGY_HEALTH_STATUSES, `${fieldName}.strategies[${index}].status`),
-      score: normalizeStrategyHealthScore(item.score, `${fieldName}.strategies[${index}].score`),
-      components: normalizeStrategyHealthComponents(item.components, `${fieldName}.strategies[${index}].components`),
-      decision: normalizeStrategyHealthDecision(item.decision, `${fieldName}.strategies[${index}].decision`),
-      review: normalizeStrategyHealthReview(item.review, `${fieldName}.strategies[${index}].review`),
-      freshness: normalizeStrategyHealthFreshness(item.freshness, `${fieldName}.strategies[${index}].freshness`),
-      source_revision: sanitizeStrategyHealthText(item.source_revision, `${fieldName}.strategies[${index}].source_revision`, 120, true),
-    };
-  });
-}
-
-export function normalizeStrategyHealthSummary(value, strategies) {
-  const counts = Object.fromEntries(STRATEGY_HEALTH_STATUSES.map((status) => [status, 0]));
-  for (const item of strategies) counts[item.status] += 1;
-  return { strategy_count: strategies.length, ...counts };
-}
-
-export function normalizeStrategyHealthComponents(value, fieldName) {
-  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  return {
-    performance: normalizeStrategyHealthScore(source.performance, `${fieldName}.performance`),
-    risk: normalizeStrategyHealthScore(source.risk, `${fieldName}.risk`),
-    decay: normalizeStrategyHealthScore(source.decay, `${fieldName}.decay`),
-    stability: normalizeStrategyHealthScore(source.stability, `${fieldName}.stability`),
-    operations: normalizeStrategyHealthScore(source.operations, `${fieldName}.operations`),
-  };
-}
-
-export function normalizeStrategyHealthDecision(value, fieldName) {
-  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  return {
-    code: cleanSlug(source.code || "evidence_missing", `${fieldName}.code`).toLowerCase(),
-    label: sanitizeStrategyHealthText(source.label, `${fieldName}.label`, 120, false, "证据不足，保持研究态"),
-    reason: sanitizeStrategyHealthText(source.reason, `${fieldName}.reason`, 240, false, "没有可用的机器检查结果。"),
-  };
-}
-
-export function normalizeStrategyHealthReview(value, fieldName) {
-  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  return {
-    requested_stage: sanitizeStrategyHealthText(source.requested_stage, `${fieldName}.requested_stage`, 80, true),
-    evidence_package_id: sanitizeStrategyHealthText(source.evidence_package_id, `${fieldName}.evidence_package_id`, 120, true),
-    validation: normalizeStrategyHealthSummaryObject(source.validation),
-    risk: normalizeStrategyHealthSummaryObject(source.risk),
-    kelly_readiness: normalizeStrategyHealthSummaryObject(source.kelly_readiness),
-  };
-}
-
-export function normalizeStrategyHealthSummaryObject(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  const result = {};
-  for (const [key, raw] of Object.entries(value).slice(0, 12)) {
-    if (!/^[A-Za-z0-9_.-]{1,48}$/.test(key)) continue;
-    if (/(token|secret|password|cookie|private|path|key)/i.test(key)) continue;
-    if (typeof raw === "boolean") result[key] = raw;
-    else if (typeof raw === "number" && Number.isFinite(raw)) result[key] = raw;
-    else if (typeof raw === "string") {
-      const safe = sanitizeStrategyHealthText(raw, "summary.value", 120, true);
-      if (safe !== null) result[key] = safe;
-    }
-  }
-  return result;
-}
-
-export function normalizeStrategyHealthFreshness(value, fieldName) {
-  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  return {
-    status: cleanChoice(source.status || "unknown", ["fresh", "stale", "unknown"], `${fieldName}.status`),
-    age_seconds: normalizeStrategyHealthAge(source.age_seconds, `${fieldName}.age_seconds`),
-  };
-}
-
-export function normalizeStrategyHealthAge(value, fieldName) {
-  if (value === null || value === undefined || value === "") return null;
-  const number = Number(value);
-  if (!Number.isFinite(number) || number < 0 || number > 315360000) throw new Error(`${fieldName} is invalid`);
-  return Math.round(number);
-}
-
-export function normalizeStrategyHealthScore(value, fieldName) {
-  if (value === null || value === undefined || value === "") return null;
-  const number = Number(value);
-  if (!Number.isFinite(number) || number < 0 || number > 100) throw new Error(`${fieldName} must be between 0 and 100`);
-  return number;
-}
-
-export function normalizeStrategyHealthTimestamp(value, fieldName, nullable = false) {
-  if ((value === null || value === undefined || value === "") && nullable) return null;
-  const text = normalizeStrategyHealthText(value, fieldName, 64);
-  if (!/^\d{4}-\d{2}-\d{2}T.+(?:Z|[+-]\d{2}:\d{2})$/.test(text) || Number.isNaN(Date.parse(text))) {
-    throw new Error(`${fieldName} must be an ISO timestamp`);
-  }
-  return text;
-}
-
-export function normalizeStrategyHealthText(value, fieldName, maxLength, nullable = false) {
-  if ((value === null || value === undefined || value === "") && nullable) return null;
-  const text = String(value || "").trim();
-  if (
-    !text ||
-    text.length > maxLength ||
-    /[<>\\]/.test(text) ||
-    text.startsWith("/") ||
-    /^[A-Za-z]:[\\/]/.test(text)
-  ) throw new Error(`${fieldName} is invalid`);
-  return text;
-}
-
-export function sanitizeStrategyHealthText(value, fieldName, maxLength, nullable = false, fallback = null) {
-  if (value === null || value === undefined || value === "") return nullable ? null : fallback;
-  let text;
-  try {
-    text = normalizeStrategyHealthText(value, fieldName, maxLength);
-  } catch {
-    return nullable ? null : fallback;
-  }
-  if (
-    /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/i.test(text) ||
-    /\b(?:token|secret|password|api[_ -]?key|private[_ -]?key|cookie)\s*[:=]\s*[^\s,;]{8,}/i.test(text) ||
-    /\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{20,})\b/.test(text) ||
-    /(?:^|[\s(])(?:\/Users\/|\/home\/|[A-Za-z]:[\\/])/.test(text)
-  ) return nullable ? null : fallback;
-  return text;
-}
-
-export function normalizeStrategyHealthErrors(value) {
-  if (!Array.isArray(value)) return [];
-  return uniqueStrings(value.slice(0, 20).filter((item) => /^[a-z][a-z0-9_.-]{0,63}$/.test(String(item || ""))));
-}
-
-export function normalizeStrategyHealthPolicy(value) {
-  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  const list = (raw) => Array.isArray(raw)
-    ? raw.slice(0, 20).map((item) => sanitizeStrategyHealthText(item, "policy.item", 120, true)).filter(Boolean)
-    : [];
-  return {
-    mode: sanitizeStrategyHealthText(source.mode, "policy.mode", 40, false, "read_only"),
-    automatic_stages: list(source.automatic_stages),
-    automatic_modes: list(source.automatic_modes),
-    human_gate_stages: list(source.human_gate_stages),
-    canary_requirements: list(source.canary_requirements),
-    human_actions: list(source.human_actions),
-    machine_checks: list(source.machine_checks),
-    notice: sanitizeStrategyHealthText(source.notice, "policy.notice", 240, false, "健康不等于已批准 live。"),
-  };
-}
-
-export function emptyStrategyHealthPayload(errorCode) {
-  return {
-    schema_version: "strategy_health_dashboard.v1",
-    generated_at: null,
-    computed_at: null,
-    data_status: "unavailable",
-    summary: { strategy_count: 0, healthy: 0, watch: 0, review: 0, critical: 0 },
-    strategies: [],
-    policy: normalizeStrategyHealthPolicy({}),
-    errors: [errorCode],
-  };
-}
-
-export function strategyHealthStaleTtlSeconds(env) {
-  const configured = Number(env.STRATEGY_HEALTH_STALE_TTL_SECONDS);
-  if (!Number.isFinite(configured) || configured < 300 || configured > 604800) {
-    return STRATEGY_HEALTH_DEFAULT_STALE_TTL_SECONDS;
-  }
-  return Math.floor(configured);
-}
+export {
+  normalizeStrategyHealthSnapshot,
+  normalizeStrategyHealthStrategies,
+  normalizeStrategyHealthSummary,
+  normalizeStrategyHealthComponents,
+  normalizeStrategyHealthDecision,
+  normalizeStrategyHealthReview,
+  normalizeStrategyHealthSummaryObject,
+  normalizeStrategyHealthFreshness,
+  normalizeStrategyHealthAge,
+  normalizeStrategyHealthScore,
+  normalizeStrategyHealthTimestamp,
+  normalizeStrategyHealthText,
+  sanitizeStrategyHealthText,
+  normalizeStrategyHealthErrors,
+  normalizeStrategyHealthPolicy,
+  emptyStrategyHealthPayload,
+  strategyHealthStaleTtlSeconds,
+};
 
 export {
   normalizeControlPlaneSnapshot,
@@ -6689,279 +5669,22 @@ export {
   emptyM0ResearchDashboardPayload,
 };
 
-export async function normalizeAdaptiveSelectionSourceSnapshot(payload, fieldName = "adaptive selection source snapshot") {
-  const source = assertExactFields(payload, [
-    "schema_version", "source_id", "generated_at", "computed_at", "data_status", "decision", "errors",
-  ], fieldName);
-  if (source.schema_version !== ADAPTIVE_SELECTION_SOURCE_SCHEMA_VERSION) {
-    throw new Error(`${fieldName}.schema_version is unsupported`);
-  }
-  const dataStatus = cleanChoice(source.data_status, STRATEGY_HEALTH_DATA_STATUSES, `${fieldName}.data_status`);
-  const generatedAt = normalizeStrategyHealthTimestamp(source.generated_at, `${fieldName}.generated_at`, true);
-  const computedAt = normalizeStrategyHealthTimestamp(source.computed_at, `${fieldName}.computed_at`, true);
-  const decision = source.decision === null
-    ? null
-    : await normalizeAdaptiveSelectionDecision(source.decision, `${fieldName}.decision`);
-  if (dataStatus === "unavailable" && decision !== null) {
-    throw new Error(`${fieldName}.decision must be null when unavailable`);
-  }
-  if (dataStatus !== "unavailable" && (!decision || !generatedAt || !computedAt)) {
-    throw new Error(`${fieldName} requires decision and timestamps when available`);
-  }
-  return {
-    schema_version: ADAPTIVE_SELECTION_SOURCE_SCHEMA_VERSION,
-    source_id: normalizeControlPlaneIdentifier(source.source_id, `${fieldName}.source_id`, false),
-    generated_at: generatedAt,
-    computed_at: computedAt,
-    data_status: dataStatus,
-    decision,
-    errors: normalizeStrategyHealthErrors(source.errors),
-  };
-}
-
-export async function normalizeAdaptiveSelectionDecision(payload, fieldName) {
-  const value = assertExactFields(payload, [
-    "schema", "decision_id", "created_at", "authority", "no_order", "market_context", "policy_id",
-    "recommended_strategy_profile", "recommended_platform_id", "candidates", "input_digest", "decision_digest",
-  ], fieldName);
-  if (value.schema !== ADAPTIVE_SELECTION_DECISION_SCHEMA_VERSION) {
-    throw new Error(`${fieldName}.schema is unsupported`);
-  }
-  if (value.authority !== ADAPTIVE_SELECTION_AUTHORITY || value.no_order !== true) {
-    throw new Error(`${fieldName} must remain shadow-only and no-order`);
-  }
-  if (!Array.isArray(value.candidates) || value.candidates.length > 1000) {
-    throw new Error(`${fieldName}.candidates must be a bounded array`);
-  }
-  const candidates = value.candidates.map((item, index) =>
-    normalizeAdaptiveSelectionCandidate(item, `${fieldName}.candidates[${index}]`),
-  );
-  const candidateIds = new Set();
-  for (const candidate of candidates) {
-    if (candidateIds.has(candidate.strategy_profile)) {
-      throw new Error(`${fieldName}.candidates contains duplicate strategy_profile`);
-    }
-    candidateIds.add(candidate.strategy_profile);
-  }
-  const recommendedStrategy = normalizeControlPlaneIdentifier(
-    value.recommended_strategy_profile, `${fieldName}.recommended_strategy_profile`, true,
-  );
-  const recommendedPlatform = normalizeControlPlaneIdentifier(
-    value.recommended_platform_id, `${fieldName}.recommended_platform_id`, true,
-  );
-  const recommendedCandidate = candidates.find((item) => item.strategy_profile === recommendedStrategy && item.accepted);
-  if ((recommendedStrategy === null) !== (recommendedPlatform === null)) {
-    throw new Error(`${fieldName}.recommended strategy and platform must be provided together`);
-  }
-  if (recommendedStrategy && (!recommendedCandidate || recommendedCandidate.selected_platform_id !== recommendedPlatform)) {
-    throw new Error(`${fieldName}.recommended candidate is not accepted`);
-  }
-  const normalized = {
-    schema: ADAPTIVE_SELECTION_DECISION_SCHEMA_VERSION,
-    decision_id: normalizeControlPlaneIdentifier(value.decision_id, `${fieldName}.decision_id`, false),
-    created_at: normalizeStrategyHealthTimestamp(value.created_at, `${fieldName}.created_at`),
-    authority: ADAPTIVE_SELECTION_AUTHORITY,
-    no_order: true,
-    market_context: normalizeAdaptiveSelectionMarketContext(value.market_context, `${fieldName}.market_context`),
-    policy_id: normalizeControlPlaneIdentifier(value.policy_id, `${fieldName}.policy_id`, false),
-    recommended_strategy_profile: recommendedStrategy,
-    recommended_platform_id: recommendedPlatform,
-    candidates,
-    input_digest: normalizeAdaptiveSelectionDigest(value.input_digest, `${fieldName}.input_digest`),
-    decision_digest: normalizeAdaptiveSelectionDigest(value.decision_digest, `${fieldName}.decision_digest`),
-  };
-  // `input_digest` cannot be reconstructed from the display projection alone:
-  // QPK calculates it from the private, immutable selection input.  The QPK
-  // decision digest binds that exact input digest to every decision field that
-  // is displayed here, so a changed input digest cannot be silently accepted.
-  if (normalized.decision_digest !== await calculateAdaptiveSelectionDecisionDigest(normalized)) {
-    throw new Error(`${fieldName}.decision_digest mismatch`);
-  }
-  return normalized;
-}
-
-export function normalizeAdaptiveSelectionMarketContext(value, fieldName) {
-  const item = assertExactFields(value, [
-    "schema", "as_of", "domain", "data_version", "data_freshness_days", "regime", "regime_confidence", "factors",
-  ], fieldName);
-  if (item.schema !== "qsl.market_context_snapshot.v1") {
-    throw new Error(`${fieldName}.schema is unsupported`);
-  }
-  const asOf = String(item.as_of || "");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf) || Number.isNaN(Date.parse(`${asOf}T00:00:00Z`))) {
-    throw new Error(`${fieldName}.as_of must be an ISO date`);
-  }
-  if (!Number.isInteger(item.data_freshness_days) || item.data_freshness_days < 0 || item.data_freshness_days > 366) {
-    throw new Error(`${fieldName}.data_freshness_days is invalid`);
-  }
-  const confidence = Number(item.regime_confidence);
-  if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
-    throw new Error(`${fieldName}.regime_confidence is invalid`);
-  }
-  if (!item.factors || Array.isArray(item.factors) || typeof item.factors !== "object" || Object.keys(item.factors).length > 100) {
-    throw new Error(`${fieldName}.factors is invalid`);
-  }
-  const factors = {};
-  for (const [key, raw] of Object.entries(item.factors)) {
-    if (!/^[a-z][a-z0-9_.-]{0,63}$/.test(key)) throw new Error(`${fieldName}.factors key is invalid`);
-    const numeric = Number(raw);
-    if (!Number.isFinite(numeric) || Math.abs(numeric) > 1_000_000) {
-      throw new Error(`${fieldName}.factors.${key} is invalid`);
-    }
-    factors[key] = numeric;
-  }
-  return {
-    schema: "qsl.market_context_snapshot.v1",
-    as_of: asOf,
-    domain: cleanChoice(item.domain, STRATEGY_HEALTH_DOMAINS, `${fieldName}.domain`),
-    data_version: normalizeControlPlaneIdentifier(item.data_version, `${fieldName}.data_version`, false),
-    data_freshness_days: item.data_freshness_days,
-    regime: normalizeControlPlaneIdentifier(item.regime, `${fieldName}.regime`, false),
-    regime_confidence: confidence,
-    factors,
-  };
-}
-
-export function normalizeAdaptiveSelectionCandidate(value, fieldName) {
-  const item = assertExactFields(value, [
-    "strategy_profile", "release_digest", "selected_platform_id", "score", "risk_multiplier", "accepted", "reasons", "proposed_weight",
-  ], fieldName);
-  const score = item.score === null ? null : Number(item.score);
-  const riskMultiplier = Number(item.risk_multiplier);
-  if (score !== null && (!Number.isFinite(score) || Math.abs(score) > 1_000_000)) {
-    throw new Error(`${fieldName}.score is invalid`);
-  }
-  if (!Number.isFinite(riskMultiplier) || riskMultiplier < 0 || riskMultiplier > 1) {
-    throw new Error(`${fieldName}.risk_multiplier is invalid`);
-  }
-  if (typeof item.accepted !== "boolean") throw new Error(`${fieldName}.accepted must be boolean`);
-  if (item.proposed_weight !== 0) throw new Error(`${fieldName}.proposed_weight must remain zero`);
-  if (!Array.isArray(item.reasons) || item.reasons.length > 32) throw new Error(`${fieldName}.reasons is invalid`);
-  const reasons = item.reasons.map((reason) => {
-    const code = String(reason || "");
-    if (!/^[a-z][a-z0-9_.:-]{0,127}$/.test(code)) throw new Error(`${fieldName}.reason is invalid`);
-    return code;
-  });
-  return {
-    strategy_profile: normalizeControlPlaneIdentifier(item.strategy_profile, `${fieldName}.strategy_profile`, false),
-    release_digest: normalizeAdaptiveSelectionReleaseDigest(item.release_digest, `${fieldName}.release_digest`),
-    selected_platform_id: normalizeControlPlaneIdentifier(item.selected_platform_id, `${fieldName}.selected_platform_id`, true),
-    score,
-    risk_multiplier: riskMultiplier,
-    accepted: item.accepted,
-    reasons,
-    proposed_weight: 0,
-  };
-}
-
-export function normalizeAdaptiveSelectionReleaseDigest(value, fieldName) {
-  const text = String(value || "").trim();
-  if (!/^[A-Za-z0-9._:=+-]{1,160}$/.test(text) || /(token|secret|password|cookie|private|api[_-]?key)/i.test(text)) {
-    throw new Error(`${fieldName} is invalid`);
-  }
-  return text;
-}
-
-export function normalizeAdaptiveSelectionDigest(value, fieldName) {
-  const text = String(value || "");
-  if (!/^[a-f0-9]{64}$/.test(text)) throw new Error(`${fieldName} is invalid`);
-  return text;
-}
-
-export function isAdaptiveSelectionFloatPath(path) {
-  if (path[0] === "market_context") {
-    return path[1] === "regime_confidence" || path[1] === "factors";
-  }
-  return path[0] === "candidates"
-    && ["score", "risk_multiplier", "proposed_weight"].includes(path[2]);
-}
-
-export function canonicalAdaptiveSelectionNumber(value, forceFloat) {
-  if (!Number.isFinite(value)) throw new Error("adaptive selection decision must use finite JSON values");
-  if (Object.is(value, -0)) return forceFloat ? "-0.0" : "0";
-  let text = String(value);
-  const exponent = text.match(/^(.*)e([+-]?)(\d+)$/i);
-  if (exponent) {
-    const [, mantissa, sign, rawExponent] = exponent;
-    // Python's json.dumps (used by QPK canonical_sha256) pads one-digit
-    // negative exponents, while V8's Number#toString does not.
-    text = `${mantissa}e${sign || "+"}${sign === "-" ? rawExponent.padStart(2, "0") : rawExponent}`;
-  }
-  if (forceFloat && !/[.eE]/.test(text)) return `${text}.0`;
-  return text;
-}
-
-export function canonicalAdaptiveSelectionDecisionJson(value, path = []) {
-  if (value === null) return "null";
-  if (typeof value === "string" || typeof value === "boolean") return JSON.stringify(value);
-  if (typeof value === "number") return canonicalAdaptiveSelectionNumber(value, isAdaptiveSelectionFloatPath(path));
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => canonicalAdaptiveSelectionDecisionJson(item, [...path, "*"])).join(",")}]`;
-  }
-  if (!value || typeof value !== "object") throw new Error("adaptive selection decision must use JSON values");
-  return `{${Object.keys(value).sort().map((key) => (
-    `${JSON.stringify(key)}:${canonicalAdaptiveSelectionDecisionJson(value[key], [...path, key])}`
-  )).join(",")}}`;
-}
-
-export async function calculateAdaptiveSelectionDecisionDigest(payload) {
-  const material = { ...payload };
-  delete material.decision_digest;
-  const raw = new TextEncoder().encode(canonicalAdaptiveSelectionDecisionJson(material));
-  const digest = await crypto.subtle.digest("SHA-256", raw);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-export function normalizeAdaptiveSelectionSummary(selections) {
-  const entries = Array.isArray(selections) ? selections : [];
-  const decisions = entries.map((item) => item.decision).filter(Boolean);
-  const candidates = decisions.flatMap((item) => item.candidates);
-  return {
-    source_count: entries.length,
-    decision_count: decisions.length,
-    candidate_count: candidates.length,
-    recommended_count: decisions.filter((item) => item.recommended_strategy_profile).length,
-    rejected_candidate_count: candidates.filter((item) => !item.accepted).length,
-  };
-}
-
-export function emptyAdaptiveSelectionSourceSnapshot(errorCode) {
-  return {
-    schema_version: ADAPTIVE_SELECTION_SOURCE_SCHEMA_VERSION,
-    source_id: "unavailable",
-    generated_at: null,
-    computed_at: null,
-    data_status: "unavailable",
-    decision: null,
-    errors: [errorCode],
-  };
-}
-
-export function emptyAdaptiveSelectionPayload(errorCode) {
-  return {
-    schema_version: ADAPTIVE_SELECTION_DASHBOARD_SCHEMA_VERSION,
-    generated_at: null,
-    computed_at: null,
-    data_status: "unavailable",
-    summary: { source_count: 0, decision_count: 0, candidate_count: 0, recommended_count: 0, rejected_candidate_count: 0 },
-    selections: [],
-    policy: {
-      authority: ADAPTIVE_SELECTION_AUTHORITY,
-      no_order: true,
-      execution_authority_granted: false,
-      notice: "M1 Shadow 建议尚不可用；控制台不会推断策略、平台或订单。",
-    },
-    errors: [errorCode],
-  };
-}
-
-export function adaptiveSelectionStaleTtlSeconds(env) {
-  const configured = Number(env.ADAPTIVE_SELECTION_STALE_TTL_SECONDS);
-  if (!Number.isFinite(configured) || configured < 300 || configured > 604800) {
-    return ADAPTIVE_SELECTION_DEFAULT_STALE_TTL_SECONDS;
-  }
-  return Math.floor(configured);
-}
+export {
+  normalizeAdaptiveSelectionSourceSnapshot,
+  normalizeAdaptiveSelectionDecision,
+  normalizeAdaptiveSelectionMarketContext,
+  normalizeAdaptiveSelectionCandidate,
+  normalizeAdaptiveSelectionReleaseDigest,
+  normalizeAdaptiveSelectionDigest,
+  isAdaptiveSelectionFloatPath,
+  canonicalAdaptiveSelectionNumber,
+  canonicalAdaptiveSelectionDecisionJson,
+  calculateAdaptiveSelectionDecisionDigest,
+  normalizeAdaptiveSelectionSummary,
+  emptyAdaptiveSelectionSourceSnapshot,
+  emptyAdaptiveSelectionPayload,
+  adaptiveSelectionStaleTtlSeconds,
+};
 
 export {
   normalizeControlPlaneCandidates,
@@ -6976,398 +5699,33 @@ export {
   normalizeControlPlanePolicy,
 };
 
-export function normalizeBinancePrivateScopeReport(payload, { requireIngestFreshness = false } = {}) {
-  const report = assertExactFields(payload, [
-    "platform",
-    "observed_at",
-    "source_run_id",
-    "source_sha",
-    "account_scope_sha256",
-    "assets",
-    "historical_difference_unresolved",
-    "no_order",
-    "execution_authority_granted",
-  ], "Binance private scope report");
-  if (report.platform !== "binance") throw new Error("Binance private scope report.platform must be binance");
-  const observedAt = report.observed_at;
-  if (typeof observedAt !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(observedAt)) {
-    throw new Error("Binance private scope report.observed_at must be an ISO timestamp with timezone");
-  }
-  const observedAtMs = Date.parse(observedAt);
-  if (!Number.isFinite(observedAtMs)) {
-    throw new Error("Binance private scope report.observed_at must be valid");
-  }
-  if (requireIngestFreshness) {
-    const ageMs = Date.now() - observedAtMs;
-    if (ageMs > BINANCE_PRIVATE_SCOPE_INGEST_MAX_AGE_MS || ageMs < -BINANCE_PRIVATE_SCOPE_FUTURE_SKEW_MS) {
-      throw new Error("Binance private scope report.observed_at is outside the ingestion window");
-    }
-  }
-  const sourceRunId = report.source_run_id;
-  if (typeof sourceRunId !== "string" || !/^[1-9]\d{0,19}$/.test(sourceRunId)) {
-    throw new Error("Binance private scope report.source_run_id must be a decimal string");
-  }
-  const sourceSha = report.source_sha;
-  if (typeof sourceSha !== "string" || !/^[0-9a-fA-F]{40}$/.test(sourceSha)) {
-    throw new Error("Binance private scope report.source_sha must be a 40 character hex string");
-  }
-  const accountScopeSha256 = report.account_scope_sha256;
-  if (typeof accountScopeSha256 !== "string" || !/^[0-9a-fA-F]{64}$/.test(accountScopeSha256)) {
-    throw new Error("Binance private scope report.account_scope_sha256 must be a 64 character hex string");
-  }
-  if (!Array.isArray(report.assets) || report.assets.length > BINANCE_PRIVATE_SCOPE_MAX_ASSETS) {
-    throw new Error(`Binance private scope report.assets must contain at most ${BINANCE_PRIVATE_SCOPE_MAX_ASSETS} items`);
-  }
-  const seenAssets = new Set();
-  const assets = report.assets.map((value, index) => {
-    const item = assertExactFields(value, ["asset", "free", "locked"], `Binance private scope report.assets[${index}]`);
-    const asset = item.asset;
-    if (typeof asset !== "string" || !/^[\p{L}\p{N}]{1,20}$/u.test(asset)) {
-      throw new Error(`Binance private scope report.assets[${index}].asset is invalid`);
-    }
-    if (seenAssets.has(asset)) throw new Error("Binance private scope report.assets contains duplicate assets");
-    seenAssets.add(asset);
-    const free = normalizeBinancePrivateScopeDecimal(item.free, `Binance private scope report.assets[${index}].free`);
-    const locked = normalizeBinancePrivateScopeDecimal(item.locked, `Binance private scope report.assets[${index}].locked`);
-    if (binancePrivateScopeDecimalIsZero(free) && binancePrivateScopeDecimalIsZero(locked)) {
-      throw new Error(`Binance private scope report.assets[${index}] must not be an all-zero row`);
-    }
-    return { asset, free, locked };
-  });
-  if (report.historical_difference_unresolved !== true) {
-    throw new Error("Binance private scope report.historical_difference_unresolved must be true");
-  }
-  if (report.no_order !== true) throw new Error("Binance private scope report.no_order must be true");
-  if (report.execution_authority_granted !== false) {
-    throw new Error("Binance private scope report.execution_authority_granted must be false");
-  }
-  return {
-    platform: "binance",
-    observed_at: observedAt,
-    source_run_id: sourceRunId,
-    source_sha: sourceSha.toLowerCase(),
-    account_scope_sha256: accountScopeSha256.toLowerCase(),
-    assets,
-    historical_difference_unresolved: true,
-    no_order: true,
-    execution_authority_granted: false,
-  };
-}
-
-export function normalizeBinancePrivateScopeDecimal(value, fieldName) {
-  if (typeof value !== "string" || !/^\d+(?:\.\d+)?$/.test(value)) {
-    throw new Error(`${fieldName} must be a non-negative finite decimal string`);
-  }
-  return value;
-}
-
-export function binancePrivateScopeDecimalIsZero(value) {
-  return /^0+(?:\.0+)?$/.test(value);
-}
+export {
+  normalizeBinancePrivateScopeReport,
+  normalizeBinancePrivateScopeDecimal,
+  binancePrivateScopeDecimalIsZero,
+};
 
 export { normalizeReconciliationRecoverySourceSnapshot };
 export { normalizeReconciliationRecoveryRequest };
 
-export function normalizeExecutionEvidenceSourceSnapshot(payload, fieldName = "execution evidence source snapshot") {
-  const source = assertExactFields(payload, [
-    "schema_version", "source_id", "generated_at", "computed_at", "data_status", "deployments", "errors",
-  ], fieldName);
-  if (source.schema_version !== EXECUTION_EVIDENCE_SOURCE_SCHEMA_VERSION) {
-    throw new Error(`${fieldName}.schema_version is unsupported`);
-  }
-  const dataStatus = cleanChoice(source.data_status, STRATEGY_HEALTH_DATA_STATUSES, `${fieldName}.data_status`);
-  if (!Array.isArray(source.deployments) || source.deployments.length > 1000) {
-    throw new Error(`${fieldName}.deployments must be an array with at most 1000 items`);
-  }
-  const deployments = [];
-  const seen = new Set();
-  for (const [index, item] of source.deployments.entries()) {
-    const deployment = normalizeExecutionEvidenceDeployment(item, `${fieldName}.deployments[${index}]`);
-    if (seen.has(deployment.deployment_id)) {
-      throw new Error(`${fieldName}.deployments contains duplicate deployment_id`);
-    }
-    seen.add(deployment.deployment_id);
-    deployments.push(deployment);
-  }
-  if (dataStatus === "unavailable" && deployments.length) {
-    throw new Error(`${fieldName}.deployments must be empty when unavailable`);
-  }
-  return {
-    schema_version: EXECUTION_EVIDENCE_SOURCE_SCHEMA_VERSION,
-    source_id: normalizeControlPlaneIdentifier(source.source_id, `${fieldName}.source_id`, false),
-    generated_at: normalizeStrategyHealthTimestamp(source.generated_at, `${fieldName}.generated_at`, true),
-    computed_at: normalizeStrategyHealthTimestamp(source.computed_at, `${fieldName}.computed_at`, true),
-    data_status: dataStatus,
-    deployments,
-    errors: normalizeStrategyHealthErrors(source.errors),
-  };
-}
-
-export function normalizeExecutionEvidenceDeployment(value, fieldName) {
-  const item = assertRequiredAndOptionalFields(value, [
-    "deployment_id", "strategy", "target", "capabilities", "evidence", "recommendation",
-  ], ["execution_receipt"], fieldName);
-  const strategy = assertExactFields(item.strategy, [
-    "candidate_id", "candidate_kind", "domain", "strategy_revision",
-  ], `${fieldName}.strategy`);
-  const target = assertExactFields(item.target, ["platform", "environment"], `${fieldName}.target`);
-  const capabilities = assertExactFields(item.capabilities, ["shadow", "paper"], `${fieldName}.capabilities`);
-  const evidence = assertExactFields(item.evidence, [
-    "strategy", "target_data", "target_execution",
-  ], `${fieldName}.evidence`);
-  const recommendation = assertExactFields(item.recommendation, ["code", "reason_code"], `${fieldName}.recommendation`);
-  const executionReceipt = item.execution_receipt === undefined
-    ? null
-    : normalizeExecutionEvidenceReceipt(item.execution_receipt, `${fieldName}.execution_receipt`);
-  const normalized = {
-    deployment_id: normalizeControlPlaneIdentifier(item.deployment_id, `${fieldName}.deployment_id`, false),
-    strategy: {
-      candidate_id: normalizeControlPlaneIdentifier(strategy.candidate_id, `${fieldName}.strategy.candidate_id`, false),
-      candidate_kind: cleanChoice(strategy.candidate_kind, CONTROL_PLANE_CANDIDATE_KINDS, `${fieldName}.strategy.candidate_kind`),
-      domain: cleanChoice(strategy.domain, STRATEGY_HEALTH_DOMAINS, `${fieldName}.strategy.domain`),
-      strategy_revision: normalizeResearchTaskRevision(strategy.strategy_revision, `${fieldName}.strategy.strategy_revision`),
-    },
-    target: {
-      platform: cleanChoice(target.platform, EXECUTION_EVIDENCE_PLATFORMS, `${fieldName}.target.platform`),
-      environment: cleanChoice(target.environment, EXECUTION_EVIDENCE_ENVIRONMENTS, `${fieldName}.target.environment`),
-    },
-    capabilities: {
-      shadow: cleanChoice(capabilities.shadow, EXECUTION_EVIDENCE_CAPABILITIES, `${fieldName}.capabilities.shadow`),
-      paper: cleanChoice(capabilities.paper, EXECUTION_EVIDENCE_CAPABILITIES, `${fieldName}.capabilities.paper`),
-    },
-    evidence: {
-      strategy: cleanChoice(evidence.strategy, EXECUTION_EVIDENCE_STATUSES, `${fieldName}.evidence.strategy`),
-      target_data: cleanChoice(evidence.target_data, EXECUTION_EVIDENCE_STATUSES, `${fieldName}.evidence.target_data`),
-      target_execution: cleanChoice(evidence.target_execution, EXECUTION_EVIDENCE_STATUSES, `${fieldName}.evidence.target_execution`),
-    },
-    recommendation: {
-      code: cleanChoice(recommendation.code, EXECUTION_EVIDENCE_RECOMMENDATIONS, `${fieldName}.recommendation.code`),
-      reason_code: cleanChoice(recommendation.reason_code, EXECUTION_EVIDENCE_REASON_CODES, `${fieldName}.recommendation.reason_code`),
-    },
-  };
-  if (normalized.recommendation.code === "continue_autonomous_shadow" && normalized.capabilities.shadow !== "available") {
-    throw new Error(`${fieldName}.recommendation requires an available shadow capability`);
-  }
-  if (normalized.recommendation.code === "run_autonomous_paper" && normalized.capabilities.paper !== "available") {
-    throw new Error(`${fieldName}.recommendation requires an available paper capability`);
-  }
-  if (normalized.recommendation.code === "owner_limited_live_canary_decision") {
-    const statuses = Object.values(normalized.evidence);
-    if (!statuses.every((status) => status === "verified")) {
-      throw new Error(`${fieldName}.recommendation requires matching verified strategy, data, and execution evidence`);
-    }
-  }
-  if (executionReceipt !== null) {
-    const expectedExecutionStatus = ["failed", "reconciliation_required"].includes(executionReceipt.outcome)
-      ? "unavailable"
-      : (["no_signal", "no_rebalance"].includes(executionReceipt.outcome) ? "not_applicable" : "verified");
-    if (normalized.evidence.target_execution !== expectedExecutionStatus) {
-      throw new Error(`${fieldName}.execution_receipt does not match target_execution evidence`);
-    }
-    normalized.execution_receipt = executionReceipt;
-  }
-  return normalized;
-}
-
-export function normalizeExecutionEvidenceReceipt(value, fieldName) {
-  const receipt = assertExactFields(value, ["outcome", "broker_confirmation", "observed_at"], fieldName);
-  const outcome = cleanChoice(receipt.outcome, EXECUTION_RECEIPT_OUTCOMES, `${fieldName}.outcome`);
-  const confirmation = cleanChoice(
-    receipt.broker_confirmation,
-    EXECUTION_RECEIPT_CONFIRMATIONS,
-    `${fieldName}.broker_confirmation`,
-  );
-  const allowedConfirmations = {
-    not_due: ["not_applicable"],
-    no_action: ["not_applicable"],
-    no_signal: ["not_applicable"],
-    no_rebalance: ["not_applicable"],
-    risk_blocked: ["not_applicable"],
-    submitted: ["not_observed"],
-    broker_acknowledged: ["acknowledged"],
-    partially_filled: ["partially_filled"],
-    filled: ["filled"],
-    reconciliation_required: ["reconciliation_required"],
-    failed: ["not_applicable", "not_observed", "reconciliation_required"],
-  };
-  if (!allowedConfirmations[outcome].includes(confirmation)) {
-    throw new Error(`${fieldName}.broker_confirmation does not match outcome`);
-  }
-  return {
-    outcome,
-    broker_confirmation: confirmation,
-    observed_at: normalizeResearchTaskTimestamp(receipt.observed_at, `${fieldName}.observed_at`),
-  };
-}
-
-export function normalizeRuntimeTargetLifecycleSourceSnapshot(payload, fieldName = "runtime target lifecycle source snapshot") {
-  const source = assertExactFields(payload, [
-    "schema_version", "source_id", "generated_at", "computed_at", "data_status", "targets", "errors",
-  ], fieldName);
-  if (source.schema_version !== RUNTIME_TARGET_LIFECYCLE_SOURCE_SCHEMA_VERSION) {
-    throw new Error(`${fieldName}.schema_version is unsupported`);
-  }
-  const dataStatus = cleanChoice(source.data_status, STRATEGY_HEALTH_DATA_STATUSES, `${fieldName}.data_status`);
-  if (!Array.isArray(source.targets) || source.targets.length > 1000) {
-    throw new Error(`${fieldName}.targets must be an array with at most 1000 items`);
-  }
-  const targets = [];
-  const seen = new Set();
-  for (const [index, item] of source.targets.entries()) {
-    const target = normalizeRuntimeTargetLifecycleTarget(item, `${fieldName}.targets[${index}]`);
-    if (seen.has(target.target_id)) throw new Error(`${fieldName}.targets contains duplicate target_id`);
-    seen.add(target.target_id);
-    targets.push(target);
-  }
-  if (dataStatus === "unavailable" && targets.length) {
-    throw new Error(`${fieldName}.targets must be empty when unavailable`);
-  }
-  return {
-    schema_version: RUNTIME_TARGET_LIFECYCLE_SOURCE_SCHEMA_VERSION,
-    source_id: normalizeControlPlaneIdentifier(source.source_id, `${fieldName}.source_id`, false),
-    generated_at: normalizeStrategyHealthTimestamp(source.generated_at, `${fieldName}.generated_at`, true),
-    computed_at: normalizeStrategyHealthTimestamp(source.computed_at, `${fieldName}.computed_at`, true),
-    data_status: dataStatus,
-    targets,
-    errors: normalizeStrategyHealthErrors(source.errors),
-  };
-}
-
-export function normalizeRuntimeTargetLifecycleTarget(value, fieldName) {
-  const item = assertRequiredAndOptionalFields(value, ["target_id", "target", "monitoring", "disposition", "no_order"], ["deployment"], fieldName);
-  const target = assertExactFields(item.target, ["platform", "configured_state", "execution_mode"], `${fieldName}.target`);
-  const monitoring = assertExactFields(item.monitoring, ["runtime_guard", "execution_heartbeat"], `${fieldName}.monitoring`);
-  const disposition = assertExactFields(item.disposition, ["code", "reason_code"], `${fieldName}.disposition`);
-  if (item.no_order !== true) throw new Error(`${fieldName}.no_order must be true`);
-  const normalized = {
-    target_id: normalizeControlPlaneIdentifier(item.target_id, `${fieldName}.target_id`, false),
-    target: {
-      platform: cleanChoice(target.platform, EXECUTION_EVIDENCE_PLATFORMS, `${fieldName}.target.platform`),
-      configured_state: cleanChoice(target.configured_state, RUNTIME_TARGET_LIFECYCLE_CONFIGURED_STATES, `${fieldName}.target.configured_state`),
-      execution_mode: cleanChoice(target.execution_mode, RUNTIME_TARGET_LIFECYCLE_EXECUTION_MODES, `${fieldName}.target.execution_mode`),
-    },
-    monitoring: {
-      runtime_guard: cleanChoice(monitoring.runtime_guard, RUNTIME_TARGET_LIFECYCLE_CHECK_STATUSES, `${fieldName}.monitoring.runtime_guard`),
-      execution_heartbeat: cleanChoice(monitoring.execution_heartbeat, RUNTIME_TARGET_LIFECYCLE_CHECK_STATUSES, `${fieldName}.monitoring.execution_heartbeat`),
-    },
-    disposition: {
-      code: cleanChoice(disposition.code, RUNTIME_TARGET_LIFECYCLE_DISPOSITIONS, `${fieldName}.disposition.code`),
-      reason_code: cleanChoice(disposition.reason_code, RUNTIME_TARGET_LIFECYCLE_REASON_CODES, `${fieldName}.disposition.reason_code`),
-    },
-    no_order: true,
-  };
-  if (item.deployment !== undefined) {
-    const observed = assertRequiredAndOptionalFields(item.deployment, ["runtime_enabled", "scheduler_state", "strategy_profile", "execution_mode"], ["observed_at"], `${fieldName}.deployment`);
-    if (observed.runtime_enabled !== null && typeof observed.runtime_enabled !== "boolean") throw new Error("deployment switch must be boolean or null");
-    normalized.deployment = {
-      ...(observed.observed_at === undefined ? {} : {observed_at: normalizeM0ResearchTimestamp(observed.observed_at, "deployment.observed_at")}),
-      runtime_enabled: observed.runtime_enabled,
-      scheduler_state: cleanChoice(observed.scheduler_state, ["enabled", "paused", "mixed", "missing", "unknown", "not_applicable"], "deployment.scheduler_state"),
-      strategy_profile: observed.strategy_profile === null ? null : cleanSlug(observed.strategy_profile, "deployment.strategy_profile"),
-      execution_mode: observed.execution_mode === null ? null : cleanChoice(observed.execution_mode, RUNTIME_TARGET_LIFECYCLE_EXECUTION_MODES, "deployment.execution_mode"),
-    };
-  }
-  const guardUnavailable = normalized.monitoring.runtime_guard === "unavailable";
-  const heartbeatUnavailable = normalized.monitoring.execution_heartbeat === "unavailable";
-  const hasAttention = normalized.monitoring.runtime_guard === "attention" || normalized.monitoring.execution_heartbeat === "attention";
-  if (normalized.target.configured_state === "disabled") {
-    if (normalized.monitoring.execution_heartbeat !== "not_applicable") {
-      throw new Error(`${fieldName}.disabled target must not claim an execution heartbeat`);
-    }
-    if (!hasAttention && !guardUnavailable && normalized.disposition.code !== "continue_disabled_validation") {
-      throw new Error(`${fieldName}.disabled target requires continue_disabled_validation`);
-    }
-  } else if (!hasAttention && !guardUnavailable && !heartbeatUnavailable && normalized.disposition.code !== "continue_enabled_monitoring") {
-    throw new Error(`${fieldName}.enabled healthy target requires continue_enabled_monitoring`);
-  }
-  if (hasAttention || guardUnavailable || heartbeatUnavailable) {
-    if (normalized.disposition.code !== "parked") throw new Error(`${fieldName}.unhealthy monitoring requires parked`);
-  }
-  return normalized;
-}
-
-export function normalizeExecutionEvidenceSummary(deployments) {
-  return {
-    deployment_count: deployments.length,
-    autonomous_shadow: deployments.filter((item) => item.recommendation.code === "continue_autonomous_shadow").length,
-    autonomous_paper: deployments.filter((item) => item.recommendation.code === "run_autonomous_paper").length,
-    owner_canary_decision: deployments.filter((item) => item.recommendation.code === "owner_limited_live_canary_decision").length,
-    parked: deployments.filter((item) => item.recommendation.code === "parked").length,
-  };
-}
-
-export function emptyExecutionEvidenceSourceSnapshot(errorCode) {
-  return {
-    schema_version: EXECUTION_EVIDENCE_SOURCE_SCHEMA_VERSION,
-    source_id: "unavailable",
-    generated_at: null,
-    computed_at: null,
-    data_status: "unavailable",
-    deployments: [],
-    errors: [errorCode],
-  };
-}
-
-export function emptyRuntimeTargetLifecycleSourceSnapshot(errorCode) {
-  return {
-    schema_version: RUNTIME_TARGET_LIFECYCLE_SOURCE_SCHEMA_VERSION,
-    source_id: "unavailable",
-    generated_at: null,
-    computed_at: null,
-    data_status: "unavailable",
-    targets: [],
-    errors: [errorCode],
-  };
-}
-
-export function emptyRuntimeTargetLifecyclePayload(errorCode) {
-  return {
-    schema_version: RUNTIME_TARGET_LIFECYCLE_DASHBOARD_SCHEMA_VERSION,
-    generated_at: null,
-    computed_at: null,
-    data_status: "unavailable",
-    summary: { target_count: 0, enabled: 0, disabled: 0, attention: 0 },
-    targets: [],
-    policy: {
-      lifecycle_status_read_only: true,
-      execution_observation_read_only: true,
-      no_order: true,
-      order_or_fill_evidence: "not_collected",
-      notice: "运行目标生命周期快照尚不可用；页面不会推断目标已启用或存在订单/成交。",
-    },
-    errors: [errorCode],
-  };
-}
-
-export function emptyExecutionEvidencePayload(errorCode) {
-  return {
-    schema_version: EXECUTION_EVIDENCE_DASHBOARD_SCHEMA_VERSION,
-    generated_at: null,
-    computed_at: null,
-    data_status: "unavailable",
-    summary: { deployment_count: 0, autonomous_shadow: 0, autonomous_paper: 0, owner_canary_decision: 0, parked: 0 },
-    deployments: [],
-    policy: {
-      execution_evidence_read_only: true,
-      p6_owner_decision_required: true,
-      limited_live_canary_active: false,
-      notice: "执行证据尚不可用；控制台不会推断 paper 或 live 状态。",
-    },
-    errors: [errorCode],
-  };
-}
+export {
+  normalizeExecutionEvidenceSourceSnapshot,
+  normalizeExecutionEvidenceDeployment,
+  normalizeExecutionEvidenceReceipt,
+  normalizeRuntimeTargetLifecycleSourceSnapshot,
+  normalizeRuntimeTargetLifecycleTarget,
+  normalizeExecutionEvidenceSummary,
+  emptyExecutionEvidenceSourceSnapshot,
+  emptyRuntimeTargetLifecycleSourceSnapshot,
+  emptyRuntimeTargetLifecyclePayload,
+  emptyExecutionEvidencePayload,
+};
 
 export { emptyReconciliationRecoverySourceSnapshot };
 export { emptyReconciliationRecoveryPayload };
 export { reconciliationRecoveryStaleTtlSeconds };
 
-export function executionEvidenceStaleTtlSeconds(env) {
-  const configured = Number(env.EXECUTION_EVIDENCE_STALE_TTL_SECONDS);
-  if (!Number.isFinite(configured) || configured < 300 || configured > 604800) {
-    return EXECUTION_EVIDENCE_DEFAULT_STALE_TTL_SECONDS;
-  }
-  return Math.floor(configured);
-}
+export { executionEvidenceStaleTtlSeconds };
 
 export {
   emptyControlPlanePayload,
@@ -7839,550 +6197,49 @@ export function defaultInputValue(field, inputs) {
   return "";
 }
 
-export function parseAccountOptions(raw, fieldName = "account options") {
-  const text = String(raw || "").trim();
-  if (!text) return null;
-  let payload;
-  try {
-    payload = JSON.parse(text);
-  } catch (error) {
-    throw new Error(`${fieldName} must be valid JSON`);
-  }
-  return normalizeAccountOptionsPayload(payload, fieldName);
-}
-
-export function normalizeAccountOptionsInput(value, fieldName) {
-  if (typeof value === "string") return parseAccountOptions(value, fieldName) || {};
-  return normalizeAccountOptionsPayload(value, fieldName);
-}
-
-export function parseStrategyProfiles(raw, fieldName = "strategy profiles") {
-  const text = String(raw || "").trim();
-  if (!text) return null;
-  let payload;
-  try {
-    payload = JSON.parse(text);
-  } catch (error) {
-    throw new Error(`${fieldName} must be valid JSON`);
-  }
-  return normalizeStrategyProfilesPayload(payload, fieldName);
-}
-
-export function isFrozenStrategyProfile(strategy) {
-  const profile = canonicalStrategyProfile(strategy?.profile);
-  // Normalize only the policy lookup; retain the original profile in payloads.
-  return strategy?.frozen === true || DEFAULT_STRATEGY_PROFILES.some((item) => item.profile === profile && item.frozen === true);
-}
-
-export function normalizeStrategyProfilesPayload(payload, fieldName = "strategy profiles") {
-  if (!Array.isArray(payload) || payload.length > 100) {
-    throw new Error(`${fieldName} must be an array with at most 100 items`);
-  }
-
-  const result = [];
-  const seen = new Set();
-  for (const [index, item] of payload.entries()) {
-    if (!item || Array.isArray(item) || typeof item !== "object") {
-      throw new Error(`${fieldName}[${index}] must be an object`);
-    }
-    const profile = cleanCurrentStrategy(item.profile || item.strategy_profile);
-    if (!profile) throw new Error(`${fieldName}[${index}].profile is invalid`);
-    if (seen.has(profile)) continue;
-    seen.add(profile);
-    const entry = {
-      profile,
-      label: cleanLabel(item.label || item.display_name || profile, `${fieldName}[${index}].label`),
-      runtime_enabled: cleanProfileBoolean(item.runtime_enabled ?? false),
-    };
-    addConfigOptional(
-      entry,
-      "label_en",
-      item.label_en || item.display_name_en || item.label,
-      cleanLabel,
-    );
-    addConfigOptional(
-      entry,
-      "label_zh",
-      item.label_zh || item.display_name_zh,
-      cleanLabel,
-    );
-    const rawDomain = typeof item.domain === "string" ? item.domain.trim() : "";
-    entry.domain = cleanStrategyDomain(rawDomain || "us_equity", `${fieldName}[${index}].domain`);
-    Object.defineProperty(entry, "domain_explicit", { value: rawDomain !== "", enumerable: false });
-    if (isFrozenStrategyProfile(item)) entry.frozen = true;
-    const sourceLifecycleStage = item.lifecycle_stage || item.lifecycleStage;
-    const canSwitchLive = cleanOptionalBoolean(item.can_switch_live);
-    if (canSwitchLive !== null) entry.can_switch_live = canSwitchLive;
-    const allowedExecutionModes = cleanAllowedExecutionModes(item.allowed_execution_modes);
-    if (allowedExecutionModes.length) entry.allowed_execution_modes = allowedExecutionModes;
-    if (sourceLifecycleStage) {
-      entry.lifecycle_stage = canonicalLifecycleStage(sourceLifecycleStage, {
-        runtimeEnabled: entry.runtime_enabled === true,
-        canSwitchLive: canSwitchLive === true,
-        allowedExecutionModes,
-      });
-    }
-    addConfigOptional(entry, "blocked_live_reason", item.blocked_live_reason, cleanLabel);
-    if (item.live_continuity !== undefined && item.live_continuity !== null) {
-      entry.live_continuity = normalizeLiveContinuityPolicy(
-        item.live_continuity,
-        `${fieldName}[${index}].live_continuity`,
-      );
-    }
-    if (item.research_candidate_identity !== undefined && item.research_candidate_identity !== null) {
-      entry.research_candidate_identity = normalizeResearchCandidateIdentity(
-        item.research_candidate_identity,
-        `${fieldName}[${index}].research_candidate_identity`,
-        profile,
-      );
-    }
-    addConfigOptional(entry, "latest_evidence_status", item.latest_evidence_status, cleanLifecycleStage);
-    addConfigOptional(entry, "plugin_gate_status", item.plugin_gate_status, cleanLifecycleStage);
-    // DCA detection: accept from item payload OR hardcoded DCA_PROFILE_CONFIG
-    const dcaEnabled = item.dca_enabled === true || Boolean(DCA_PROFILE_CONFIG[profile]);
-    if (dcaEnabled) {
-      const dcaDefaults = DCA_PROFILE_CONFIG[profile] || null;
-      entry.dca_enabled = true;
-      entry.dca_default_mode = cleanDcaMode(item.dca_default_mode || item.default_dca_mode || dcaDefaults?.default_mode || "fixed");
-      entry.dca_default_base_investment_usd = cleanPositiveNumber(
-        item.dca_default_base_investment_usd ||
-          item.default_dca_base_investment_usd ||
-          dcaDefaults?.default_base_investment_usd ||
-          "1000",
-        `${fieldName}[${index}].dca_default_base_investment_usd`,
-      );
-    }
-    // Pass through combo_enabled and combo_mode from item payload
-    if (item.combo_enabled === true) {
-      entry.combo_enabled = true;
-      entry.combo_mode = String(item.combo_mode || "dynamic").trim() || "dynamic";
-    }
-    const incomeLayerConfig = incomeLayerConfigFromProfileItem(item, `${fieldName}[${index}]`);
-    if (incomeLayerConfig) Object.assign(entry, incomeLayerConfig);
-    const optionOverlayConfig = optionOverlayConfigFromProfileItem(item, `${fieldName}[${index}]`);
-    if (optionOverlayConfig) Object.assign(entry, optionOverlayConfig);
-    result.push(entry);
-  }
-  return result;
-}
-
-export function normalizeResearchCandidateIdentity(value, fieldName, profile) {
-  if (!value || Array.isArray(value) || typeof value !== "object") {
-    throw new Error(`${fieldName} must be an object`);
-  }
-  assertExactFields(value, ["candidate_id", "config_sha256"], fieldName);
-  const candidateId = cleanCurrentStrategy(value.candidate_id);
-  if (!candidateId || candidateId !== profile) {
-    throw new Error(`${fieldName}.candidate_id must match profile`);
-  }
-  const configSha256 = String(value.config_sha256 || "").trim().toLowerCase();
-  if (!/^[0-9a-f]{64}$/.test(configSha256)) {
-    throw new Error(`${fieldName}.config_sha256 must be a 64-character sha256`);
-  }
-  return { candidate_id: candidateId, config_sha256: configSha256 };
-}
-
-export function normalizeLiveContinuityPolicy(value, fieldName) {
-  if (!value || Array.isArray(value) || typeof value !== "object") {
-    throw new Error(`${fieldName} must be an object`);
-  }
-  const unsupported = Object.keys(value).filter((key) => !["eligible", "allowed_platforms"].includes(key));
-  if (unsupported.length) {
-    throw new Error(`${fieldName} contains unsupported fields: ${unsupported.sort().join(", ")}`);
-  }
-  if (typeof value.eligible !== "boolean") {
-    throw new Error(`${fieldName}.eligible must be boolean`);
-  }
-  if (!Array.isArray(value.allowed_platforms)) {
-    throw new Error(`${fieldName}.allowed_platforms must be an array`);
-  }
-  const allowedPlatforms = value.allowed_platforms.map((platform) =>
-    cleanChoice(platform, SUPPORTED_PLATFORMS, `${fieldName}.allowed_platforms`),
-  );
-  if (new Set(allowedPlatforms).size !== allowedPlatforms.length) {
-    throw new Error(`${fieldName}.allowed_platforms must not contain duplicates`);
-  }
-  if (value.eligible && !allowedPlatforms.length) {
-    throw new Error(`${fieldName}.eligible requires allowed_platforms`);
-  }
-  return { eligible: value.eligible, allowed_platforms: allowedPlatforms };
-}
-
-export function rejectResearchOnlyExtraVariables(extraVariables) {
-  const blocked = [
-    ...LEGACY_INCOME_LAYER_CONTROL_FIELDS,
-    ...LEGACY_INCOME_LAYER_VARIABLES,
-    ...OPTION_OVERLAY_CONTROL_FIELDS,
-    ...OPTION_OVERLAY_VARIABLES,
-  ].filter((name) => extraVariables[name] !== undefined);
-  if (blocked.length) {
-    throw new Error(
-      `direct option overlay settings and legacy income controls are research-only: ${blocked.join(", ")}`,
-    );
-  }
-}
-
-export function incomeLayerConfigFromProfileItem(item, fieldName) {
-  const hasIncomeLayerConfig = [
-    "income_layer_enabled",
-    "income_layer_start_usd",
-    "income_layer_max_ratio",
-    "income_layer_allocations",
-  ].some((field) => item[field] !== undefined && item[field] !== null && String(item[field]).trim() !== "");
-  if (!hasIncomeLayerConfig) return null;
-  const enabled = item.income_layer_enabled === undefined || item.income_layer_enabled === null
-    ? true
-    : cleanProfileBoolean(item.income_layer_enabled);
-  if (!enabled) return { income_layer_enabled: false };
-  return {
-    income_layer_enabled: true,
-    income_layer_start_usd: cleanNonNegativeNumber(
-      item.income_layer_start_usd,
-      `${fieldName}.income_layer_start_usd`,
-    ),
-    income_layer_max_ratio: cleanRatio(item.income_layer_max_ratio, `${fieldName}.income_layer_max_ratio`),
-    income_layer_allocations: cleanIncomeLayerAllocations(
-      item.income_layer_allocations,
-      `${fieldName}.income_layer_allocations`,
-    ),
-  };
-}
-
-export function optionOverlayConfigFromProfileItem(item, fieldName) {
-  const hasOptionOverlayConfig = OPTION_OVERLAY_PROFILE_FIELDS.some((field) =>
-    item[field] !== undefined && item[field] !== null && String(item[field]).trim() !== "",
-  );
-  if (!hasOptionOverlayConfig) return null;
-  const enabled = item.option_overlay_enabled === undefined || item.option_overlay_enabled === null
-    ? true
-    : cleanProfileBoolean(item.option_overlay_enabled);
-  const result = { option_overlay_enabled: enabled };
-  addConfigOptional(result, "option_overlay_live_gate", item.option_overlay_live_gate || (enabled ? "promotion_required" : "disabled"), (value, field) =>
-    cleanChoice(value, ["promotion_required", "live_allowed", "disabled"], field),
-  );
-  addConfigOptional(result, "option_overlay_live_status", item.option_overlay_live_status || (enabled ? "research_only" : "disabled"), (value, field) =>
-    cleanChoice(value, ["research_only", "live_allowed", "disabled"], field),
-  );
-  if (!enabled) return result;
-
-  addOptionalOptionFamilyConfig(result, item, "growth", fieldName);
-  addOptionalOptionFamilyConfig(result, item, "income", fieldName);
-  return result;
-}
-
-export function addOptionalOptionFamilyConfig(target, item, family, fieldName) {
-  const prefix = `option_${family}_overlay`;
-  const enabledField = `${prefix}_enabled`;
-  if (item[enabledField] === undefined || item[enabledField] === null || String(item[enabledField]).trim() === "") {
-    return;
-  }
-  const enabled = cleanProfileBoolean(item[enabledField]);
-  target[enabledField] = enabled;
-  if (!enabled) return;
-
-  target[`${prefix}_recipe`] = cleanSlug(item[`${prefix}_recipe`], `${fieldName}.${prefix}_recipe`);
-  target[`${prefix}_start_usd`] = cleanNonNegativeNumber(
-    item[`${prefix}_start_usd`],
-    `${fieldName}.${prefix}_start_usd`,
-  );
-  if (family === "growth") {
-    target.option_growth_overlay_nav_budget_ratio = cleanRatio(
-      item.option_growth_overlay_nav_budget_ratio,
-      `${fieldName}.option_growth_overlay_nav_budget_ratio`,
-    );
-  } else {
-    target.option_income_overlay_nav_risk_ratio = cleanRatio(
-      item.option_income_overlay_nav_risk_ratio,
-      `${fieldName}.option_income_overlay_nav_risk_ratio`,
-    );
-  }
-}
-
-export function cleanIncomeLayerAllocations(value, fieldName) {
-  if (!value || Array.isArray(value) || typeof value !== "object") {
-    throw new Error(`${fieldName} must be an object`);
-  }
-  const result = {};
-  let total = 0;
-  for (const [rawSymbol, rawWeight] of Object.entries(value)) {
-    const symbol = String(rawSymbol || "").trim().toUpperCase();
-    if (!/^[A-Z0-9.-]{1,12}$/.test(symbol)) throw new Error(`${fieldName} contains an invalid symbol`);
-    const weight = Number(cleanPositiveNumber(rawWeight, `${fieldName}.${symbol}`));
-    total += weight;
-    result[symbol] = weight;
-  }
-  if (!Object.keys(result).length || total <= 0) throw new Error(`${fieldName} must contain positive allocations`);
-  return result;
-}
-
-export function cleanProfileBoolean(value) {
-  if (value === true || value === "true" || value === "1" || value === 1) return true;
-  if (value === false || value === "false" || value === "0" || value === 0) return false;
-  throw new Error("runtime_enabled must be boolean");
-}
-
-export function normalizeAccountOptionsPayload(payload, fieldName = "account options") {
-  if (!payload || Array.isArray(payload) || typeof payload !== "object") {
-    throw new Error(`${fieldName} must be an object`);
-  }
-
-  // Structural gate from account_options_schema.js; cleanAccountOption keeps
-  // console-specific enrichment (domain inference, mode defaults, length caps).
-  validateAccountOptionsSchemaOrThrow(payload, fieldName);
-
-  const result = {};
-  for (const platform of SUPPORTED_PLATFORMS) {
-    const items = payload[platform];
-    if (items === undefined) continue;
-    if (!Array.isArray(items) || items.length > 20) {
-      throw new Error(`${fieldName}.${platform} must be an array with at most 20 items`);
-    }
-    result[platform] = items.map((item, index) => cleanAccountOption(item, platform, index));
-  }
-  return result;
-}
-
-export function cleanAccountOption(item, platform, index) {
-  if (!item || Array.isArray(item) || typeof item !== "object") {
-    throw new Error(`account option ${platform}[${index}] must be an object`);
-  }
-  const key = cleanSlug(item.key || item.target_name || `${platform}-${index}`, "account key");
-  const label = cleanLabel(item.label || item.target_name || key, "account label");
-  const option = {
-    key,
-    label,
-    target_name: cleanSlug(item.target_name || key, "target_name"),
-  };
-  addConfigOptional(option, "account_selector", item.account_selector, cleanCsv);
-  addConfigOptional(option, "deployment_selector", item.deployment_selector, cleanSlug);
-  addConfigOptional(option, "account_scope", item.account_scope, cleanSlug);
-  addConfigOptional(option, "service_name", item.service_name, cleanSlug);
-  addConfigOptional(option, "runtime_status_target_id", item.runtime_status_target_id, cleanSlug);
-  addConfigOptional(option, "broker_environment", item.broker_environment, normalizeBrokerEnvironment);
-  addConfigOptional(option, "default_execution_mode", item.default_execution_mode, cleanExecutionMode);
-  addConfigOptional(option, "default_strategy_profile", item.default_strategy_profile, cleanSlug);
-  addConfigOptional(
-    option,
-    "cash_currency",
-    item.cash_currency || item.market_currency || item.trading_currency,
-    cleanCashCurrency,
-  );
-  addConfigOptional(option, "github_environment", item.github_environment, cleanSlug);
-  addConfigOptional(option, "variable_scope", item.variable_scope, (value, field) =>
-    cleanChoice(value || "default", ["default", "repository", "environment"], field),
-  );
-  addConfigOptional(option, "plugin_mode", item.plugin_mode, (value, field) =>
-    cleanChoice(value || "auto", ["auto", "none"], field),
-  );
-  addConfigOptional(option, "option_overlay_mode", item.option_overlay_mode, (value, field) =>
-    cleanChoice(value || "enabled", OPTION_OVERLAY_MODES, field),
-  );
-  addConfigOptional(option, "cash_only_execution_mode", item.cash_only_execution_mode, (value, field) =>
-    cleanChoice(value || "enabled", CASH_ONLY_EXECUTION_MODES, field),
-  );
-  addConfigOptional(option, "dca_mode", item.dca_mode, cleanDcaMode);
-  addConfigOptional(option, "dca_base_investment_usd", item.dca_base_investment_usd, cleanPositiveNumber);
-  option.supported_domains = shouldInferSupportedDomains(item.supported_domains)
-    ? inferAccountSupportedDomains(platform, option)
-    : normalizeSupportedDomains(item.supported_domains, `account option ${platform}[${index}].supported_domains`);
-  return option;
-}
-
-export function shouldInferSupportedDomains(value) {
-  if (value === undefined || value === null) return true;
-  if (Array.isArray(value)) return value.length === 0;
-  return String(value).trim() === "";
-}
-
-export function supportedDomainsForAccount(platform, option) {
-  const platformDomains = inferAccountSupportedDomains(platform, option || {});
-  if (Array.isArray(option?.supported_domains) && option.supported_domains.length) {
-    return normalizeSupportedDomains(option.supported_domains, "supported_domains")
-      .filter((domain) => platformDomains.includes(domain));
-  }
-  return platformDomains;
-}
-
-export function inferAccountSupportedDomains(platform, option) {
-  void option;
-  const domains = PLATFORM_CONFIG[platform]?.supported_domains;
-  return Array.isArray(domains) ? [...domains] : [];
-}
-
-export function platformRepositories(env) {
-  return resolvePlatformRepositories(env);
-}
-
-export function normalizeSupportedDomains(value, fieldName) {
-  const items = Array.isArray(value)
-    ? value
-    : String(value || "").split(/[\s,;]+/);
-  if (!items.length || items.length > SUPPORTED_STRATEGY_DOMAINS.length) {
-    throw new Error(`${fieldName} must list one or more strategy domains`);
-  }
-  const result = [];
-  for (const item of items) {
-    const domain = cleanStrategyDomain(item, fieldName);
-    if (!result.includes(domain)) result.push(domain);
-  }
-  if (!result.length) throw new Error(`${fieldName} must list one or more strategy domains`);
-  return result;
-}
-
-export function cleanStrategyDomain(value, fieldName) {
-  return cleanChoice(value, SUPPORTED_STRATEGY_DOMAINS, fieldName);
-}
-
-export function cleanCashCurrency(value, fieldName) {
-  return cleanChoice(String(value || "").trim().toUpperCase(), ["USD", "HKD", "CNY"], fieldName);
-}
-
-export function addConfigOptional(target, key, value, cleaner) {
-  if (value === undefined || value === null || String(value).trim() === "") return;
-  target[key] = cleaner(value, key);
-}
-
-export function addOptional(target, key, value, cleaner) {
-  if (value === undefined || value === null || String(value).trim() === "") return;
-  target[key] = cleaner(value, key);
-}
-
-export function cleanChoice(value, allowed, field) {
-  const text = String(value || "").trim();
-  if (!allowed.includes(text)) throw new Error(`${field} is invalid`);
-  return text;
-}
-
-export function isDcaProfile(profile) {
-  return Boolean(DCA_PROFILE_CONFIG[canonicalStrategyProfile(profile)]);
-}
-
-export function assertDcaPlatform(platform, strategyProfile) {
-  if (isDcaProfile(strategyProfile) && !DCA_SUPPORTED_PLATFORMS.has(platform)) {
-    throw new Error(
-      `DCA strategy profiles are not supported on ${platform}; got strategy_profile=${strategyProfile}`,
-    );
-  }
-}
-
-export function cleanDcaMode(value, field = "dca_mode") {
-  const mode = String(value || "").trim().toLowerCase();
-  const aliases = {
-    ordinary: "fixed",
-    ordinary_dca: "fixed",
-    fixed_dca: "fixed",
-    smart_dca: "smart",
-  };
-  const normalized = aliases[mode] || mode;
-  return cleanChoice(normalized, ["fixed", "smart"], field);
-}
-
-export function cleanBoolean(value) {
-  if (value === true || value === "true") return true;
-  if (value === false || value === "false" || value === "" || value === undefined || value === null) return false;
-  throw new Error("boolean input is invalid");
-}
-
-export function cleanRatio(value, field) {
-  const text = cleanNumberText(value, field);
-  const numeric = Number(text);
-  if (numeric < 0 || numeric > 1) throw new Error(`${field} must be between 0 and 1`);
-  return text;
-}
-
-export function cleanNonNegativeNumber(value, field) {
-  const text = cleanNumberText(value, field);
-  if (Number(text) < 0) throw new Error(`${field} must be non-negative`);
-  return text;
-}
-
-export function cleanPositiveNumber(value, field) {
-  const text = cleanNumberText(value, field);
-  if (Number(text) <= 0) throw new Error(`${field} must be greater than 0`);
-  return text;
-}
-
-export function cleanNumberText(value, field) {
-  const text = String(value || "").trim();
-  if (!text || text.length > 32 || !/^(?:\d+|\d*\.\d+)$/.test(text)) {
-    throw new Error(`${field} must be a finite decimal number`);
-  }
-  const numeric = Number(text);
-  if (!Number.isFinite(numeric)) throw new Error(`${field} must be finite`);
-  return text;
-}
-
-export function cleanSlug(value, field) {
-  const text = String(value || "").trim();
-  if (!text || text.length > 120 || !/^[A-Za-z0-9._=-]+$/.test(text)) {
-    throw new Error(`${field} must use letters, numbers, dot, underscore, dash, or equals`);
-  }
-  return text;
-}
-
-export function cleanRepositoryName(value, field) {
-  const text = String(value || "").trim();
-  if (!text || text.length > 160 || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(text)) {
-    throw new Error(`${field} must be owner/repo`);
-  }
-  return text;
-}
-
-export function cleanLabel(value, field) {
-  const text = String(value || "").trim();
-  if (!text || text.length > 80 || /[<>{}]/.test(text)) {
-    throw new Error(`${field} is invalid`);
-  }
-  return text;
-}
-
-export function cleanLifecycleStage(value, field = "lifecycle_stage") {
-  const text = String(value || "").trim().toLowerCase();
-  if (!text || text.length > 80 || !/^[a-z0-9._-]+$/.test(text)) {
-    throw new Error(`${field} is invalid`);
-  }
-  return text;
-}
-
-export function canonicalLifecycleStage(value, deployment = {}) {
-  const stage = cleanLifecycleStage(value);
-  // Keep runtime_enabled as a first-class catalog stage so bundled SSOT and
-  // /api/strategy-profiles readback stay bit-identical for deploy verification.
-  if (["research_active", "shadow_active", "paper_active", "live_candidate", "live_enabled", "runtime_enabled"].includes(stage)) {
-    return stage;
-  }
-  if (["research", "research_backtest_only", "ai_monitored_candidate"].includes(stage)) return "research_active";
-  if (stage === "shadow_candidate") return "shadow_active";
-  void deployment;
-  throw new Error(`lifecycle_stage ${stage} is unsupported`);
-}
-
-export function cleanAllowedExecutionModes(value) {
-  const items = Array.isArray(value)
-    ? value
-    : String(value || "").split(/[,\s/|]+/);
-  const modes = [];
-  for (const item of items) {
-    const mode = String(item || "").trim().toLowerCase();
-    if (!mode) continue;
-    if (!["live", "paper", "dry_run"].includes(mode)) {
-      throw new Error(`allowed_execution_modes contains unsupported mode ${mode}`);
-    }
-    if (!modes.includes(mode)) modes.push(mode);
-  }
-  return modes;
-}
-
-export function cleanExecutionMode(value) {
-  const mode = cleanChoice(value || "live", ["live", "paper", "dry_run"], "execution_mode");
-  return mode === "paper" ? "dry_run" : mode;
-}
-
-export function supportedExecutionModesForPlatform(platform) {
-  const modes = PLATFORM_CONFIG[platform]?.supported_execution_modes;
-  if (!Array.isArray(modes)) return [];
-  return modes.filter((mode) => mode === "live" || mode === "dry_run");
-}
+export {
+  parseAccountOptions,
+  normalizeAccountOptionsInput,
+  parseStrategyProfiles,
+  isFrozenStrategyProfile,
+  normalizeStrategyProfilesPayload,
+  normalizeResearchCandidateIdentity,
+  normalizeLiveContinuityPolicy,
+  rejectResearchOnlyExtraVariables,
+  incomeLayerConfigFromProfileItem,
+  optionOverlayConfigFromProfileItem,
+  addOptionalOptionFamilyConfig,
+  cleanIncomeLayerAllocations,
+  cleanProfileBoolean,
+  normalizeAccountOptionsPayload,
+  cleanAccountOption,
+  shouldInferSupportedDomains,
+  supportedDomainsForAccount,
+  inferAccountSupportedDomains,
+  platformRepositories,
+  normalizeSupportedDomains,
+  cleanStrategyDomain,
+  cleanCashCurrency,
+  addConfigOptional,
+  addOptional,
+  cleanChoice,
+  isDcaProfile,
+  assertDcaPlatform,
+  cleanDcaMode,
+  cleanBoolean,
+  cleanRatio,
+  cleanNonNegativeNumber,
+  cleanPositiveNumber,
+  cleanNumberText,
+  cleanSlug,
+  cleanRepositoryName,
+  cleanLabel,
+  cleanLifecycleStage,
+  canonicalLifecycleStage,
+  cleanAllowedExecutionModes,
+  cleanExecutionMode,
+  supportedExecutionModesForPlatform,
+};
 
 export function requireSameOrigin(request, options = {}) {
   const origin = request.headers.get("Origin");
@@ -8678,16 +6535,7 @@ export function normalizeRuntimeExecutionMode(value, dryRunOnly) {
   return "";
 }
 
-export function cleanOptionalBoolean(value) {
-  if (value === true || value === 1) return true;
-  if (value === false || value === 0) return false;
-  if (typeof value === "string") {
-    const text = value.trim().toLowerCase();
-    if (text === "true" || text === "1") return true;
-    if (text === "false" || text === "0") return false;
-  }
-  return null;
-}
+export { cleanOptionalBoolean };
 
 export function cleanCurrentNonNegativeNumber(value) {
   const text = String(value ?? "").trim();
@@ -8813,19 +6661,7 @@ export function parseJsonValue(value) {
   return null;
 }
 
-export function cleanCurrentStrategy(value) {
-  const text = String(value || "").trim().toLowerCase();
-  if (!text || text.length > 120 || !/^[a-z0-9._=-]+$/.test(text)) return "";
-  return text;
-}
-
-export function cleanCsv(value, field) {
-  const text = String(value || "").trim();
-  if (text.length > 300 || !/^[A-Za-z0-9._=,\-\s]+$/.test(text)) {
-    throw new Error(`${field} is invalid`);
-  }
-  return text;
-}
+export { cleanCurrentStrategy, cleanCsv };
 
 export function cleanJson(value, field) {
   const text = String(value || "").trim();
@@ -8923,166 +6759,17 @@ export async function loadStrategyProfilesConfig(env) {
   return normalizeStrategyProfilesPayload(DEFAULT_STRATEGY_PROFILES, "DEFAULT_STRATEGY_PROFILES");
 }
 
-export function riskProfileScopeId(platform, targetName) {
-  return `${platform}--${targetName}`;
-}
-
-export function riskProfileBindingTargets(accountOptions) {
-  const targets = [];
-  for (const platform of SUPPORTED_PLATFORMS) {
-    const options = Array.isArray(accountOptions?.[platform]) ? accountOptions[platform] : [];
-    for (const option of options) {
-      targets.push({
-        scope_id: riskProfileScopeId(platform, option.target_name),
-        platform,
-        target_name: option.target_name,
-      });
-    }
-  }
-  return targets.sort((left, right) => left.scope_id.localeCompare(right.scope_id));
-}
-
-export function utcTimestampSeconds(now = new Date()) {
-  return now.toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-
-export async function calculateRiskProfileSelectionSha256(payload) {
-  const material = { ...payload };
-  delete material.selection_sha256;
-  const raw = new TextEncoder().encode(canonicalResearchTaskJson(material));
-  const digest = await crypto.subtle.digest("SHA-256", raw);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-export async function normalizeRiskProfileSelection(payload, fieldName) {
-  const value = assertExactFields(payload, ["schema", "profile_id", "risk_preference", "selection_sha256"], fieldName);
-  const riskPreference = cleanChoice(value.risk_preference, RISK_PROFILE_PREFERENCES, `${fieldName}.risk_preference`);
-  const normalized = {
-    schema: RISK_PROFILE_SELECTION_SCHEMA_VERSION,
-    profile_id: RISK_PROFILE_IDS[riskPreference],
-    risk_preference: riskPreference,
-    selection_sha256: normalizeResearchTaskDigest(value.selection_sha256, `${fieldName}.selection_sha256`),
-  };
-  if (value.schema !== RISK_PROFILE_SELECTION_SCHEMA_VERSION) {
-    throw new Error(`${fieldName}.schema is unsupported`);
-  }
-  if (value.profile_id !== normalized.profile_id) {
-    throw new Error(`${fieldName}.profile_id does not match risk_preference`);
-  }
-  if (normalized.selection_sha256 !== await calculateRiskProfileSelectionSha256(normalized)) {
-    throw new Error(`${fieldName}.selection_sha256 mismatch`);
-  }
-  return normalized;
-}
-
-export async function calculateRiskProfileBindingSha256(payload) {
-  const material = { ...payload };
-  delete material.binding_sha256;
-  const raw = new TextEncoder().encode(canonicalResearchTaskJson(material));
-  const digest = await crypto.subtle.digest("SHA-256", raw);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-export async function normalizeRiskProfileBinding(payload, fieldName) {
-  const value = assertExactFields(payload, [
-    "schema_version", "scope_id", "platform", "target_name", "profile_selection", "updated_at", "updated_by",
-    "no_order", "execution_authority_granted", "binding_sha256",
-  ], fieldName);
-  const platform = cleanChoice(value.platform, SUPPORTED_PLATFORMS, `${fieldName}.platform`);
-  const targetName = cleanSlug(value.target_name, `${fieldName}.target_name`);
-  const normalized = {
-    schema_version: RISK_PROFILE_BINDING_SCHEMA_VERSION,
-    scope_id: riskProfileScopeId(platform, targetName),
-    platform,
-    target_name: targetName,
-    profile_selection: await normalizeRiskProfileSelection(value.profile_selection, `${fieldName}.profile_selection`),
-    updated_at: normalizeResearchTaskTimestamp(value.updated_at, `${fieldName}.updated_at`),
-    updated_by: cleanGithubLogin(value.updated_by, `${fieldName}.updated_by`),
-    no_order: value.no_order,
-    execution_authority_granted: value.execution_authority_granted,
-    binding_sha256: normalizeResearchTaskDigest(value.binding_sha256, `${fieldName}.binding_sha256`),
-  };
-  if (value.schema_version !== RISK_PROFILE_BINDING_SCHEMA_VERSION) {
-    throw new Error(`${fieldName}.schema_version is unsupported`);
-  }
-  if (value.scope_id !== normalized.scope_id) {
-    throw new Error(`${fieldName}.scope_id does not match platform and target_name`);
-  }
-  if (normalized.no_order !== true || normalized.execution_authority_granted !== false) {
-    throw new Error(`${fieldName} must remain no-order and non-executable`);
-  }
-  if (normalized.binding_sha256 !== await calculateRiskProfileBindingSha256(normalized)) {
-    throw new Error(`${fieldName}.binding_sha256 mismatch`);
-  }
-  return normalized;
-}
-
-export async function normalizeRiskProfileBindingRegistry(payload, fieldName = RISK_PROFILE_BINDINGS_KEY) {
-  const value = assertExactFields(payload, ["schema_version", "bindings"], fieldName);
-  if (value.schema_version !== RISK_PROFILE_BINDING_REGISTRY_SCHEMA_VERSION) {
-    throw new Error(`${fieldName}.schema_version is unsupported`);
-  }
-  if (!Array.isArray(value.bindings) || value.bindings.length > SUPPORTED_PLATFORMS.length * 20) {
-    throw new Error(`${fieldName}.bindings must be a bounded array`);
-  }
-  const bindings = [];
-  const scopes = new Set();
-  for (const [index, item] of value.bindings.entries()) {
-    const binding = await normalizeRiskProfileBinding(item, `${fieldName}.bindings[${index}]`);
-    if (scopes.has(binding.scope_id)) throw new Error(`${fieldName}.bindings contains duplicate scope_id`);
-    scopes.add(binding.scope_id);
-    bindings.push(binding);
-  }
-  return bindings.sort((left, right) => left.scope_id.localeCompare(right.scope_id));
-}
-
-export async function buildRiskProfileBindings(payload, accountOptions, updatedBy) {
-  const value = assertExactFields(payload, ["bindings"], "risk profile bindings request");
-  if (!Array.isArray(value.bindings) || value.bindings.length > SUPPORTED_PLATFORMS.length * 20) {
-    throw new Error("risk profile bindings request.bindings must be a bounded array");
-  }
-  const bindings = [];
-  const scopes = new Set();
-  const updatedAt = utcTimestampSeconds();
-  for (const [index, item] of value.bindings.entries()) {
-    const itemValue = assertExactFields(item, ["platform", "target_name", "risk_preference"], `risk profile bindings request.bindings[${index}]`);
-    const platform = cleanChoice(itemValue.platform, SUPPORTED_PLATFORMS, `risk profile bindings request.bindings[${index}].platform`);
-    const targetName = cleanSlug(itemValue.target_name, `risk profile bindings request.bindings[${index}].target_name`);
-    if (!riskProfileBindingTargets(accountOptions).some((target) => target.platform === platform && target.target_name === targetName)) {
-      throw new Error(`risk profile binding target is not configured: ${platform}/${targetName}`);
-    }
-    const scopeId = riskProfileScopeId(platform, targetName);
-    if (scopes.has(scopeId)) throw new Error("risk profile bindings request contains duplicate target");
-    scopes.add(scopeId);
-    const riskPreference = cleanChoice(
-      itemValue.risk_preference,
-      RISK_PROFILE_PREFERENCES,
-      `risk profile bindings request.bindings[${index}].risk_preference`,
-    );
-    const profileSelection = {
-      schema: RISK_PROFILE_SELECTION_SCHEMA_VERSION,
-      profile_id: RISK_PROFILE_IDS[riskPreference],
-      risk_preference: riskPreference,
-      selection_sha256: "",
-    };
-    profileSelection.selection_sha256 = await calculateRiskProfileSelectionSha256(profileSelection);
-    const binding = {
-      schema_version: RISK_PROFILE_BINDING_SCHEMA_VERSION,
-      scope_id: scopeId,
-      platform,
-      target_name: targetName,
-      profile_selection: profileSelection,
-      updated_at: updatedAt,
-      updated_by: cleanGithubLogin(updatedBy, "risk profile binding.updated_by"),
-      no_order: true,
-      execution_authority_granted: false,
-      binding_sha256: "",
-    };
-    binding.binding_sha256 = await calculateRiskProfileBindingSha256(binding);
-    bindings.push(await normalizeRiskProfileBinding(binding, `risk profile bindings request.bindings[${index}]`));
-  }
-  return bindings.sort((left, right) => left.scope_id.localeCompare(right.scope_id));
-}
+export {
+  riskProfileScopeId,
+  riskProfileBindingTargets,
+  utcTimestampSeconds,
+  calculateRiskProfileSelectionSha256,
+  normalizeRiskProfileSelection,
+  calculateRiskProfileBindingSha256,
+  normalizeRiskProfileBinding,
+  normalizeRiskProfileBindingRegistry,
+  buildRiskProfileBindings,
+};
 
 export async function readRiskProfileLegacy(env) {
   if (!hasConfigStore(env)) return { state: "absent" };

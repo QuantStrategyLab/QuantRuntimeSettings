@@ -118,6 +118,15 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Mint short-lived GitHub App token
+        id: app-token
+        if: inputs.platform == 'firstrade' && !inputs.backup_primary_ibkr_binding && vars.RUNTIME_SETTINGS_APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RUNTIME_SETTINGS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RUNTIME_SETTINGS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: Back up compared primary IBKR binding and verify private readback
         if: ${{ inputs.backup_primary_ibkr_binding }}
         working-directory: web/strategy-switch-console
@@ -190,6 +199,8 @@ jobs:
       - name: Validate and sync exactly one protected binding
         if: ${{ !inputs.backup_primary_ibkr_binding }}
         working-directory: web/strategy-switch-console
+        env:
+          GH_TOKEN: ${{ inputs.platform == 'firstrade' && (steps.app-token.outputs.token || secrets.RUNTIME_SETTINGS_GH_TOKEN) || '' }}
         run: |
           set -euo pipefail
           if [ "$INSPECT_IBKR_LIFECYCLE" = "true" ]; then
