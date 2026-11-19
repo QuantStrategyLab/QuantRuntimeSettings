@@ -3069,6 +3069,43 @@ for (const [label, runPlan, adverse] of [["A3-populated-loss-free-control", plan
       && item.kind === "stored_identity_differs_from_current"
       && item.records.some(record => record.locator.column === "management_binding_json")),
     "readable sibling drift survives alongside an overlong slot");
+
+    // Historical pre-marker exports without invalid_slots must still reject
+    // visible surplus paths at address or nested-identity positions while
+    // retaining readable drifting siblings in either order.
+    const stripMarkers = exp => {
+      const cloned = structuredClone(exp);
+      for (const page of cloned.responses) {
+        if (page.request?.table === "research_promotion_applications") {
+          for (const row of page.body?.rows || []) delete row.columns?.management_binding_json?.membership?.invalid_slots;
+        }
+      }
+      return cloned;
+    };
+    const siblingSlot = { platform: "ibkr", legacy_key: "b2-b", identity: idBDrift };
+    const surplusAddress = { platform: "ibkr", legacy_key: "b2-a", target_id: "tgt-a", identity: idA };
+    const surplusNested = { platform: "ibkr", legacy_key: "b2-a", identity: { ...idA, target_id: "tgt-a" } };
+    for (const [label, slots, hasSibling] of [
+      ["surplus-address-alone", [surplusAddress], false],
+      ["surplus-nested-alone", [surplusNested], false],
+      ["surplus-address-before-sibling", [surplusAddress, siblingSlot], true],
+      ["surplus-address-after-sibling", [siblingSlot, surplusAddress], true],
+      ["surplus-nested-before-sibling", [surplusNested, siblingSlot], true],
+      ["surplus-nested-after-sibling", [siblingSlot, surplusNested], true],
+    ]) {
+      const run = await inventoryFull({ sql: [state, promotion(JSON.stringify({ membership_json: JSON.stringify(slots), applied_revision: 1 }))] });
+      const stripped = stripMarkers(run.exported);
+      const hist = assemble(stripped);
+      r9Outcome(`B07-hist-${label}`, { responses: stripped.responses, ...hist }, { reasons: [bad("admission_binding_membership_unreadable")], incomplete: [11], needles: ["b2-a", "b2-b"] });
+      if (hasSibling) {
+        assert.ok(hist.private.mapping.conflicts.some(item => item.legacy_key === "b2-b"
+          && item.kind === "stored_identity_differs_from_current"
+          && item.records.some(record => record.locator.column === "management_binding_json")),
+        `${label}: historical sibling drift preserved`);
+      }
+    }
+    const validHistRun = await inventoryFull({ sql: [state, promotion(JSON.stringify({ membership_json: JSON.stringify([{ platform: "ibkr", legacy_key: "b2-a", identity: idA }]), applied_revision: 1 }))] });
+    assert.equal(assemble(stripMarkers(validHistRun.exported)).private.status, ENUMERATED, "valid historical slot completes");
   }
 }
 assert.deepEqual(violations, [], "no trap fired in Part A");

@@ -128,13 +128,22 @@ function validAdmissionMembershipSlots(membership) {
   if (!membership || membership.state !== "valid") return false;
   if (Array.isArray(membership.invalid_slots) && membership.invalid_slots.length > 0) return false;
   if (Array.isArray(membership.redacted) && membership.redacted.length > 0) return false;
-  const count = membership.counts?.$;
+  const counts = membership.counts || {};
+  const count = counts.$;
   if (!Number.isSafeInteger(count) || count < 1) return false;
+  if (Object.keys(counts).some(path => path !== "$")) return false;
   const fields = membership.fields || {};
+  const allowedFieldPaths = new Set();
   const isBoundedText = value => boundedAdmissionText(value);
   const isNonEmptyBoundedText = value => boundedAdmissionText(value) && value.length > 0;
   for (let index = 0; index < count; index += 1) {
     const slot = `[${index}]`;
+    allowedFieldPaths.add(`${slot}.platform`);
+    allowedFieldPaths.add(`${slot}.legacy_key`);
+    allowedFieldPaths.add(`${slot}.identity.platform`);
+    allowedFieldPaths.add(`${slot}.identity.key`);
+    allowedFieldPaths.add(`${slot}.identity.broker_environment`);
+    for (const field of ADMISSION_STRING_IDENTITY_FIELDS) allowedFieldPaths.add(`${slot}.identity.${field}`);
     const depPlatform = fields[`${slot}.platform`], depKey = fields[`${slot}.legacy_key`];
     const idPlatform = fields[`${slot}.identity.platform`], idKey = fields[`${slot}.identity.key`];
     if (!isNonEmptyBoundedText(depPlatform) || !isNonEmptyBoundedText(depKey)
@@ -145,7 +154,7 @@ function validAdmissionMembershipSlots(membership) {
     const brokerEnv = fields[`${slot}.identity.broker_environment`];
     if (brokerEnv !== null && brokerEnv !== "live" && brokerEnv !== "paper") return false;
   }
-  return true;
+  return Object.keys(fields).every(path => allowedFieldPaths.has(path));
 }
 
 function assembleObject(object, responses) {
