@@ -518,6 +518,97 @@ for (const point of [0, 1, 2, 3, 4, 5, "commit"]) {
     same("B2-A20", "clean_group_still_initializes", clean.resolve(platform, key).applied.revision, 1);
     clean.close();
   }
+  // B05 marker matrix: an outstanding invalidation marker retains its own
+  // admission effect independent of value rows (missing both rows, applied-only,
+  // draft-only, draft-only invalidation missing rows, zero-floor marker, and
+  // intact stale rows) across restart and both sibling addresses, while
+  // unrelated groups, new groups, and explicit supersession controls still pass.
+  {
+    const dir = await mkdtemp(join(tmpdir(), "qrt-management-marker-"));
+    try {
+      const markerCases = [
+        ["no_value_rows_after_join", async store => {
+          assert.equal((await provision(store, policyOf(rebinding.membership))).status, 200);
+          await setManagement(store, PAIR, true);
+          assert.equal((await provision(store, policyOf(FIXTURE_ACCOUNTS, INSTANCES, POLICY_REVISION + 1), POLICY_REVISION)).status, 200);
+          store.db.prepare("DELETE FROM account_management_applied WHERE platform = ? AND account_key = ?").run(platform, key);
+          store.db.prepare("DELETE FROM account_management_draft WHERE platform = ? AND account_key = ?").run(platform, key);
+        }],
+        ["applied_only_row", async store => {
+          assert.equal((await provision(store, policyOf(rebinding.membership))).status, 200);
+          await setManagement(store, PAIR, true);
+          assert.equal((await provision(store, policyOf(FIXTURE_ACCOUNTS, INSTANCES, POLICY_REVISION + 1), POLICY_REVISION)).status, 200);
+          store.db.prepare("DELETE FROM account_management_draft WHERE platform = ? AND account_key = ?").run(platform, key);
+        }],
+        ["draft_only_row", async store => {
+          assert.equal((await provision(store, policyOf(rebinding.membership))).status, 200);
+          await setManagement(store, PAIR, true);
+          assert.equal((await provision(store, policyOf(FIXTURE_ACCOUNTS, INSTANCES, POLICY_REVISION + 1), POLICY_REVISION)).status, 200);
+          store.db.prepare("DELETE FROM account_management_applied WHERE platform = ? AND account_key = ?").run(platform, key);
+        }],
+        ["draft_only_invalidation_missing_rows", async store => {
+          assert.equal((await provision(store, policyOf(rebinding.membership))).status, 200);
+          assert.equal((await store.call(managementCommand(store, "account_management_draft_save", platform, key, { management_enabled: false }))).status, 200);
+          assert.equal((await provision(store, policyOf(FIXTURE_ACCOUNTS, INSTANCES, POLICY_REVISION + 1), POLICY_REVISION)).status, 200);
+          store.db.prepare("DELETE FROM account_management_draft WHERE platform = ? AND account_key = ?").run(platform, key);
+        }],
+        ["zero_floor_marker_missing_rows", async store => {
+          assert.equal((await provision(store, policyOf(FIXTURE_ACCOUNTS))).status, 200);
+          store.db.prepare("INSERT INTO account_management_invalidation (platform, account_key, policy_revision, applied_revision, draft_revision, invalidated_at) VALUES (?, ?, ?, 0, 0, ?)").run(
+            platform, key, POLICY_REVISION, new Date().toISOString(),
+          );
+        }],
+        ["intact_stale_rows", async store => {
+          assert.equal((await provision(store, policyOf(rebinding.membership))).status, 200);
+          await setManagement(store, PAIR, true);
+          assert.equal((await provision(store, policyOf(FIXTURE_ACCOUNTS, INSTANCES, POLICY_REVISION + 1), POLICY_REVISION)).status, 200);
+        }],
+      ];
+      for (const [label, seedCase] of markerCases) {
+        const file = join(dir, `${label}.sqlite`);
+        let store = createStore({ file });
+        await seedCase(store);
+        for (const phase of ["live", "restarted"]) {
+          if (phase === "restarted") { store.close(); store = createStore({ file, seed: false }); }
+          const frozen = store.dump();
+          for (const deployment of [key, siblingKey]) {
+            const res = store.resolve(platform, deployment);
+            same("B2-A10", "marker_fences_resolution", [res.processing_eligible, res.applied, res.reasons.includes("management_binding_invalidated"),
+              management.processingDenial(res)], [false, null, true, "management_status_unknown"], `${label} ${phase} ${deployment}`);
+            for (const action of ["account_management_draft_save", "account_management_apply"]) {
+              const denied = await store.call(managementCommand(store, action, platform, deployment, { expected_management_draft_revision: 0, expected_management_revision: 0 }));
+              same("B2-A20", "marker_fences_ordinary_write", [denied.status, denied.body.error], [409, "management_state_conflict"], `${label} ${phase} ${deployment} ${action}`);
+            }
+          }
+          same("B2-A20", "marker_rejected_zero_writes", store.dump(), frozen, `${label} ${phase}`);
+        }
+        store.close();
+      }
+      const ctrl = createStore({ file: join(dir, "controls.sqlite") });
+      assert.equal((await provision(ctrl, policyOf(rebinding.membership))).status, 200);
+      await setManagement(ctrl, PAIR, true);
+      await setManagement(ctrl, "ibkr/syn-acct-03", true);
+      assert.equal((await provision(ctrl, policyOf(FIXTURE_ACCOUNTS, INSTANCES, POLICY_REVISION + 1), POLICY_REVISION)).status, 200);
+      same("B2-A20", "marker_unrelated_group_writable", [
+        (await ctrl.call(managementCommand(ctrl, "account_management_draft_save", "ibkr", "syn-acct-03", { management_enabled: false }))).status,
+        (await ctrl.call(managementCommand(ctrl, "account_management_apply", "ibkr", "syn-acct-03"))).status,
+      ], [200, 200]);
+      same("B2-A20", "marker_new_group_initializes", [
+        (await ctrl.call(managementCommand(ctrl, "account_management_draft_save", "ibkr", "syn-acct-02", { management_enabled: true }))).status,
+        (await ctrl.call(managementCommand(ctrl, "account_management_apply", "ibkr", "syn-acct-02"))).status,
+      ], [200, 200]);
+      ctrl.close();
+      const superseded = await baselineStore();
+      superseded.db.prepare("INSERT INTO account_management_invalidation (platform, account_key, policy_revision, applied_revision, draft_revision, invalidated_at) VALUES (?, ?, ?, 0, 0, ?)").run(
+        "ibkr", "syn-acct-03", POLICY_REVISION, new Date().toISOString(),
+      );
+      const supRes = superseded.resolve("ibkr", "syn-acct-03");
+      same("B2-A20", "explicit_supersession_preserved", [supRes.processing_eligible, supRes.invalidated], [true, false]);
+      superseded.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
   const identity = await baselineStore();
   const moved = INSTANCES.map(item => item.key === "syn-acct-02" ? { ...item, config: { ...item.config, service_name: "syn-moved" } } : item);
   await provision(identity, policyOf(FIXTURE_ACCOUNTS, moved, POLICY_REVISION + 1), POLICY_REVISION);

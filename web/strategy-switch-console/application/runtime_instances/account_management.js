@@ -442,10 +442,28 @@ export function resolveManagement(snapshot, platform, key) {
     const tombstone = tombstones.get(deploymentId(row.platform, row.account_key));
     return Boolean(tombstone) && Number(row.revision) <= Number(tombstone[field]);
   };
+  // An outstanding invalidation marker on any current sibling retains its
+  // admission effect even when value rows are absent or partially present, until
+  // explicitly superseded above its recorded revision floors.
+  const tombstoneActive = id => {
+    const tombstone = tombstones.get(id);
+    if (!tombstone) return false;
+    const appliedFloor = Number(tombstone.applied_revision);
+    const draftFloor = Number(tombstone.draft_revision);
+    if (!Number.isSafeInteger(appliedFloor) || appliedFloor < 0 || !Number.isSafeInteger(draftFloor) || draftFloor < 0) return true;
+    const appliedRow = snapshot.applied.find(row => deploymentId(row.platform, row.account_key) === id);
+    const draftRow = snapshot.drafts.find(row => deploymentId(row.platform, row.account_key) === id);
+    const appliedSuperseded = Boolean(appliedRow) && Number(appliedRow.revision) > appliedFloor;
+    const draftSuperseded = Boolean(draftRow) && Number(draftRow.revision) > draftFloor;
+    if (!appliedSuperseded) return true;
+    if (draftRow) return !draftSuperseded;
+    return draftFloor > 0;
+  };
   const inGroup = row => siblingIds.has(deploymentId(row.platform, row.account_key));
   const staleApplied = snapshot.applied.some(row => inGroup(row) && stale(row, "applied_revision"));
   const staleDrafts = snapshot.drafts.some(row => inGroup(row) && stale(row, "draft_revision"));
-  const invalidated = staleApplied || staleDrafts;
+  const outstandingInvalidation = [...siblingIds].some(tombstoneActive);
+  const invalidated = staleApplied || staleDrafts || outstandingInvalidation;
   // A group that is now display-only needs no applied value, so the history is reason-only there.
   if (invalidated) flag("management_binding_invalidated", account.management_class === "display_only" ? "known" : "unknown");
   result.invalidated = invalidated;
@@ -495,10 +513,13 @@ export function resolveManagement(snapshot, platform, key) {
   }
   const liveDrafts = snapshot.drafts.filter(row => !stale(row, "draft_revision"));
   const siblingRows = rows => rows.filter(row => siblingIds.has(deploymentId(row.platform, row.account_key)));
+  const siblingTombstones = [...siblingIds].map(id => tombstones.get(id)).filter(Boolean);
   const applied = consistentRows(result.deployments, snapshot.applied, ["revision", "management_enabled", "membership_json"]);
-  result.applied_state = staleApplied ? "invalidated" : applied.state;
-  result.applied_revision_floor = Math.max(0, ...siblingRows(snapshot.applied).map(row => Number(row.revision) || 0));
-  result.draft_revision_floor = Math.max(0, ...siblingRows(snapshot.drafts).map(row => Number(row.revision) || 0));
+  result.applied_state = staleApplied || (applied.state === "absent" && outstandingInvalidation) ? "invalidated" : applied.state;
+  result.applied_revision_floor = Math.max(0, ...siblingRows(snapshot.applied).map(row => Number(row.revision) || 0),
+    ...siblingTombstones.map(row => Number(row.applied_revision) || 0));
+  result.draft_revision_floor = Math.max(0, ...siblingRows(snapshot.drafts).map(row => Number(row.revision) || 0),
+    ...siblingTombstones.map(row => Number(row.draft_revision) || 0));
   // Only the five effective fields reach the strict effective-record parser.
   const records = staleApplied ? [] : applied.rows.map(row => ({ platform: row.platform, legacy_key: row.account_key,
     management_enabled: row.management_enabled === 1 ? true : row.management_enabled === 0 ? false : row.management_enabled,
@@ -506,11 +527,11 @@ export function resolveManagement(snapshot, platform, key) {
   const effective = effectiveManagementState(account, records);
   // The applied value is published only for a fully certified binding: no
   // identity, membership, schema or invalidation evidence is outstanding.
-  if (!staleApplied && evidence === "known" && effective.evidence_state === "known") {
+  if (!staleApplied && !invalidated && evidence === "known" && effective.evidence_state === "known") {
     result.applied = { management_enabled: effective.management_enabled, revision: effective.revision, effective_at: effective.effective_at };
   }
   const draft = consistentRows(result.deployments, liveDrafts, DRAFT_FIELDS);
-  result.draft_state = draft.state === "absent" && staleDrafts ? "invalidated" : draft.state;
+  result.draft_state = draft.state === "absent" && (staleDrafts || outstandingInvalidation) ? "invalidated" : draft.state;
   if (draft.state === "complete") {
     const [row] = draft.rows;
     result.draft = row.management_enabled === 1 || row.management_enabled === 0 ? {
