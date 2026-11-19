@@ -98,7 +98,7 @@ export const TABLE_SPECS = Object.freeze([
   c("research_promotion_applications", 11, ["application_id"], ["application_id", "ticket_id", "status", "dispatch_state", "claim_token",
     "platform_id", "account_key", "account_scope", "account_selector", "service_name", "broker_environment", "expected_revision",
     "expected_strategy_profile", "strategy_profile", "candidate_id", "config_sha256", "source_commit", "approved_ues_revision", "desired_state",
-    "workflow_run_id", "workflow_run_attempt", "reason_code", "readback_json", "created_at", "updated_at"],
+    "workflow_run_id", "workflow_run_attempt", "reason_code", "readback_json", "created_at", "updated_at", "management_binding_json"],
   { copy: ["ticket_id", "status", "dispatch_state", "platform_id", "account_key", "account_scope", "account_selector", "service_name",
     "broker_environment", "expected_revision", "expected_strategy_profile", "strategy_profile", "candidate_id", "config_sha256",
     "source_commit", "approved_ues_revision", "desired_state", "workflow_run_id", "workflow_run_attempt", "reason_code", "created_at",

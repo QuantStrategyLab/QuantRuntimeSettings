@@ -442,6 +442,10 @@ export function applyManagementDraft(sql, state, command) {
   const draft = resolution.draft;
   if (!draft || draft.status !== "pending") throw new HttpError("management_draft_revision_conflict", 409);
   if (draft.base_applied_revision !== appliedRevision) throw new HttpError("management_applied_revision_conflict", 409);
+  // The draft was saved against one instance and one policy snapshot; a
+  // refreshed request cannot qualify it once either axis has moved.
+  if (draft.instance_revision !== resolution.instance_revision) throw new HttpError("management_instance_revision_conflict", 409);
+  if (draft.policy_revision !== resolution.policy_revision) throw new HttpError("management_policy_revision_conflict", 409);
   const now = new Date().toISOString();
   const base = receiptBase(command, resolution, now);
   if (resolution.applied && resolution.applied.management_enabled === draft.management_enabled) {

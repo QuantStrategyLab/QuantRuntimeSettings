@@ -6,6 +6,7 @@
 // and the gate inventory, never fixture content.
 import assert from "node:assert/strict";
 import {
+  RuntimeInstances,
   FIXTURE_ACCOUNTS, INSTANCES, baselineStore, createStore, evidence, outbound, policyOf, provision, ref, setManagement,
 } from "./helpers/account_management_harness.mjs";
 
@@ -19,6 +20,9 @@ const same = (row, outcome, actual, expected) => { assert.deepEqual(actual, expe
 
 const ENABLED = "ibkr/syn-acct-02";
 const DISABLED = "ibkr/syn-acct-03";
+const ENABLED2 = "ibkr/syn-acct-04";
+const ENABLED3 = "schwab/syn-acct-05";
+const ENABLED4 = "longbridge/syn-acct-06";
 const DISPLAY = FIXTURE_ACCOUNTS.find(([managementClass]) => managementClass === "display_only")[1][0];
 const DENIALS = ["management_disabled", "management_not_under_management", "management_policy_unavailable", "management_status_unknown"];
 const TS = "2026-01-02T00:00:00.000Z";
@@ -190,16 +194,17 @@ const entrances = {
 {
   // Paper application claim/result against the commit-time management state.
   const store = await baselineStore();
-  const insert = (applicationId, text, status) => {
+  const insert = (applicationId, text, status, unbound = false) => {
     const [platform, key] = ref(text);
     const config = store.instance(platform, key).config;
     store.db.prepare(`INSERT INTO research_promotion_applications (application_id, ticket_id, status, dispatch_state, claim_token, platform_id, account_key,
       account_scope, account_selector, service_name, broker_environment, expected_revision, expected_strategy_profile, strategy_profile, candidate_id,
-      config_sha256, source_commit, approved_ues_revision, desired_state, workflow_run_id, workflow_run_attempt, reason_code, readback_json, created_at, updated_at)
+      config_sha256, source_commit, approved_ues_revision, desired_state, workflow_run_id, workflow_run_attempt, reason_code, readback_json, created_at, updated_at, management_binding_json)
       VALUES (?, ?, ?, 'sent', 'synthetic-claim', ?, ?, ?, ?, ?, ?, ?, '', 'synthetic-strategy', 'synthetic-candidate', ?, 'synthetic-commit', 'r1', 'paused',
-      ?, ?, '', NULL, ?, ?)`)
+      ?, ?, '', NULL, ?, ?, ?)`)
       .run(applicationId, `ticket-${applicationId}`, status, platform, key, config.account_scope || "", config.account_selector || "", config.service_name || "",
-        config.broker_environment || "", store.state().revision, "0".repeat(64), status === "claimed" ? "201" : null, status === "claimed" ? "1" : null, TS, TS);
+        config.broker_environment || "", store.state().revision, "0".repeat(64), status === "claimed" ? "201" : null, status === "claimed" ? "1" : null, TS, TS,
+        unbound ? null : RuntimeInstances.managementBinding(store.resolve(platform, key)));
   };
   const claim = applicationId => store.call({ action: "application_claim", actor: "synthetic-workflow", application_id: applicationId,
     claim_token: "synthetic-claim", workflow_run_id: "201", workflow_run_attempt: "1", updated_at: TS });
@@ -209,6 +214,9 @@ const entrances = {
   insert("app-admitted", ENABLED, "approved");
   insert("app-after-disable", DISABLED, "approved");
   insert("app-result", DISABLED, "claimed");
+  insert("app-bounce", ENABLED2, "claimed");
+  insert("app-unbound", ENABLED3, "claimed", true);
+  insert("app-fresh", ENABLED4, "claimed");
   const admitted = await claim("app-admitted");
   same("B2-A21", "eligible_claim_admitted", admitted.body.claimed, true);
   same("B2-A21", "old_claim_no_fresh_authorization", (await claim("app-admitted")).body.claimed, false);
@@ -222,6 +230,17 @@ const entrances = {
     ["uncertain", "management_state_changed"]);
   ok("B2-A21", "result_retained_as_evidence", store.rows("research_promotion_applications").find(row => row.application_id === "app-result").readback_json);
   same("B2-A21", "no_current_strategy_install", store.dump().instance_state, instancesBefore);
+  await setManagement(store, ENABLED2, false);
+  await setManagement(store, ENABLED2, true);
+  const bounced = await store.call(resultCommand("app-bounce"));
+  same("B2-A21", "result_after_disable_then_reenable_uncertain", [bounced.body.application?.status, bounced.body.application?.reason_code],
+    ["uncertain", "management_state_changed"]);
+  const unbound = await store.call(resultCommand("app-unbound"));
+  same("B2-A21", "result_without_verifiable_binding_uncertain", [unbound.body.application?.status, unbound.body.application?.reason_code],
+    ["uncertain", "management_state_changed"]);
+  same("B2-A21", "drifted_results_install_nothing", store.dump().instance_state, instancesBefore);
+  const fresh = await store.call(resultCommand("app-fresh"));
+  same("B2-A21", "result_still_admitted_applies_positive_control", fresh.body.application?.status, "applied_paused");
   await setManagement(store, ENABLED, false);
   same("B2-A21", "earlier_admission_not_revoked", store.rows("research_promotion_applications").find(row => row.application_id === "app-admitted").status, "claimed");
   store.close();

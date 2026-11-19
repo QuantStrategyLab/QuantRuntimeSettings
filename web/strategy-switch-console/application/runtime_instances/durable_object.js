@@ -242,6 +242,7 @@ export class RuntimeInstances {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`);
+    try { sql.exec("ALTER TABLE research_promotion_applications ADD COLUMN management_binding_json TEXT"); } catch { /* already present */ }
     // A rejected application is a terminal record, but an explicitly
     // re-qualified user request may create a new attempt. Keep history while
     // deduplicating all still-active/uncertain attempts.
@@ -1605,6 +1606,26 @@ export class RuntimeInstances {
 
   managementDenialFor(platform, key, state = this.read()) {
     return processingDenial(resolveManagement(readManagementSnapshot(this.sql, state), platform, key));
+  }
+
+  // The physical group and applied revision an admission saw; a stored
+  // application decision is only valid while both still hold.
+  static managementBinding(resolution) {
+    return JSON.stringify({ membership_json: resolution.membership_json, applied_revision: resolution.applied ? resolution.applied.revision : 0 });
+  }
+
+  // Current denial, or `management_state_changed` when the admitted group or
+  // applied revision drifted (an intervening disable/enable included) or the
+  // record carries no verifiable binding.
+  applicationManagementDenial(row, state) {
+    const resolution = resolveManagement(readManagementSnapshot(this.sql, state), row.platform_id, row.account_key);
+    const denial = processingDenial(resolution);
+    if (denial) return denial;
+    let bound = null;
+    try { bound = JSON.parse(row.management_binding_json); } catch { bound = null; }
+    if (!bound || typeof bound !== "object" || bound.membership_json !== resolution.membership_json
+      || bound.applied_revision !== (resolution.applied ? resolution.applied.revision : 0)) return "management_state_changed";
+    return null;
   }
 
   // Default sync writes processing configuration: its one matched deployment
@@ -3117,7 +3138,7 @@ export class RuntimeInstances {
           throw new HttpError("promotion_account_binding_conflict", 409);
         }
         const instances = this.read();
-        this.requireManagementAdmission(command.platform_id, command.account_key, instances);
+        const admission = this.requireManagementAdmission(command.platform_id, command.account_key, instances);
         if (!instances.initialized || instances.revision !== Number(command.expected_revision) || !Number.isSafeInteger(decisionPayload.account_revision) || decisionPayload.account_revision !== instances.revision) {
           throw new HttpError("runtime_instance_revision_conflict", 409);
         }
@@ -3159,15 +3180,15 @@ export class RuntimeInstances {
             account_scope, account_selector, service_name, broker_environment, expected_revision,
             expected_strategy_profile, strategy_profile, candidate_id, config_sha256, source_commit,
             approved_ues_revision, desired_state, workflow_run_id, workflow_run_attempt, reason_code,
-            readback_json, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            readback_json, created_at, updated_at, management_binding_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           application.application_id, application.ticket_id, application.status, application.dispatch_state,
           application.claim_token, application.platform_id, application.account_key, application.account_scope,
           application.account_selector, application.service_name, application.broker_environment,
           application.expected_revision, application.expected_strategy_profile, application.strategy_profile,
           application.candidate_id, application.config_sha256, application.source_commit,
           application.approved_ues_revision, application.desired_state, null, null, application.reason_code,
-          null, application.created_at, application.updated_at,
+          null, application.created_at, application.updated_at, RuntimeInstances.managementBinding(admission),
         );
         return { ok: true, created: true, application };
       }
@@ -3197,7 +3218,7 @@ export class RuntimeInstances {
           && String(config.broker_environment || "") === row.broker_environment
           && String(config.account_selector || "") === row.account_selector
           && String(config.service_name || "") === row.service_name;
-        const denial = this.managementDenialFor(row.platform_id, row.account_key, state);
+        const denial = this.applicationManagementDenial(row, state);
         const claimable = row.status === "approved" && ["pending", "sent", "unknown"].includes(row.dispatch_state)
           && row.claim_token === command.claim_token && bindingStillMatches;
         const claimed = claimable && !denial;
@@ -3233,7 +3254,7 @@ export class RuntimeInstances {
           if (!bindingStillMatches) {
             effectiveStatus = "uncertain";
             effectiveReasonCode = "account_changed";
-          } else if (this.managementDenialFor(row.platform_id, row.account_key, state)) {
+          } else if (this.applicationManagementDenial(row, state)) {
             // Retained as evidence; no current strategy install after a management change.
             effectiveStatus = "uncertain";
             effectiveReasonCode = "management_state_changed";

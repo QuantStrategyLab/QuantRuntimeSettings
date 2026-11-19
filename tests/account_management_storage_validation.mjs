@@ -178,6 +178,32 @@ for (const point of [0, 1, 2, 3, 4, 5, "commit"]) {
     same("B2-A07", "management_applied_revision_conflict", [response.status, response.body.error], [409, "management_applied_revision_conflict"]);
     store.close();
   }
+  // Each saved axis alone: a refreshed apply request cannot qualify an older
+  // draft, for a real change and for a no-op alike; a current draft applies.
+  for (const [axis, value] of [["instance", false], ["instance", true], ["policy", false], ["policy", true]]) {
+    const store = await baselineStore();
+    const saved = await store.call(managementCommand(store, "account_management_draft_save", ...ref(PAIR), { management_enabled: value }));
+    assert.equal(saved.status, 200);
+    if (axis === "instance") {
+      await store.call({ action: "create", actor: "synthetic-admin", expected_revision: store.state().revision, platform: "ibkr",
+        config: { key: "syn-acct-99", target_name: "syn-target-99", account_selector: "SYN0000099", deployment_selector: "syn-deploy-99", service_name: "syn-service-99", broker_environment: "live" } });
+    } else {
+      assert.equal((await provision(store, policyOf(FIXTURE_ACCOUNTS, INSTANCES, POLICY_REVISION + 1), POLICY_REVISION)).status, 200);
+    }
+    const before = store.dump();
+    const refreshed = await store.call(managementCommand(store, "account_management_apply", ...ref(PAIR)));
+    const expected = `management_${axis}_revision_conflict`;
+    same("B2-A07", "saved_axis_conflict", [refreshed.status, refreshed.body.error], [409, expected], `${axis}:${value}`);
+    same("B2-A07", "saved_axis_zero_writes", store.dump(), before, `${axis}:${value}`);
+    store.close();
+  }
+  {
+    const store = await baselineStore();
+    await store.call(managementCommand(store, "account_management_draft_save", ...ref(PAIR), { management_enabled: false }));
+    const applied = await store.call(managementCommand(store, "account_management_apply", ...ref(PAIR)));
+    same("B2-A07", "current_draft_applies_positive_control", [applied.status, applied.body.outcome], [200, "applied"]);
+    store.close();
+  }
   // A changed settings identity, and a request carrying a different one.
   {
     const store = await baselineStore();
