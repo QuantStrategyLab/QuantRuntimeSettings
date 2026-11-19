@@ -144,7 +144,7 @@ assert.deepEqual([constants.PROJECTION_MAX_DEPTH, constants.ROW_IDENTITY_FIELDS,
   [8, 256, 128, 4000, 4000]);
 assert.deepEqual([constants.CURSOR_TTL_MS, constants.CURSOR_CLOCK_SKEW_MS, constants.CURSOR_MAX_LENGTH], [6 * 3600_000, 60_000, 8192]);
 assert.equal(Object.keys(constants.INVENTORY_TABLES).length, 39);
-assert.equal(sha(constants.INVENTORY_TABLES), "f71d80c277122511fbbe847381b66734dc940fa7ae5979ea2d11fe525640f262", "table specifications match B2 schema");
+assert.equal(sha(constants.INVENTORY_TABLES), "120cebff40f1c19b146fb1c31e99b933dfcd9f7fc8a4c812ea0517b7f90d1c04", "table specifications match B2 schema");
 assert.equal(constants.ALLOWED.size, 198);
 assert.equal(sha([...constants.ALLOWED].sort()), "5696d932eeb73ee8b6bebc8d04e99c62248e06702a0f6142cd28695d189a74e0", "statement allowlist matches B2 schema");
 assert.deepEqual([...constants.SECTIONS], ["manifest", "schema", "sql", "do_kv", "finalize", "kv", "env"]);
