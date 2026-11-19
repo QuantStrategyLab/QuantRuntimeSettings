@@ -519,6 +519,22 @@ const entrances = {
   same("B2-A21", "switch_unknown_typed_denial", (await attempt(unprovisioned, ENABLED)).error, "management_policy_unavailable");
   const eligible = await attempt(store, ENABLED);
   same("B2-A21", "switch_eligible_reaches_the_interlock_only", [eligible.status, eligible.dispatched, /接通/.test(eligible.error)], [409, false, true]);
+  // B10: transport success is not a decision. A false, missing or unreadable answer is the typed
+  // unknown denial, with zero dispatches; the affirmative answer above reaches the interlock only.
+  const answering = respond => ({ instance: (...args) => store.instance(...args), object: { fetch: async request => {
+    const body = request.method === "POST" ? JSON.parse(await request.clone().text()) : null;
+    return body?.action === "account_management_admission_check" ? respond() : store.object.fetch(request);
+  } } });
+  for (const [label, respond] of [
+    ["false", () => Response.json({ ok: true, admitted: false })],
+    ["ok_without_admitted", () => Response.json({ ok: true })],
+    ["admitted_without_ok", () => Response.json({ admitted: true })],
+    ["empty_object", () => Response.json({})],
+    ["unreadable", () => new Response("not json", { status: 200 })],
+  ]) {
+    same("B2-A09", `switch_${label}_decision_denied`, await attempt(answering(respond), ENABLED), { status: 409, error: "management_status_unknown", dispatched: false });
+  }
+  same("B2-A09", "switch_affirmative_decision_still_admits", [(await attempt(answering(() => Response.json({ ok: true, admitted: true })), ENABLED)).error.includes("接通")], [true]);
   store.close();
   unprovisioned.close();
 }

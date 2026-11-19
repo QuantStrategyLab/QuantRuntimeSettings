@@ -2568,11 +2568,16 @@ export async function dispatchSwitch(request, env) {
   if (!hasRuntimeInstanceStore(env)) {
     return json({ ok: false, error: "management_status_unknown", workflow_dispatched: false, no_order: true, execution_authority_granted: false }, 409);
   }
+  let decision = null;
   try {
-    await runtimeInstanceCommand(env, { action: "account_management_admission_check", actor: "strategy-switch-entrance", platform: inputs.platform, key: accountOption.key });
+    decision = await runtimeInstanceCommand(env, { action: "account_management_admission_check", actor: "strategy-switch-entrance", platform: inputs.platform, key: accountOption.key });
   } catch (error) {
     const denial = error instanceof HttpError && error.status === 409 ? error.message : "management_status_unknown";
     return json({ ok: false, error: denial, workflow_dispatched: false, no_order: true, execution_authority_granted: false }, 409);
+  }
+  // Transport success is not a decision: only an affirmative answer admits.
+  if (decision?.ok !== true || decision?.admitted !== true) {
+    return json({ ok: false, error: "management_status_unknown", workflow_dispatched: false, no_order: true, execution_authority_granted: false }, 409);
   }
   if (!SWITCH_ACTIVATION_CONNECTED) {
     return json({
