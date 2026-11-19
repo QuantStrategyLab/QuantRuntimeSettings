@@ -1,6 +1,12 @@
 import { ExecutionEvidence } from "./ExecutionEvidence";
 import { accountKey, groupAccounts, type DirectoryConfig } from "../lib/accountDirectory";
-import { declaredEnvironmentOf, factForAccount } from "../lib/accountFacts";
+import {
+  decidePlatformCohort,
+  declaredEnvironmentOf,
+  factForAccount,
+  type PlatformCohortDecision,
+  type PlatformCohortMember,
+} from "../lib/accountFacts";
 import { cardAccountKey, type BinanceFactsView } from "../lib/binanceWalletFacts";
 import { useDisplayNames } from "../lib/useDisplayNames";
 import { useT } from "../i18n";
@@ -36,23 +42,25 @@ export interface AccountFactsView {
 }
 
 /**
- * Platform rollup input: the distinct facts rows reached through the trusted
- * platform+account_key join. Dedupe is by row reference only — two directory
- * aliases of one account return the same row and count once, while identical
- * content in distinct rows never merges them. `expected` also counts directory
- * accounts with no facts row, so coverage can never silently complete.
+ * Platform rollup input: left join from every distinct displayed directory
+ * deployment to its exact platform+account_key facts row. Unmatched members
+ * remain in the cohort so management disposition is decided over the complete
+ * displayed membership before monetary totals or known-empty reasons.
  */
-function platformFactsUnits(accounts: { rows: Account[] }[], facts: AccountFactsAccount[]): { rows: AccountFactsAccount[]; expected: number } {
-  const found = new Set<AccountFactsAccount>();
-  const missing = new Set<string>();
+function platformFactsUnits(accounts: { rows: Account[] }[], facts: AccountFactsAccount[]): PlatformCohortDecision {
+  const members = new Map<string, PlatformCohortMember>();
   for (const account of accounts) {
     for (const row of account.rows) {
-      const fact = factForAccount(facts, row.platform, row.account_alias);
-      if (fact) found.add(fact);
-      else missing.add(accountKey(row));
+      const id = accountKey(row);
+      if (members.has(id)) continue;
+      members.set(id, {
+        platform: row.platform,
+        accountKey: row.account_alias,
+        fact: factForAccount(facts, row.platform, row.account_alias),
+      });
     }
   }
-  return { rows: [...found], expected: found.size + missing.size };
+  return decidePlatformCohort([...members.values()]);
 }
 
 function sectionOf(environment: AccountEnvironment | null): EnvironmentSection {
@@ -108,7 +116,7 @@ export function AccountGroups({ accounts, config, facts, onSelect }: { accounts:
           {/* Binance's dedicated wallet rollup is one account, not a complete
               platform net value, so it is never rolled into a generic total. */}
           {section.environment === "live" && facts && units && group.platform !== "binance"
-            ? <div className="account-platform-summary"><PlatformFactsSummary rows={units.rows} expected={units.expected} phase={facts.phase} /></div>
+            ? <div className="account-platform-summary"><PlatformFactsSummary rows={units.rows} expected={units.expected} phase={facts.phase} cohort={units} /></div>
             : null}
         </div>
         {section.environment !== "live" && <p className="card-note account-environment-note">{t(`accounts.environment.${section.environment}_note`)}</p>}

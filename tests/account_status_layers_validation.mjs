@@ -434,6 +434,35 @@ assert.equal(getPlatformAdapter("binance").capability().canEnable, false);
       });
       assert.ok(rawPaperConflictHtml.includes('data-state="facts.platform_management_unknown"'), "scope conflict surfaces unknown reason over raw paper");
       recordCell("facts_b04_disposition_consistency", "B2-A17", language, theme);
+
+      // 9. R5-P: unmatched directory members keep their cohort slot in AccountGroups
+      const extractSummary = html => (html.match(/<div class="account-platform-summary">([\s\S]*?)<\/div>(?=<\/div>)/) || [])[1] || "";
+      const managedUnmatchedHtml = ui.groups(language, theme, {
+        accounts: [
+          { account_alias: "syn-a", platform: "ibkr", pending_draft_count: 0, pending_decision_count: 0, last_change_at: null },
+          { account_alias: "syn-missing", platform: "ibkr", pending_draft_count: 0, pending_decision_count: 0, last_change_at: null },
+        ],
+        config: null,
+        facts: { rows: [baseFact("syn-a", { management_status: "managed", evidence_state: "known", management_disposition: "managed" })], phase: "ready" },
+        onSelect: () => {},
+      });
+      const managedUnmatchedSummary = extractSummary(managedUnmatchedHtml);
+      assert.ok(managedUnmatchedSummary.includes('data-state="facts.platform_management_unknown"'), "managed + unmatched vetoes summary");
+      assert.ok(!/USD\s*[\d,]+/.test(managedUnmatchedSummary), "managed + unmatched summary withholds currency amounts");
+      assert.ok(managedUnmatchedHtml.includes("USD 500.00"), "raw card keeps its balance when unmatched sibling vetoes platform summary");
+
+      const disabledUnmatchedHtml = ui.groups(language, theme, {
+        accounts: [
+          { account_alias: "syn-d", platform: "ibkr", pending_draft_count: 0, pending_decision_count: 0, last_change_at: null },
+          { account_alias: "syn-missing", platform: "ibkr", pending_draft_count: 0, pending_decision_count: 0, last_change_at: null },
+        ],
+        config: null,
+        facts: { rows: [baseFact("syn-d", { management_status: "management_disabled", evidence_state: "known", management_disposition: "disabled" })], phase: "ready" },
+        onSelect: () => {},
+      });
+      const disabledUnmatchedSummary = extractSummary(disabledUnmatchedHtml);
+      assert.ok(disabledUnmatchedSummary.includes('data-state="facts.platform_management_unknown"'), "disabled + unmatched shows management unknown, never known-empty");
+      recordCell("facts_r5p_directory_left_join", "B2-A17", language, theme);
     }
   }
 

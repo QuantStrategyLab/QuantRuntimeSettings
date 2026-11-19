@@ -21,13 +21,18 @@ try {
       import { DEFAULT_PREFERENCES } from './src/lib/prefs';
       export { platformCurrencyTotals } from './src/lib/accountFacts';
       import { PlatformFactsSummary } from './src/components/AccountFactsAmounts';
+      import { AccountGroups } from './src/components/AccountGroups';
       export const renderPlatform = (language, rows, expected) => renderToStaticMarkup(
         h(I18nProvider, { language },
           h(PrefsContext.Provider, { value: { prefs: { ...DEFAULT_PREFERENCES, language, theme: 'light' }, resolvedTheme: 'light', setPrefs: () => {} } },
             h(PlatformFactsSummary, { rows, expected, phase: 'ready' }))));
+      export const renderGroups = (language, accounts, rows) => renderToStaticMarkup(
+        h(I18nProvider, { language },
+          h(PrefsContext.Provider, { value: { prefs: { ...DEFAULT_PREFERENCES, language, theme: 'light' }, resolvedTheme: 'light', setPrefs: () => {} } },
+            h(AccountGroups, { accounts, config: null, facts: { rows, phase: 'ready' }, onSelect: () => {} }))));
     `, resolveDir: root },
     bundle: true, platform: "node", format: "cjs", outfile, loader: { ".css": "empty" }, define: { "import.meta.env": "{}" } });
-  const { platformCurrencyTotals, renderPlatform } = createRequire(import.meta.url)(outfile);
+  const { platformCurrencyTotals, renderPlatform, renderGroups } = createRequire(import.meta.url)(outfile);
   const fact = extra => ({
     platform: "ibkr", account_key: "synthetic-main", binding_status: "bound", identity_status: "partial_identity", identity_mismatch: false,
     data_status: "fresh", broker_environment: "live", account_scope: "LIVE", observation_date: "2026-10-20",
@@ -122,6 +127,17 @@ try {
   const sibTot = aggregateAccountFactsTotals(sibConflict, new Map(sibConflict.map((r, i) => [r, `id-${i}`])), fullCohort);
   assert.equal(sibTot.reason, "management_status_unknown");
   assert.ok(renderPlatform("en", sibConflict, 2).includes('data-state="facts.platform_management_unknown"'));
+
+  // R5-P: directory-complete left join preserves unmatched displayed members.
+  const dirEntry = alias => ({ account_alias: alias, platform: "ibkr", pending_draft_count: 0, pending_decision_count: 0, last_change_at: null });
+  const summaryOf = html => (html.match(/<div class="account-platform-summary">([\s\S]*?)<\/div>(?=<\/div>)/) || [])[1] || "";
+  const managedUnmatched = renderGroups("zh", [dirEntry("synthetic-main"), dirEntry("synthetic-missing")], [managed]);
+  assert.ok(summaryOf(managedUnmatched).includes('data-state="facts.platform_management_unknown"'));
+  assert.ok(!/USD\s*[\d,]+/.test(summaryOf(managedUnmatched)), "managed + unmatched withholds currency subtotal");
+  assert.ok(managedUnmatched.includes("USD 100.00"), "raw card amount remains visible");
+  const disabledRow = fact({ account_key: "synthetic-disabled", management_status: "management_disabled", management_disposition: "disabled" });
+  const disabledUnmatched = renderGroups("en", [dirEntry("synthetic-disabled"), dirEntry("synthetic-missing")], [disabledRow]);
+  assert.ok(summaryOf(disabledUnmatched).includes('data-state="facts.platform_management_unknown"'), "disabled + unmatched never reports known-empty");
   console.log("management_rollup_veto_validation ok");
 } finally {
   await rm(directory, { recursive: true, force: true });

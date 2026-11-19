@@ -8,12 +8,14 @@ import { useLanguage, useT } from "../i18n";
 import { usePrefs } from "../app/context";
 import {
   accountFactDisplay,
+  decidePlatformCohortFromRows,
   factEnvironment,
   formatMoneyText,
   isPaperFact,
   isReadableFact,
   platformCurrencyTotals,
   rowManagementDisposition,
+  type PlatformCohortDecision,
 } from "../lib/accountFacts";
 import { managementEvidenceText, managementStatusText } from "../lib/accountManagementText";
 import { maskedAmount } from "../lib/format";
@@ -225,35 +227,34 @@ export function AccountFactsAmounts({ fact, phase, conflict = false, ambiguous =
  * valuation date — everything else stays an observed subtotal or an honest
  * state, never a complete platform total.
  */
-export function PlatformFactsSummary({ rows, expected, phase }: {
+export function PlatformFactsSummary({ rows, expected, phase, cohort }: {
   rows: AccountFactsAccount[];
   expected: number;
   phase: FactsPhase;
+  cohort?: PlatformCohortDecision;
 }) {
   const t = useT();
   if (phase === "loading") return <div className="account-facts"><Skeleton height={14} /></div>;
   if (phase === "error") return <FactsStateRow label={t("facts.platform_total_live")} stateKey="state.read_failed" />;
-  const totals = platformCurrencyTotals(rows, expected);
+  const decision = cohort ?? decidePlatformCohortFromRows(rows, expected);
+  const totals = decision.managementUnknown || decision.allExcludedByManagement
+    ? []
+    : platformCurrencyTotals(rows, expected, decision);
   if (!totals.length) {
     // Empty totals in the live口径: paper-only scopes are an honest no-data,
     // while readable non-paper rows without any verified identity are an
-    // identity problem, never a sum. Stamped rows use the authoritative cohort
-    // disposition before any declaration fallback.
+    // identity problem, never a sum. Full-cohort disposition decides both
+    // unknown veto and known-empty before checking matched facts rows.
     const entries = rows.map(row => ({ row, disposition: rowManagementDisposition(row) }));
-    const hasStamped = entries.some(entry => entry.disposition !== null);
-    const anyManagementUnknown = hasStamped
-      && entries.some(entry => entry.disposition === "unknown" || entry.disposition === null);
+    const hasStamped = decision.hasStamped;
+    const anyManagementUnknown = decision.managementUnknown;
+    const allExcludedByManagement = decision.allExcludedByManagement;
     const nonPaper = hasStamped
       ? entries.filter(entry => entry.disposition !== "paper").map(entry => entry.row)
       : rows.filter(row => !isPaperFact(row));
-    const allExcludedByManagement = hasStamped && entries.length > 0
-      && entries.every(entry =>
-        entry.disposition === "paper"
-        || entry.disposition === "disabled"
-        || entry.disposition === "not_under_management");
     const anyVerified = nonPaper.some(row => isReadableFact(row) && row.aggregation_status === "included");
     const anyReadable = nonPaper.some(isReadableFact);
-    const stateKey = !rows.length
+    const stateKey = !rows.length && !anyManagementUnknown
       ? "state.not_connected"
       : anyManagementUnknown
         ? "facts.platform_management_unknown"

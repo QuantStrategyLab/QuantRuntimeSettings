@@ -260,11 +260,79 @@ export function rowManagementDisposition(row: AccountFactsAccount): ManagementDi
   return "unknown";
 }
 
-export function platformCurrencyTotals(rows: AccountFactsAccount[], expected: number): PlatformCurrencyTotal[] {
+export interface PlatformCohortMember {
+  platform: string;
+  accountKey: string;
+  fact: AccountFactsAccount | null;
+}
+
+export interface PlatformCohortDecision {
+  expected: number;
+  rows: AccountFactsAccount[];
+  hasStamped: boolean;
+  managementUnknown: boolean;
+  allExcludedByManagement: boolean;
+}
+
+/**
+ * Determine management disposition across the complete displayed cohort before
+ * monetary filtering or known-empty selection. Any unmatched displayed member in
+ * a stamped cohort is management-unknown, never dropped before classification.
+ */
+export function decidePlatformCohort(members: PlatformCohortMember[]): PlatformCohortDecision {
+  const byKey = new Map<string, PlatformCohortMember>();
+  for (const member of members) {
+    const key = JSON.stringify([member.platform, member.accountKey]);
+    if (!byKey.has(key)) byKey.set(key, member);
+  }
+  const cohort = [...byKey.values()];
+  const present = [...new Set(cohort.map(member => member.fact).filter((fact): fact is AccountFactsAccount => Boolean(fact)))];
+  const hasStamped = present.some(row => rowManagementDisposition(row) !== null);
+  if (!hasStamped) {
+    return {
+      expected: cohort.length,
+      rows: present,
+      hasStamped: false,
+      managementUnknown: false,
+      allExcludedByManagement: false,
+    };
+  }
+  const dispositions = cohort.map(member => (member.fact ? rowManagementDisposition(member.fact) : "unknown"));
+  const managementUnknown = dispositions.some(disposition => disposition === "unknown" || disposition === null);
+  const allExcludedByManagement = !managementUnknown && cohort.length > 0
+    && dispositions.every(disposition =>
+      disposition === "paper" || disposition === "disabled" || disposition === "not_under_management");
+  return {
+    expected: cohort.length,
+    rows: present,
+    hasStamped: true,
+    managementUnknown,
+    allExcludedByManagement,
+  };
+}
+
+export function decidePlatformCohortFromRows(rows: AccountFactsAccount[], expected: number): PlatformCohortDecision {
+  const unique = [...new Set(rows)];
+  const dispositions = unique.map(row => rowManagementDisposition(row));
+  const hasStamped = dispositions.some(disposition => disposition !== null);
+  const managementUnknown = hasStamped && dispositions.some(disposition => disposition === "unknown" || disposition === null);
+  const allExcludedByManagement = hasStamped && !managementUnknown && unique.length > 0
+    && dispositions.every(disposition =>
+      disposition === "paper" || disposition === "disabled" || disposition === "not_under_management");
+  return { expected, rows: unique, hasStamped, managementUnknown, allExcludedByManagement };
+}
+
+export function platformCurrencyTotals(
+  rows: AccountFactsAccount[],
+  expected: number,
+  cohort?: PlatformCohortDecision,
+): PlatformCurrencyTotal[] {
   if (!rows.length || expected < 1) return [];
+  const decision = cohort ?? decidePlatformCohortFromRows(rows, expected);
+  if (decision.managementUnknown || decision.allExcludedByManagement) return [];
   const unique = [...new Set(rows)];
   const dispositions = new Map(unique.map(row => [row, rowManagementDisposition(row)]));
-  const hasStamped = unique.some(row => dispositions.get(row) !== null);
+  const hasStamped = decision.hasStamped;
   let managedScope: AccountFactsAccount[];
   if (hasStamped) {
     // Any row without a known stamped disposition or classified as unknown
