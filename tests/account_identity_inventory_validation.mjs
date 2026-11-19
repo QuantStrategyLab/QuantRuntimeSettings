@@ -473,7 +473,7 @@ const noLeak = (outputs, label) => {
   await h.close();
 }
 
-// ---------------------------------------------------- A2c: the B2 journal index is part of the reviewed schema
+// ---------------------------------------------------- A2c (B2-A14): the B2 journal index is part of the reviewed schema
 {
   const index = "account_management_change_time";
   const variants = {
