@@ -35,6 +35,14 @@ from digest_roster_authority import (
     headers_from_roster,
     make_run_scope,
 )
+from digest_roster_provider import (
+    AcquisitionFacts,
+    GenerationContext,
+    GenerationWindow,
+    GroupContext,
+    RunScope,
+    build_generation_context,
+)
 from digest_roster_validator import (
     CONFLICT,
     ROSTER_FORMAT,
@@ -558,15 +566,81 @@ def consume_run_roster(store, *, boot, recipient_scope, report_date, original_sl
     )
 
 
+def provide_generation_context(
+    source,
+    *,
+    clock,
+    expected_run_id: str | None = None,
+    expected_run_scope=None,
+    expected_selection: dict | None = None,
+    allow_non_authoritative: bool = False,
+) -> GenerationContext:
+    """Expose the RESCOPE §7 GenerationContext from a publication outcome or roster envelope."""
+    return build_generation_context(
+        source,
+        clock=clock,
+        expected_run_id=expected_run_id,
+        expected_run_scope=expected_run_scope,
+        expected_selection=expected_selection,
+        allow_non_authoritative=allow_non_authoritative,
+    )
+
+
+def consume_generation_context(
+    store,
+    *,
+    boot,
+    recipient_scope,
+    report_date,
+    original_slot,
+    expected_selection,
+    clock,
+    preview=False,
+) -> GenerationContext:
+    """Read the committed run record and expose its RESCOPE §7 GenerationContext."""
+    run_scope = make_run_scope(
+        boot,
+        recipient_scope=recipient_scope,
+        report_date=report_date,
+        original_slot=original_slot,
+        preview=preview,
+    )
+    doc = consume_run_roster(
+        store,
+        boot=boot,
+        recipient_scope=recipient_scope,
+        report_date=report_date,
+        original_slot=original_slot,
+        expected_selection=expected_selection,
+        clock=clock,
+        preview=preview,
+    )
+    return build_generation_context(
+        doc,
+        clock=clock,
+        expected_run_id=f'{report_date}/{original_slot}',
+        expected_run_scope=run_scope,
+        expected_selection=expected_selection,
+    )
+
+
 __all__ = [
+    'AcquisitionFacts',
     'ConditionalRosterPublisher',
     'DisplayMetadataRecord',
     'GCSConditionalRosterStore',
+    'GenerationContext',
+    'GenerationWindow',
+    'GroupContext',
     'InMemoryConditionalRosterStore',
     'PublicationOutcome',
     'PublicationStoreUnavailable',
+    'RunScope',
     'authority_bearing_projection',
+    'build_generation_context',
+    'consume_generation_context',
     'consume_run_roster',
     'display_scope_key',
+    'provide_generation_context',
     'run_publication_key',
 ]

@@ -10,15 +10,17 @@
     "constructor": "cloud_run_daily_digest.Configuration",
     "constructor_env": "cloud_run_daily_digest.Configuration.from_environment",
     "producer_publication": "digest_roster_publication.ConditionalRosterPublisher.publish_generation",
+    "provider": "digest_roster_provider.build_generation_context",
     "python_preparer": "project_digest_display_roster.main",
-    "js_preparer": "scripts/prepare_digest_enrollment_inputs.mjs"
+    "js_preparer": "scripts/prepare_digest_enrollment_inputs.mjs",
+    "preflight": "digest_package_preflight.verify_package"
   },
   "preparer_runtime_binding": {
     "selection_format": "qsl_digest_enrollment_selection.v1",
     "artifact_format": "qsl_digest_enrollment_artifact.v1",
     "roster_format": "qsl_digest_account_roster.v1",
     "producer_entry": "project_digest_display_roster.prepare_mapping_enrollment",
-    "runtime_consumer": "digest_roster_authority.load_artifact -> digest_roster_authority.compose_generation -> digest_roster_authority.acquire_and_validate_roster -> digest_roster_publication.ConditionalRosterPublisher.publish_generation"
+    "runtime_consumer": "digest_roster_authority.load_artifact -> digest_roster_authority.compose_generation -> digest_roster_authority.acquire_and_validate_roster -> digest_roster_publication.ConditionalRosterPublisher.publish_generation -> digest_roster_provider.build_generation_context"
   },
   "members": [
     {
@@ -30,8 +32,18 @@
       "required_version": "qsl_digest_account_roster.v1",
       "suppliers": {
         "python_preparer": "b3_overlay:preparer_inventory",
+        "preflight": "b3_overlay:preparer_inventory",
+        "constructor": "b3_overlay:base_inventory",
         "constructor_env": "b3_overlay:base_inventory",
-        "producer_publication": "b3_overlay:base_inventory"
+        "producer_publication": "b3_overlay:base_inventory",
+        "provider": "b3_overlay:base_inventory"
+      },
+      "nonliteral_import_mappings": {
+        "SCHEMA_FILES": [
+          "schemas/qsl-digest-account-roster.v1.schema.json",
+          "schemas/qsl-digest-enrollment-selection.v1.schema.json",
+          "schemas/qsl-digest-enrollment-artifact.v1.schema.json"
+        ]
       },
       "imports": [
         "display_names",
@@ -49,6 +61,7 @@
       "required_version": "qsl_digest_account_roster.v1",
       "suppliers": {
         "python_preparer": "b3_overlay:preparer_inventory",
+        "constructor": "b3_overlay:base_inventory",
         "constructor_env": "b3_overlay:base_inventory",
         "producer_publication": "b3_overlay:base_inventory"
       },
@@ -65,6 +78,7 @@
       "required_version": "qsl_digest_account_roster.v1",
       "suppliers": {
         "python_preparer": "b3_overlay:preparer_inventory",
+        "preflight": "b3_overlay:preparer_inventory",
         "producer_publication": "b3_overlay:base_inventory"
       },
       "imports": [
@@ -90,6 +104,21 @@
       ]
     },
     {
+      "source": "python/scripts/digest_roster_provider.py",
+      "destination": "python/scripts/digest_roster_provider.py",
+      "origin": "b3_overlay",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "qsl_digest_account_roster.v1",
+      "suppliers": {
+        "provider": "b3_overlay:base_inventory",
+        "producer_publication": "b3_overlay:base_inventory"
+      },
+      "imports": [
+        "digest_roster_validator"
+      ]
+    },
+    {
       "source": "python/scripts/digest_roster_publication.py",
       "destination": "python/scripts/digest_roster_publication.py",
       "origin": "b3_overlay",
@@ -102,6 +131,7 @@
       "imports": [
         "daily_digest_delivery_store",
         "digest_roster_authority",
+        "digest_roster_provider",
         "digest_roster_validator"
       ]
     },
@@ -118,8 +148,40 @@
       "imports": [
         "digest_roster_authority",
         "digest_roster_validator",
-        "display_names"
+        "display_names",
+        "scripts/prepare_digest_enrollment_inputs.mjs"
       ]
+    },
+    {
+      "source": "python/scripts/digest_package_preflight.py",
+      "destination": "python/scripts/digest_package_preflight.py",
+      "origin": "b3_overlay",
+      "dependency_role": "both",
+      "kind": "module",
+      "required_version": "qsl_digest_package_manifest.v1",
+      "suppliers": {
+        "preflight": "b3_overlay:preparer_inventory"
+      },
+      "imports": [
+        "digest_roster_compatibility",
+        "digest_roster_validator",
+        "display_names",
+        "python/scripts/digest_package_manifest.json",
+        "python/scripts/display_names.json",
+        "web/strategy-switch-console/application/runtime_instances/account_management_text.js"
+      ]
+    },
+    {
+      "source": "python/scripts/digest_package_manifest.json",
+      "destination": "python/scripts/digest_package_manifest.json",
+      "origin": "b3_overlay",
+      "dependency_role": "both",
+      "kind": "data",
+      "required_version": "qsl_digest_package_manifest.v1",
+      "suppliers": {
+        "preflight": "b3_overlay:preparer_inventory"
+      },
+      "imports": []
     },
     {
       "source": "python/scripts/cloud_run_daily_digest.py",
@@ -129,6 +191,7 @@
       "kind": "module",
       "required_version": "qsl_digest_account_roster.v1",
       "suppliers": {
+        "constructor": "b3_overlay:release_overlay",
         "constructor_env": "b3_overlay:release_overlay"
       },
       "imports": [
@@ -144,6 +207,167 @@
       ]
     },
     {
+      "source": "schemas/qsl-digest-account-roster.v1.schema.json",
+      "destination": "schemas/qsl-digest-account-roster.v1.schema.json",
+      "origin": "b3_overlay",
+      "dependency_role": "both",
+      "kind": "schema",
+      "required_version": "qsl_digest_account_roster.v1",
+      "suppliers": {
+        "python_preparer": "b3_overlay:preparer_inventory",
+        "preflight": "b3_overlay:preparer_inventory",
+        "constructor": "b3_overlay:base_inventory",
+        "constructor_env": "b3_overlay:base_inventory",
+        "producer_publication": "b3_overlay:base_inventory",
+        "provider": "b3_overlay:base_inventory"
+      },
+      "imports": []
+    },
+    {
+      "source": "schemas/qsl-digest-enrollment-selection.v1.schema.json",
+      "destination": "schemas/qsl-digest-enrollment-selection.v1.schema.json",
+      "origin": "b3_overlay",
+      "dependency_role": "both",
+      "kind": "schema",
+      "required_version": "qsl_digest_enrollment_selection.v1",
+      "suppliers": {
+        "python_preparer": "b3_overlay:preparer_inventory",
+        "preflight": "b3_overlay:preparer_inventory",
+        "constructor": "b3_overlay:base_inventory",
+        "constructor_env": "b3_overlay:base_inventory",
+        "producer_publication": "b3_overlay:base_inventory",
+        "provider": "b3_overlay:base_inventory"
+      },
+      "imports": []
+    },
+    {
+      "source": "schemas/qsl-digest-enrollment-artifact.v1.schema.json",
+      "destination": "schemas/qsl-digest-enrollment-artifact.v1.schema.json",
+      "origin": "b3_overlay",
+      "dependency_role": "both",
+      "kind": "schema",
+      "required_version": "qsl_digest_enrollment_artifact.v1",
+      "suppliers": {
+        "python_preparer": "b3_overlay:preparer_inventory",
+        "preflight": "b3_overlay:preparer_inventory",
+        "constructor": "b3_overlay:base_inventory",
+        "constructor_env": "b3_overlay:base_inventory",
+        "producer_publication": "b3_overlay:base_inventory",
+        "provider": "b3_overlay:base_inventory"
+      },
+      "imports": []
+    },
+    {
+      "source": "python/scripts/account_daily_digest.py",
+      "destination": "python/scripts/account_daily_digest.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "sha256": "ba777e88de25b95e550774392021a3f494a712b0fa8e52f08c4c343bfbab5701",
+      "suppliers": {
+        "constructor": "base:release_overlay",
+        "constructor_env": "base:release_overlay"
+      },
+      "imports": [
+        "account_daily_facts",
+        "daily_digest_notify",
+        "display_names",
+        "notification_approved_gates",
+        "notification_snapshot.unified_contract",
+        "unified_daily_digest"
+      ]
+    },
+    {
+      "source": "python/scripts/account_daily_facts.py",
+      "destination": "python/scripts/account_daily_facts.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "sha256": "b2f753cab981c96925331bcfe1bc31c3586d5d3c17a74c4c29e4f9ef7c670d6f",
+      "suppliers": {
+        "constructor": "base:release_overlay",
+        "constructor_env": "base:release_overlay"
+      },
+      "imports": [
+        "notification_snapshot.unified_contract"
+      ]
+    },
+    {
+      "source": "python/scripts/daily_digest_aggregator.py",
+      "destination": "python/scripts/daily_digest_aggregator.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "sha256": "6a94c925d32ea56f04842de5fc5d44a1a613a5b55076b0d43950f1b35010484a",
+      "suppliers": {
+        "constructor": "base:base_inventory",
+        "constructor_env": "base:base_inventory"
+      },
+      "imports": [
+        "daily_digest_delivery_axes",
+        "daily_digest_notify",
+        "display_names",
+        "merge_digest_candidates",
+        "notification_candidate_adapter",
+        "notification_mode",
+        "unified_daily_digest",
+        "platform-config.json"
+      ]
+    },
+    {
+      "source": "python/scripts/daily_digest_delivery_store.py",
+      "destination": "python/scripts/daily_digest_delivery_store.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "google-cloud-storage==3.17.1",
+      "sha256": "405c2cde3581f9d1c94f006f74bf4a203457153f45708d9a0e38376379d067ee",
+      "suppliers": {
+        "constructor": "base:base_inventory",
+        "constructor_env": "base:base_inventory",
+        "producer_publication": "base:base_inventory"
+      },
+      "imports": []
+    },
+    {
+      "source": "python/scripts/daily_digest_delivery_axes.py",
+      "destination": "python/scripts/daily_digest_delivery_axes.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "sha256": "2db144b93428f95183908d2d1e652021c5dfd1a1851c764c0e71962acd600979",
+      "suppliers": {
+        "constructor": "base:base_inventory",
+        "constructor_env": "base:base_inventory"
+      },
+      "imports": []
+    },
+    {
+      "source": "python/scripts/daily_digest_notify.py",
+      "destination": "python/scripts/daily_digest_notify.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "sha256": "c58c572920976d2d12b0dd0573ced9db827c599f8719812e53f8342882bbfebc",
+      "suppliers": {
+        "constructor": "base:base_inventory",
+        "constructor_env": "base:base_inventory"
+      },
+      "imports": [
+        "display_names",
+        "notification_approved_gates",
+        "notification_candidate_adapter",
+        "notification_mode",
+        "notification_snapshot.unified_contract",
+        "unified_daily_digest"
+      ]
+    },
+    {
       "source": "python/scripts/display_names.py",
       "destination": "python/scripts/display_names.py",
       "origin": "base",
@@ -151,6 +375,14 @@
       "kind": "module",
       "required_version": "python>=3.12",
       "sha256": "7b3e1b2281c70fd57e3a43b4a25973cd97deabe9f9e0bac59ef93eb7aeebf390",
+      "suppliers": {
+        "python_preparer": "base:preparer_inventory",
+        "preflight": "base:preparer_inventory",
+        "constructor": "base:base_inventory",
+        "constructor_env": "base:base_inventory",
+        "producer_publication": "base:base_inventory",
+        "provider": "base:base_inventory"
+      },
       "imports": [
         "python/scripts/display_names.json"
       ]
@@ -163,34 +395,499 @@
       "kind": "data",
       "required_version": "display_names.v1",
       "sha256": "0066d8010100b2db891ac91571a5da8d83500b62d5909bded74dbb3177a7d241",
+      "suppliers": {
+        "python_preparer": "base:preparer_inventory",
+        "preflight": "base:preparer_inventory",
+        "constructor": "base:base_inventory",
+        "constructor_env": "base:base_inventory",
+        "producer_publication": "base:base_inventory",
+        "provider": "base:base_inventory"
+      },
       "imports": []
     },
     {
-      "source": "schemas/qsl-digest-account-roster.v1.schema.json",
-      "destination": "schemas/qsl-digest-account-roster.v1.schema.json",
-      "origin": "b3_overlay",
-      "dependency_role": "both",
-      "kind": "schema",
-      "required_version": "qsl_digest_account_roster.v1",
+      "source": "python/scripts/merge_digest_candidates.py",
+      "destination": "python/scripts/merge_digest_candidates.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "sha256": "8feb0fb58ee31d49f3e4e8b0bc602333ae62e9e0262f102aa9c7f7f839a2b812",
+      "suppliers": {
+        "constructor": "base:base_inventory",
+        "constructor_env": "base:base_inventory"
+      },
+      "imports": [
+        "notification_candidate_adapter",
+        "notification_mode"
+      ]
+    },
+    {
+      "source": "python/scripts/notification_approved_gates.py",
+      "destination": "python/scripts/notification_approved_gates.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "sha256": "37439f1374e5c3aebf529ff9760897a6bdbe14ed2cd570e2eb0c09bf3b7dd049",
+      "suppliers": {
+        "constructor": "base:base_inventory",
+        "constructor_env": "base:base_inventory"
+      },
+      "imports": [
+        "daily_digest_notify"
+      ]
+    },
+    {
+      "source": "python/scripts/notification_candidate_adapter.py",
+      "destination": "python/scripts/notification_candidate_adapter.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "sha256": "79d58a056a2ded178b82d858c92ab1e6299c1bc8ca8a9df00c0433e12db88efa",
+      "suppliers": {
+        "constructor": "base:base_inventory",
+        "constructor_env": "base:base_inventory"
+      },
+      "imports": [
+        "daily_digest_notify",
+        "notification_approved_gates",
+        "notification_snapshot.unified_contract"
+      ]
+    },
+    {
+      "source": "python/scripts/notification_mode.py",
+      "destination": "python/scripts/notification_mode.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "sha256": "4f3a77af9b677095589c69f976ea0ecf633322b2b41c8eb18457afdaec87d2df",
+      "suppliers": {
+        "constructor": "base:base_inventory",
+        "constructor_env": "base:base_inventory"
+      },
+      "imports": [
+        "notification_snapshot.unified_contract"
+      ]
+    },
+    {
+      "source": "python/scripts/unified_daily_digest.py",
+      "destination": "python/scripts/unified_daily_digest.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "sha256": "0c26c33dda3caf6bca2500c90074f42168297d79611e1f08860fd652ef9c8589",
+      "suppliers": {
+        "constructor": "base:base_inventory",
+        "constructor_env": "base:base_inventory"
+      },
+      "imports": [
+        "daily_digest_notify",
+        "display_names",
+        "notification_approved_gates",
+        "notification_mode",
+        "notification_snapshot.presentation",
+        "notification_snapshot.unified_contract"
+      ]
+    },
+    {
+      "source": "python/scripts/notification_snapshot/__init__.py",
+      "destination": "python/scripts/notification_snapshot/__init__.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "sha256": "67dfde39f061966cdde08f51663d0e7e413a88abab8a82a9b29825cb6f7dfa10",
+      "suppliers": {
+        "constructor": "base:base_inventory",
+        "constructor_env": "base:base_inventory"
+      },
       "imports": []
     },
     {
-      "source": "schemas/qsl-digest-enrollment-selection.v1.schema.json",
-      "destination": "schemas/qsl-digest-enrollment-selection.v1.schema.json",
-      "origin": "b3_overlay",
-      "dependency_role": "both",
-      "kind": "schema",
-      "required_version": "qsl_digest_enrollment_selection.v1",
+      "source": "python/scripts/notification_snapshot/unified_contract.py",
+      "destination": "python/scripts/notification_snapshot/unified_contract.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "sha256": "a5a9138063940a74d4bb3575166bdd1c21b95c1afb4a13db67c6cf33e53bcfba",
+      "suppliers": {
+        "constructor": "base:base_inventory",
+        "constructor_env": "base:base_inventory"
+      },
       "imports": []
     },
     {
-      "source": "schemas/qsl-digest-enrollment-artifact.v1.schema.json",
-      "destination": "schemas/qsl-digest-enrollment-artifact.v1.schema.json",
-      "origin": "b3_overlay",
-      "dependency_role": "both",
-      "kind": "schema",
-      "required_version": "qsl_digest_enrollment_artifact.v1",
+      "source": "python/scripts/notification_snapshot/presentation.py",
+      "destination": "python/scripts/notification_snapshot/presentation.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "sha256": "dca21d14215dfb9c18fe9798ca9f0fcb17a9482def69adb7df971c280501ad9f",
+      "suppliers": {
+        "constructor": "base:base_inventory",
+        "constructor_env": "base:base_inventory"
+      },
       "imports": []
+    },
+    {
+      "source": "platform-config.json",
+      "destination": "platform-config.json",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "data",
+      "required_version": "platform-config.v1",
+      "sha256": "95f7869779c35c5b3a1b45e4850b2fa9e79b509b3ef6474b5b6ab6ce3e1e6ff9",
+      "suppliers": {
+        "constructor": "base:base_inventory",
+        "constructor_env": "base:base_inventory"
+      },
+      "imports": []
+    },
+    {
+      "source": "display-names.config.json",
+      "destination": "display-names.config.json",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "data",
+      "required_version": "display-names-config.v1",
+      "sha256": "7727fad3d3bb3d94f2cc5187d69e7da2ac791be1e2dca7a7e5f01fde18fd418a",
+      "suppliers": {
+        "constructor": "base:base_inventory",
+        "constructor_env": "base:base_inventory"
+      },
+      "imports": []
+    },
+    {
+      "source": "scripts/prepare_digest_enrollment_inputs.mjs",
+      "destination": "scripts/prepare_digest_enrollment_inputs.mjs",
+      "origin": "b3_overlay",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "suppliers": {
+        "js_preparer": "b3_overlay:preparer_inventory",
+        "python_preparer": "b3_overlay:preparer_inventory"
+      },
+      "nonliteral_import_mappings": {
+        "CONSOLE": {
+          "application/runtime_instances/account_management.js": "web/strategy-switch-console/application/runtime_instances/account_management.js",
+          "application/runtime_instances/account_management_readback.js": "web/strategy-switch-console/application/runtime_instances/account_management_readback.js",
+          "application/account_mapping/inventory_adapter.js": "web/strategy-switch-console/application/account_mapping/inventory_adapter.js",
+          "application/runtime_instances/mapping_projection.js": "web/strategy-switch-console/application/runtime_instances/mapping_projection.js"
+        }
+      },
+      "imports": [
+        "web/strategy-switch-console/application/runtime_instances/account_management.js",
+        "web/strategy-switch-console/application/runtime_instances/account_management_readback.js",
+        "web/strategy-switch-console/application/account_mapping/inventory_adapter.js",
+        "web/strategy-switch-console/application/runtime_instances/mapping_projection.js"
+      ]
+    },
+    {
+      "source": "web/strategy-switch-console/application/runtime_instances/account_management.js",
+      "destination": "web/strategy-switch-console/application/runtime_instances/account_management.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "qsl_account_management_live_resolution.v1",
+      "sha256": "3cf7edc6b2e57e6c2ecc8a1fceaa1ec97a84767f135fbe10c2e08eedca3b986f",
+      "suppliers": {
+        "js_preparer": "base:console_inventory",
+        "python_preparer": "base:preparer_inventory"
+      },
+      "imports": [
+        "web/strategy-switch-console/application/http_error.js",
+        "web/strategy-switch-console/application/account_mapping/policy.js",
+        "web/strategy-switch-console/application/account_settings/helpers.js",
+        "web/strategy-switch-console/application/account_settings/constants.js",
+        "web/strategy-switch-console/application/account_identity_inventory/constants.js",
+        "web/strategy-switch-console/application/research_task/helpers.js"
+      ]
+    },
+    {
+      "source": "web/strategy-switch-console/application/runtime_instances/account_management_readback.js",
+      "destination": "web/strategy-switch-console/application/runtime_instances/account_management_readback.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "qsl_account_management_readback.v1",
+      "sha256": "f89a09ace66a30c53791fdbfe063caa49e9d5d41a5f70380da2cf37fda70b48f",
+      "suppliers": {
+        "js_preparer": "base:console_inventory",
+        "python_preparer": "base:preparer_inventory"
+      },
+      "imports": [
+        "web/strategy-switch-console/application/account_mapping/management_cohort.js",
+        "web/strategy-switch-console/application/account_mapping/policy.js",
+        "web/strategy-switch-console/application/account_settings/helpers.js",
+        "web/strategy-switch-console/application/http_response.js",
+        "web/strategy-switch-console/application/runtime_instances/account_management.js"
+      ]
+    },
+    {
+      "source": "web/strategy-switch-console/application/runtime_instances/mapping_projection.js",
+      "destination": "web/strategy-switch-console/application/runtime_instances/mapping_projection.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "qsl_account_management_projection.v1",
+      "sha256": "b3a5ec330dd5153e266421c294ace025cbb037c2dcabc657cd66ed619671638f",
+      "suppliers": {
+        "js_preparer": "base:console_inventory",
+        "python_preparer": "base:preparer_inventory"
+      },
+      "imports": [
+        "web/strategy-switch-console/application/account_settings/helpers.js",
+        "web/strategy-switch-console/application/account_mapping/inventory_adapter.js",
+        "web/strategy-switch-console/application/account_mapping/policy.js"
+      ]
+    },
+    {
+      "source": "web/strategy-switch-console/application/runtime_instances/account_management_text.js",
+      "destination": "web/strategy-switch-console/application/runtime_instances/account_management_text.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "status_resource",
+      "required_version": "qsl_account_management_readback.v1",
+      "sha256": "1322e95d27b90aa2e0c3316e446ae84b7cbf7cd71ff66dc79f74dc63215aa0fb",
+      "suppliers": {
+        "preflight": "base:console_inventory"
+      },
+      "imports": []
+    },
+    {
+      "source": "web/strategy-switch-console/application/account_mapping/policy.js",
+      "destination": "web/strategy-switch-console/application/account_mapping/policy.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "qsl_account_mapping_policy.v1",
+      "sha256": "5fa7d91d88bbb8b256ef2d91ff043f31d12be2a7f47289de201de7531a85c1ba",
+      "suppliers": {
+        "js_preparer": "base:console_inventory",
+        "python_preparer": "base:preparer_inventory"
+      },
+      "imports": []
+    },
+    {
+      "source": "web/strategy-switch-console/application/account_mapping/management_cohort.js",
+      "destination": "web/strategy-switch-console/application/account_mapping/management_cohort.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "qsl_account_management_readback.v1",
+      "sha256": "6e95581dd5bd17d7467659779817c0540782da20b5e60a5130eee86e81e02f1c",
+      "suppliers": {
+        "js_preparer": "base:console_inventory",
+        "python_preparer": "base:preparer_inventory"
+      },
+      "imports": [
+        "web/strategy-switch-console/application/account_mapping/policy.js"
+      ]
+    },
+    {
+      "source": "web/strategy-switch-console/application/account_mapping/inventory_adapter.js",
+      "destination": "web/strategy-switch-console/application/account_mapping/inventory_adapter.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "qsl_account_mapping_policy.v1",
+      "sha256": "b9bfc4f7a7deb0db9ee7dc45dd00e25a9e10eae13b3576884b1c1970a6bb2804",
+      "suppliers": {
+        "js_preparer": "base:console_inventory",
+        "python_preparer": "base:preparer_inventory"
+      },
+      "imports": [
+        "web/strategy-switch-console/application/account_mapping/policy.js"
+      ]
+    },
+    {
+      "source": "web/strategy-switch-console/application/account_settings/helpers.js",
+      "destination": "web/strategy-switch-console/application/account_settings/helpers.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "sha256": "eb0c22970adfd836d404d706c0d676cab6b1480a1c471b80c7916ae6bb101c5f",
+      "suppliers": {
+        "js_preparer": "base:console_inventory",
+        "python_preparer": "base:preparer_inventory"
+      },
+      "imports": [
+        "web/strategy-switch-console/application/account_settings/constants.js",
+        "web/strategy-switch-console/application/console_api/risk_tiers.js",
+        "web/strategy-switch-console/application/http_error.js",
+        "web/strategy-switch-console/config.js",
+        "web/strategy-switch-console/strategy_identity.js"
+      ]
+    },
+    {
+      "source": "web/strategy-switch-console/application/account_settings/constants.js",
+      "destination": "web/strategy-switch-console/application/account_settings/constants.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "sha256": "8d0d2eae0b7784dba035de1073e23c91dd4cb7d2d7fe3e0d1a83ffed17be451c",
+      "suppliers": {
+        "js_preparer": "base:console_inventory",
+        "python_preparer": "base:preparer_inventory"
+      },
+      "imports": []
+    },
+    {
+      "source": "web/strategy-switch-console/application/account_identity_inventory/constants.js",
+      "destination": "web/strategy-switch-console/application/account_identity_inventory/constants.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "sha256": "15bf028f7dec3726932b744b8e0136f4329f591fa290dc1d27baac815399bb66",
+      "suppliers": {
+        "js_preparer": "base:console_inventory",
+        "python_preparer": "base:preparer_inventory"
+      },
+      "imports": []
+    },
+    {
+      "source": "web/strategy-switch-console/application/console_api/risk_tiers.js",
+      "destination": "web/strategy-switch-console/application/console_api/risk_tiers.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "sha256": "df1dca79de2e561a7acd3c2d382f2d958db2dd1f8ee922e620a33ab38f2c411b",
+      "suppliers": {
+        "js_preparer": "base:console_inventory",
+        "python_preparer": "base:preparer_inventory"
+      },
+      "imports": []
+    },
+    {
+      "source": "web/strategy-switch-console/application/http_error.js",
+      "destination": "web/strategy-switch-console/application/http_error.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "sha256": "318587a032a76b8e8a31c9c2a2a590428dd1321d9749214e845c2dc4fa637a00",
+      "suppliers": {
+        "js_preparer": "base:console_inventory",
+        "python_preparer": "base:preparer_inventory"
+      },
+      "imports": []
+    },
+    {
+      "source": "web/strategy-switch-console/application/http_response.js",
+      "destination": "web/strategy-switch-console/application/http_response.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "sha256": "0278cacbc2bf95bd2712e19bfee344d4b2a3dc7293c1eb7e85d9742d623bd6c8",
+      "suppliers": {
+        "js_preparer": "base:console_inventory",
+        "python_preparer": "base:preparer_inventory"
+      },
+      "imports": [
+        "web/strategy-switch-console/application/security_headers.js"
+      ]
+    },
+    {
+      "source": "web/strategy-switch-console/application/security_headers.js",
+      "destination": "web/strategy-switch-console/application/security_headers.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "sha256": "c9b7ac29fbf8fb323eb6312d6ea12b621116a55c8823fd813535f5e9df0bd5d4",
+      "suppliers": {
+        "js_preparer": "base:console_inventory",
+        "python_preparer": "base:preparer_inventory"
+      },
+      "imports": []
+    },
+    {
+      "source": "web/strategy-switch-console/application/research_task/constants.js",
+      "destination": "web/strategy-switch-console/application/research_task/constants.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "sha256": "27e4995e3236cd7ba493af686defcb21f14ee4d7c4ecaf1792359b682fb0c8cf",
+      "suppliers": {
+        "js_preparer": "base:console_inventory",
+        "python_preparer": "base:preparer_inventory"
+      },
+      "imports": []
+    },
+    {
+      "source": "web/strategy-switch-console/application/research_task/helpers.js",
+      "destination": "web/strategy-switch-console/application/research_task/helpers.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "sha256": "4089d0c6eff83b8abf676c5512db7c573b1363784ca3e1704b994023b74f3ab8",
+      "suppliers": {
+        "js_preparer": "base:console_inventory",
+        "python_preparer": "base:preparer_inventory"
+      },
+      "imports": [
+        "web/strategy-switch-console/application/http_error.js",
+        "web/strategy-switch-console/application/research_task/constants.js"
+      ]
+    },
+    {
+      "source": "web/strategy-switch-console/config.js",
+      "destination": "web/strategy-switch-console/config.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "sha256": "b9cc93113290226aa92520cd2c5fe1ad8ae87e7139aa3690bb16e4f879b8afaf",
+      "suppliers": {
+        "js_preparer": "base:console_inventory",
+        "python_preparer": "base:preparer_inventory"
+      },
+      "imports": []
+    },
+    {
+      "source": "web/strategy-switch-console/display_names_data.js",
+      "destination": "web/strategy-switch-console/display_names_data.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "sha256": "3f778e18be1e881b30ee6ddb9897e9a4eb5b5660d1f5a12575a244f8ee67fc9c",
+      "suppliers": {
+        "js_preparer": "base:console_inventory",
+        "python_preparer": "base:preparer_inventory"
+      },
+      "imports": []
+    },
+    {
+      "source": "web/strategy-switch-console/strategy_identity.js",
+      "destination": "web/strategy-switch-console/strategy_identity.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "sha256": "8c0aa0c17254e87036a23ab2d92727393dcc57a88f417a7f789e7196ccf06c38",
+      "suppliers": {
+        "js_preparer": "base:console_inventory",
+        "python_preparer": "base:preparer_inventory"
+      },
+      "imports": [
+        "web/strategy-switch-console/display_names_data.js"
+      ]
     }
-  ]
+  ],
+  "base_pin": "Base members are pinned by sha256 to merged main 30b9a380; preflight rejects missing members or version mismatches."
 }
