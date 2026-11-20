@@ -1,0 +1,612 @@
+{
+  "format": "qsl_digest_package_manifest.v1",
+  "batch": "D2-B3",
+  "runtime_versions": {
+    "python": ">=3.12",
+    "node": ">=22.0",
+    "google-cloud-storage": "==3.17.1"
+  },
+  "entry_points": {
+    "constructor": "cloud_run_daily_digest.Configuration",
+    "constructor_env": "cloud_run_daily_digest.Configuration.from_environment",
+    "generation": "cloud_run_daily_digest.execute_slot",
+    "aggregation": "daily_digest_aggregator.build_digest_payload",
+    "renderer": "account_daily_digest.render_account_daily",
+    "python_preparer": "project_digest_display_roster.main",
+    "js_preparer": "scripts/prepare_digest_enrollment_inputs.mjs"
+  },
+  "preparer_runtime_binding": {
+    "selection_format": "qsl_digest_enrollment_selection.v1",
+    "artifact_format": "qsl_digest_enrollment_artifact.v1",
+    "roster_format": "qsl_digest_account_roster.v1",
+    "producer_entry": "project_digest_display_roster.prepare_mapping_enrollment",
+    "runtime_consumer": "digest_roster_authority.load_artifact -> digest_roster_authority.compose_generation -> digest_roster_generation.GenerationRunner -> digest_roster_envelope.build_roster_envelope -> cloud_run_daily_digest.execute_slot"
+  },
+  "members": [
+    {
+      "source": "python/scripts/cloud_run_daily_digest.py",
+      "destination": "python/scripts/cloud_run_daily_digest.py",
+      "origin": "b3_overlay",
+      "dependency_role": "both",
+      "kind": "module",
+      "required_version": "qsl_digest_account_roster.v1",
+      "imports": [
+        "account_daily_digest",
+        "account_daily_facts",
+        "daily_digest_aggregator",
+        "daily_digest_delivery_store",
+        "digest_roster_authority",
+        "digest_roster_envelope",
+        "digest_roster_generation",
+        "digest_roster_quantities",
+        "display_names",
+        "merge_digest_candidates",
+        "notification_candidate_adapter"
+      ]
+    },
+    {
+      "source": "python/scripts/daily_digest_aggregator.py",
+      "destination": "python/scripts/daily_digest_aggregator.py",
+      "origin": "b3_overlay",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "qsl_digest_account_roster.v1",
+      "imports": [
+        "daily_digest_delivery_axes",
+        "daily_digest_notify",
+        "digest_roster_authority",
+        "digest_roster_envelope",
+        "digest_roster_generation",
+        "display_names",
+        "merge_digest_candidates",
+        "notification_candidate_adapter",
+        "notification_mode",
+        "unified_daily_digest",
+        "platform-config.json"
+      ]
+    },
+    {
+      "source": "python/scripts/account_daily_digest.py",
+      "destination": "python/scripts/account_daily_digest.py",
+      "origin": "b3_overlay",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "qsl_digest_account_roster.v1",
+      "imports": [
+        "account_daily_facts",
+        "daily_digest_notify",
+        "digest_roster_envelope",
+        "digest_roster_status_text",
+        "display_names",
+        "notification_approved_gates",
+        "notification_snapshot.unified_contract",
+        "unified_daily_digest"
+      ]
+    },
+    {
+      "source": "python/scripts/unified_daily_digest.py",
+      "destination": "python/scripts/unified_daily_digest.py",
+      "origin": "b3_overlay",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "qsl_digest_account_roster.v1",
+      "imports": [
+        "daily_digest_notify",
+        "display_names",
+        "notification_approved_gates",
+        "notification_mode",
+        "notification_snapshot.presentation",
+        "notification_snapshot.unified_contract"
+      ]
+    },
+    {
+      "source": "python/scripts/digest_roster_authority.py",
+      "destination": "python/scripts/digest_roster_authority.py",
+      "origin": "b3_overlay",
+      "dependency_role": "both",
+      "kind": "module",
+      "required_version": "qsl_digest_enrollment_artifact.v1",
+      "imports": [
+        "cloud_run_daily_digest",
+        "display_names",
+        "project_digest_display_roster"
+      ]
+    },
+    {
+      "source": "python/scripts/digest_roster_generation.py",
+      "destination": "python/scripts/digest_roster_generation.py",
+      "origin": "b3_overlay",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "qsl_digest_account_roster.v1",
+      "imports": [
+        "digest_roster_authority"
+      ]
+    },
+    {
+      "source": "python/scripts/digest_roster_quantities.py",
+      "destination": "python/scripts/digest_roster_quantities.py",
+      "origin": "b3_overlay",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "qsl_digest_account_roster.v1",
+      "imports": [
+        "account_daily_facts",
+        "digest_roster_authority"
+      ]
+    },
+    {
+      "source": "python/scripts/digest_roster_envelope.py",
+      "destination": "python/scripts/digest_roster_envelope.py",
+      "origin": "b3_overlay",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "qsl_digest_account_roster.v1",
+      "imports": [
+        "digest_roster_authority",
+        "digest_roster_generation",
+        "display_names",
+        "schemas/qsl-digest-account-roster.v1.schema.json",
+        "schemas/qsl-digest-enrollment-selection.v1.schema.json",
+        "schemas/qsl-digest-enrollment-artifact.v1.schema.json"
+      ]
+    },
+    {
+      "source": "python/scripts/digest_roster_status_text.py",
+      "destination": "python/scripts/digest_roster_status_text.py",
+      "origin": "b3_overlay",
+      "dependency_role": "generation",
+      "kind": "status_resource",
+      "required_version": "qsl_account_management_readback.v1",
+      "imports": [
+        "daily_digest_notify"
+      ]
+    },
+    {
+      "source": "python/scripts/project_digest_display_roster.py",
+      "destination": "python/scripts/project_digest_display_roster.py",
+      "origin": "b3_overlay",
+      "dependency_role": "both",
+      "kind": "module",
+      "required_version": "qsl_digest_enrollment_artifact.v1",
+      "imports": [
+        "digest_roster_authority",
+        "display_names"
+      ]
+    },
+    {
+      "source": "python/scripts/digest_package_preflight.py",
+      "destination": "python/scripts/digest_package_preflight.py",
+      "origin": "b3_overlay",
+      "dependency_role": "both",
+      "kind": "module",
+      "required_version": "qsl_digest_package_manifest.v1",
+      "imports": [
+        "digest_roster_envelope",
+        "digest_roster_status_text",
+        "python/scripts/digest_package_manifest.json"
+      ]
+    },
+    {
+      "source": "python/scripts/digest_package_manifest.json",
+      "destination": "python/scripts/digest_package_manifest.json",
+      "origin": "b3_overlay",
+      "dependency_role": "both",
+      "kind": "data",
+      "required_version": "qsl_digest_package_manifest.v1",
+      "imports": []
+    },
+    {
+      "source": "schemas/qsl-digest-account-roster.v1.schema.json",
+      "destination": "schemas/qsl-digest-account-roster.v1.schema.json",
+      "origin": "b3_overlay",
+      "dependency_role": "generation",
+      "kind": "schema",
+      "required_version": "qsl_digest_account_roster.v1",
+      "imports": []
+    },
+    {
+      "source": "schemas/qsl-digest-enrollment-selection.v1.schema.json",
+      "destination": "schemas/qsl-digest-enrollment-selection.v1.schema.json",
+      "origin": "b3_overlay",
+      "dependency_role": "both",
+      "kind": "schema",
+      "required_version": "qsl_digest_enrollment_selection.v1",
+      "imports": []
+    },
+    {
+      "source": "schemas/qsl-digest-enrollment-artifact.v1.schema.json",
+      "destination": "schemas/qsl-digest-enrollment-artifact.v1.schema.json",
+      "origin": "b3_overlay",
+      "dependency_role": "both",
+      "kind": "schema",
+      "required_version": "qsl_digest_enrollment_artifact.v1",
+      "imports": []
+    },
+    {
+      "source": "python/scripts/account_daily_facts.py",
+      "destination": "python/scripts/account_daily_facts.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "imports": [
+        "notification_snapshot.unified_contract"
+      ]
+    },
+    {
+      "source": "python/scripts/daily_digest_delivery_store.py",
+      "destination": "python/scripts/daily_digest_delivery_store.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "google-cloud-storage==3.17.1",
+      "imports": []
+    },
+    {
+      "source": "python/scripts/daily_digest_delivery_axes.py",
+      "destination": "python/scripts/daily_digest_delivery_axes.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "imports": []
+    },
+    {
+      "source": "python/scripts/daily_digest_notify.py",
+      "destination": "python/scripts/daily_digest_notify.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "imports": [
+        "display_names",
+        "notification_approved_gates",
+        "notification_candidate_adapter",
+        "notification_mode",
+        "notification_snapshot.unified_contract",
+        "unified_daily_digest"
+      ]
+    },
+    {
+      "source": "python/scripts/display_names.py",
+      "destination": "python/scripts/display_names.py",
+      "origin": "base",
+      "dependency_role": "both",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "imports": [
+        "python/scripts/display_names.json"
+      ]
+    },
+    {
+      "source": "python/scripts/display_names.json",
+      "destination": "python/scripts/display_names.json",
+      "origin": "base",
+      "dependency_role": "both",
+      "kind": "data",
+      "required_version": "display_names.v1",
+      "imports": []
+    },
+    {
+      "source": "python/scripts/merge_digest_candidates.py",
+      "destination": "python/scripts/merge_digest_candidates.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "imports": [
+        "notification_candidate_adapter",
+        "notification_mode"
+      ]
+    },
+    {
+      "source": "python/scripts/notification_approved_gates.py",
+      "destination": "python/scripts/notification_approved_gates.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "imports": [
+        "daily_digest_notify"
+      ]
+    },
+    {
+      "source": "python/scripts/notification_candidate_adapter.py",
+      "destination": "python/scripts/notification_candidate_adapter.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "imports": [
+        "daily_digest_notify",
+        "notification_approved_gates",
+        "notification_snapshot.unified_contract"
+      ]
+    },
+    {
+      "source": "python/scripts/notification_mode.py",
+      "destination": "python/scripts/notification_mode.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "imports": [
+        "notification_snapshot.unified_contract"
+      ]
+    },
+    {
+      "source": "python/scripts/notification_snapshot/__init__.py",
+      "destination": "python/scripts/notification_snapshot/__init__.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "imports": []
+    },
+    {
+      "source": "python/scripts/notification_snapshot/unified_contract.py",
+      "destination": "python/scripts/notification_snapshot/unified_contract.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "imports": []
+    },
+    {
+      "source": "python/scripts/notification_snapshot/presentation.py",
+      "destination": "python/scripts/notification_snapshot/presentation.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "imports": []
+    },
+    {
+      "source": "python/scripts/notification_snapshot/digest_routing.py",
+      "destination": "python/scripts/notification_snapshot/digest_routing.py",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "imports": []
+    },
+    {
+      "source": "platform-config.json",
+      "destination": "platform-config.json",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "data",
+      "required_version": "platform-config.v1",
+      "imports": []
+    },
+    {
+      "source": "display-names.config.json",
+      "destination": "display-names.config.json",
+      "origin": "base",
+      "dependency_role": "generation",
+      "kind": "data",
+      "required_version": "display-names-config.v1",
+      "imports": []
+    },
+    {
+      "source": "scripts/prepare_digest_enrollment_inputs.mjs",
+      "destination": "scripts/prepare_digest_enrollment_inputs.mjs",
+      "origin": "b3_overlay",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "imports": [
+        "web/strategy-switch-console/application/runtime_instances/account_management.js",
+        "web/strategy-switch-console/application/runtime_instances/account_management_readback.js",
+        "web/strategy-switch-console/application/runtime_instances/mapping_projection.js"
+      ]
+    },
+    {
+      "source": "web/strategy-switch-console/application/runtime_instances/account_management.js",
+      "destination": "web/strategy-switch-console/application/runtime_instances/account_management.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "qsl_account_management_live_resolution.v1",
+      "imports": [
+        "web/strategy-switch-console/application/http_error.js",
+        "web/strategy-switch-console/application/account_mapping/policy.js",
+        "web/strategy-switch-console/application/account_settings/helpers.js",
+        "web/strategy-switch-console/application/account_settings/constants.js",
+        "web/strategy-switch-console/application/account_identity_inventory/constants.js",
+        "web/strategy-switch-console/application/research_task/helpers.js"
+      ]
+    },
+    {
+      "source": "web/strategy-switch-console/application/runtime_instances/account_management_readback.js",
+      "destination": "web/strategy-switch-console/application/runtime_instances/account_management_readback.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "qsl_account_management_readback.v1",
+      "imports": [
+        "web/strategy-switch-console/application/account_mapping/management_cohort.js",
+        "web/strategy-switch-console/application/account_mapping/policy.js",
+        "web/strategy-switch-console/application/account_settings/helpers.js",
+        "web/strategy-switch-console/application/http_response.js",
+        "web/strategy-switch-console/application/runtime_instances/account_management.js"
+      ]
+    },
+    {
+      "source": "web/strategy-switch-console/application/runtime_instances/mapping_projection.js",
+      "destination": "web/strategy-switch-console/application/runtime_instances/mapping_projection.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "qsl_account_management_projection.v1",
+      "imports": [
+        "web/strategy-switch-console/application/account_settings/helpers.js",
+        "web/strategy-switch-console/application/account_mapping/inventory_adapter.js",
+        "web/strategy-switch-console/application/account_mapping/policy.js"
+      ]
+    },
+    {
+      "source": "web/strategy-switch-console/application/runtime_instances/account_management_text.js",
+      "destination": "web/strategy-switch-console/application/runtime_instances/account_management_text.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "status_resource",
+      "required_version": "qsl_account_management_readback.v1",
+      "imports": []
+    },
+    {
+      "source": "web/strategy-switch-console/application/account_mapping/policy.js",
+      "destination": "web/strategy-switch-console/application/account_mapping/policy.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "qsl_account_mapping_policy.v1",
+      "imports": []
+    },
+    {
+      "source": "web/strategy-switch-console/application/account_mapping/management_cohort.js",
+      "destination": "web/strategy-switch-console/application/account_mapping/management_cohort.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "qsl_account_management_readback.v1",
+      "imports": [
+        "web/strategy-switch-console/application/account_mapping/policy.js"
+      ]
+    },
+    {
+      "source": "web/strategy-switch-console/application/account_mapping/inventory_adapter.js",
+      "destination": "web/strategy-switch-console/application/account_mapping/inventory_adapter.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "qsl_account_mapping_policy.v1",
+      "imports": [
+        "web/strategy-switch-console/application/account_mapping/policy.js",
+        "web/strategy-switch-console/application/account_settings/helpers.js"
+      ]
+    },
+    {
+      "source": "web/strategy-switch-console/application/account_settings/helpers.js",
+      "destination": "web/strategy-switch-console/application/account_settings/helpers.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "imports": [
+        "web/strategy-switch-console/application/account_settings/constants.js",
+        "web/strategy-switch-console/application/console_api/risk_tiers.js",
+        "web/strategy-switch-console/config.js",
+        "web/strategy-switch-console/strategy_identity.js"
+      ]
+    },
+    {
+      "source": "web/strategy-switch-console/application/account_settings/constants.js",
+      "destination": "web/strategy-switch-console/application/account_settings/constants.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "imports": []
+    },
+    {
+      "source": "web/strategy-switch-console/application/account_identity_inventory/constants.js",
+      "destination": "web/strategy-switch-console/application/account_identity_inventory/constants.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "imports": []
+    },
+    {
+      "source": "web/strategy-switch-console/application/console_api/risk_tiers.js",
+      "destination": "web/strategy-switch-console/application/console_api/risk_tiers.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "imports": [
+        "web/strategy-switch-console/config.js"
+      ]
+    },
+    {
+      "source": "web/strategy-switch-console/application/http_error.js",
+      "destination": "web/strategy-switch-console/application/http_error.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "imports": []
+    },
+    {
+      "source": "web/strategy-switch-console/application/http_response.js",
+      "destination": "web/strategy-switch-console/application/http_response.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "imports": [
+        "web/strategy-switch-console/application/security_headers.js"
+      ]
+    },
+    {
+      "source": "web/strategy-switch-console/application/security_headers.js",
+      "destination": "web/strategy-switch-console/application/security_headers.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "imports": []
+    },
+    {
+      "source": "web/strategy-switch-console/application/research_task/constants.js",
+      "destination": "web/strategy-switch-console/application/research_task/constants.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "imports": []
+    },
+    {
+      "source": "web/strategy-switch-console/application/research_task/helpers.js",
+      "destination": "web/strategy-switch-console/application/research_task/helpers.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "imports": [
+        "web/strategy-switch-console/application/research_task/constants.js"
+      ]
+    },
+    {
+      "source": "web/strategy-switch-console/config.js",
+      "destination": "web/strategy-switch-console/config.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "imports": [
+        "web/strategy-switch-console/display_names_data.js"
+      ]
+    },
+    {
+      "source": "web/strategy-switch-console/display_names_data.js",
+      "destination": "web/strategy-switch-console/display_names_data.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "imports": []
+    },
+    {
+      "source": "web/strategy-switch-console/strategy_identity.js",
+      "destination": "web/strategy-switch-console/strategy_identity.js",
+      "origin": "base",
+      "dependency_role": "preparer",
+      "kind": "js_module",
+      "required_version": "node>=22.0",
+      "imports": []
+    }
+  ]
+}

@@ -6,9 +6,12 @@
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
+import { pathToFileURL } from "node:url";
 
-const CONSOLE = new URL("../web/strategy-switch-console/", import.meta.url);
-const { RuntimeInstances } = await import(new URL("worker.js", CONSOLE));
+const CONSOLE = process.env.QSL_DIGEST_CONSOLE_DIR
+  ? pathToFileURL(process.env.QSL_DIGEST_CONSOLE_DIR.replace(/\/?$/, "/"))
+  : new URL("../web/strategy-switch-console/", import.meta.url);
+const { MANAGEMENT_TABLE_SCHEMAS, initializeAccountManagement } = await import(new URL("application/runtime_instances/account_management.js", CONSOLE));
 const {
   buildManagementReadback,
   exportAppliedRecords,
@@ -16,6 +19,13 @@ const {
 } = await import(new URL("application/runtime_instances/account_management_readback.js", CONSOLE));
 const { projectAccountManagement } = await import(new URL("application/runtime_instances/mapping_projection.js", CONSOLE));
 
+const INSTANCE_STATE_DDL = [
+  "CREATE TABLE IF NOT EXISTS instance_state (id INTEGER PRIMARY KEY CHECK (id = 1), revision INTEGER NOT NULL, payload TEXT NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS instance_history (revision INTEGER PRIMARY KEY, entry TEXT NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS account_setting_draft (platform TEXT NOT NULL, account_key TEXT NOT NULL, revision INTEGER NOT NULL, identity_json TEXT NOT NULL, overrides_json TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (platform, account_key))",
+  "CREATE TABLE IF NOT EXISTS account_setting_declaration (platform TEXT NOT NULL, account_key TEXT NOT NULL, revision INTEGER NOT NULL, identity_json TEXT NOT NULL, declaration_json TEXT NOT NULL, PRIMARY KEY (platform, account_key))",
+  "CREATE TABLE IF NOT EXISTS account_setting_profile_application (request_key TEXT PRIMARY KEY, platform TEXT NOT NULL, account_key TEXT NOT NULL, identity_json TEXT NOT NULL, instance_revision INTEGER NOT NULL, draft_revision INTEGER NOT NULL, old_profile TEXT NOT NULL, new_profile TEXT NOT NULL, approved_by TEXT NOT NULL, approved_at TEXT NOT NULL, status TEXT NOT NULL, workflow_run_id TEXT, workflow_run_attempt TEXT, claimed_at TEXT)",
+];
 const cursorOf = items => Object.assign(items.values(), { toArray: () => items, one: () => items[0] });
 
 function parseArgs(argv) {
@@ -45,10 +55,10 @@ export async function composeEnrollmentInputs(observation) {
       db.exec(text);
       return cursorOf([]);
     };
-    const instance = Object.create(RuntimeInstances.prototype);
-    instance.sqlStorage = { exec };
-    instance.storageInitialized = false;
-    instance.initializeStorage();
+    for (const ddl of INSTANCE_STATE_DDL) {
+      db.exec(ddl);
+    }
+    initializeAccountManagement({ exec });
     db.prepare("INSERT INTO instance_state (id, revision, payload) VALUES (1, ?, ?)").run(
       observation.instance_revision,
       JSON.stringify(observation.instances),

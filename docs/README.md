@@ -66,6 +66,7 @@ The current package retains configuration and compatibility ownership. Broker cr
 | --- | --- |
 | [QuantSentinel notification architecture](notifications-quant-sentinel.md) · [中文](notifications-quant-sentinel.zh-CN.md) | Unified sentinel bot secret contract, daily digest behavior, `sections_v2`, and route checks. |
 | [Daily digest candidates wiring](digest-candidates-wiring.md) · [中文](digest-candidates-wiring.zh-CN.md) | `qsl.digest_candidates.v1` schema, freshness rules, private store intake, and preflight. |
+| [Mapping-driven digest account roster](digest-account-roster-v1.md) | `qsl_digest_account_roster.v1` closed envelope, constructor modes, standalone consolidated deferral to B9, and package manifest handoff. |
 | [Daily digest route diagnosis](digest-route-identity.md) · [中文](digest-route-identity.zh-CN.md) | Read-only `digest-bot-identity.yml` token/chat resolution checks and public projection. |
 
 The existing complete documents retain their interfaces and risk controls. Index links and English summaries do not authorize deployment or change data/provider rights. See [LICENSE](../LICENSE).

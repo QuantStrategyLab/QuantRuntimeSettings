@@ -8,6 +8,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+_SCRIPTS = str(Path(__file__).resolve().parent)
+if _SCRIPTS not in sys.path:
+    sys.path.insert(0, _SCRIPTS)
+
 from display_names import broker_account_identity, safe_display_text
 
 
