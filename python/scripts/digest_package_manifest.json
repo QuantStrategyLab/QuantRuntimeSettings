@@ -230,6 +230,7 @@
       "dependency_role": "generation",
       "kind": "module",
       "required_version": "python>=3.12",
+      "sha256": "b2f753cab981c96925331bcfe1bc31c3586d5d3c17a74c4c29e4f9ef7c670d6f",
       "imports": [
         "notification_snapshot.unified_contract"
       ]
@@ -241,6 +242,7 @@
       "dependency_role": "generation",
       "kind": "module",
       "required_version": "google-cloud-storage==3.17.1",
+      "sha256": "405c2cde3581f9d1c94f006f74bf4a203457153f45708d9a0e38376379d067ee",
       "imports": []
     },
     {
@@ -250,6 +252,7 @@
       "dependency_role": "generation",
       "kind": "module",
       "required_version": "python>=3.12",
+      "sha256": "2db144b93428f95183908d2d1e652021c5dfd1a1851c764c0e71962acd600979",
       "imports": []
     },
     {
@@ -259,6 +262,7 @@
       "dependency_role": "generation",
       "kind": "module",
       "required_version": "python>=3.12",
+      "sha256": "c58c572920976d2d12b0dd0573ced9db827c599f8719812e53f8342882bbfebc",
       "imports": [
         "display_names",
         "notification_approved_gates",
@@ -275,6 +279,7 @@
       "dependency_role": "both",
       "kind": "module",
       "required_version": "python>=3.12",
+      "sha256": "7b3e1b2281c70fd57e3a43b4a25973cd97deabe9f9e0bac59ef93eb7aeebf390",
       "imports": [
         "python/scripts/display_names.json"
       ]
@@ -286,6 +291,7 @@
       "dependency_role": "both",
       "kind": "data",
       "required_version": "display_names.v1",
+      "sha256": "0066d8010100b2db891ac91571a5da8d83500b62d5909bded74dbb3177a7d241",
       "imports": []
     },
     {
@@ -295,6 +301,7 @@
       "dependency_role": "generation",
       "kind": "module",
       "required_version": "python>=3.12",
+      "sha256": "8feb0fb58ee31d49f3e4e8b0bc602333ae62e9e0262f102aa9c7f7f839a2b812",
       "imports": [
         "notification_candidate_adapter",
         "notification_mode"
@@ -307,6 +314,7 @@
       "dependency_role": "generation",
       "kind": "module",
       "required_version": "python>=3.12",
+      "sha256": "37439f1374e5c3aebf529ff9760897a6bdbe14ed2cd570e2eb0c09bf3b7dd049",
       "imports": [
         "daily_digest_notify"
       ]
@@ -318,6 +326,7 @@
       "dependency_role": "generation",
       "kind": "module",
       "required_version": "python>=3.12",
+      "sha256": "79d58a056a2ded178b82d858c92ab1e6299c1bc8ca8a9df00c0433e12db88efa",
       "imports": [
         "daily_digest_notify",
         "notification_approved_gates",
@@ -331,6 +340,7 @@
       "dependency_role": "generation",
       "kind": "module",
       "required_version": "python>=3.12",
+      "sha256": "4f3a77af9b677095589c69f976ea0ecf633322b2b41c8eb18457afdaec87d2df",
       "imports": [
         "notification_snapshot.unified_contract"
       ]
@@ -342,6 +352,7 @@
       "dependency_role": "generation",
       "kind": "module",
       "required_version": "python>=3.12",
+      "sha256": "67dfde39f061966cdde08f51663d0e7e413a88abab8a82a9b29825cb6f7dfa10",
       "imports": []
     },
     {
@@ -351,6 +362,7 @@
       "dependency_role": "generation",
       "kind": "module",
       "required_version": "python>=3.12",
+      "sha256": "a5a9138063940a74d4bb3575166bdd1c21b95c1afb4a13db67c6cf33e53bcfba",
       "imports": []
     },
     {
@@ -360,6 +372,7 @@
       "dependency_role": "generation",
       "kind": "module",
       "required_version": "python>=3.12",
+      "sha256": "dca21d14215dfb9c18fe9798ca9f0fcb17a9482def69adb7df971c280501ad9f",
       "imports": []
     },
     {
@@ -369,6 +382,7 @@
       "dependency_role": "generation",
       "kind": "module",
       "required_version": "python>=3.12",
+      "sha256": "271885fc4898d48e8882b8788eba07cb460d1048515ab3766f1353226d317654",
       "imports": []
     },
     {
@@ -378,6 +392,7 @@
       "dependency_role": "generation",
       "kind": "data",
       "required_version": "platform-config.v1",
+      "sha256": "95f7869779c35c5b3a1b45e4850b2fa9e79b509b3ef6474b5b6ab6ce3e1e6ff9",
       "imports": []
     },
     {
@@ -387,6 +402,7 @@
       "dependency_role": "generation",
       "kind": "data",
       "required_version": "display-names-config.v1",
+      "sha256": "7727fad3d3bb3d94f2cc5187d69e7da2ac791be1e2dca7a7e5f01fde18fd418a",
       "imports": []
     },
     {
@@ -409,6 +425,7 @@
       "dependency_role": "preparer",
       "kind": "js_module",
       "required_version": "qsl_account_management_live_resolution.v1",
+      "sha256": "3cf7edc6b2e57e6c2ecc8a1fceaa1ec97a84767f135fbe10c2e08eedca3b986f",
       "imports": [
         "web/strategy-switch-console/application/http_error.js",
         "web/strategy-switch-console/application/account_mapping/policy.js",
@@ -425,6 +442,7 @@
       "dependency_role": "preparer",
       "kind": "js_module",
       "required_version": "qsl_account_management_readback.v1",
+      "sha256": "f89a09ace66a30c53791fdbfe063caa49e9d5d41a5f70380da2cf37fda70b48f",
       "imports": [
         "web/strategy-switch-console/application/account_mapping/management_cohort.js",
         "web/strategy-switch-console/application/account_mapping/policy.js",
@@ -440,6 +458,7 @@
       "dependency_role": "preparer",
       "kind": "js_module",
       "required_version": "qsl_account_management_projection.v1",
+      "sha256": "b3a5ec330dd5153e266421c294ace025cbb037c2dcabc657cd66ed619671638f",
       "imports": [
         "web/strategy-switch-console/application/account_settings/helpers.js",
         "web/strategy-switch-console/application/account_mapping/inventory_adapter.js",
@@ -453,6 +472,7 @@
       "dependency_role": "preparer",
       "kind": "status_resource",
       "required_version": "qsl_account_management_readback.v1",
+      "sha256": "1322e95d27b90aa2e0c3316e446ae84b7cbf7cd71ff66dc79f74dc63215aa0fb",
       "imports": []
     },
     {
@@ -462,6 +482,7 @@
       "dependency_role": "preparer",
       "kind": "js_module",
       "required_version": "qsl_account_mapping_policy.v1",
+      "sha256": "5fa7d91d88bbb8b256ef2d91ff043f31d12be2a7f47289de201de7531a85c1ba",
       "imports": []
     },
     {
@@ -471,6 +492,7 @@
       "dependency_role": "preparer",
       "kind": "js_module",
       "required_version": "qsl_account_management_readback.v1",
+      "sha256": "6e95581dd5bd17d7467659779817c0540782da20b5e60a5130eee86e81e02f1c",
       "imports": [
         "web/strategy-switch-console/application/account_mapping/policy.js"
       ]
@@ -482,6 +504,7 @@
       "dependency_role": "preparer",
       "kind": "js_module",
       "required_version": "qsl_account_mapping_policy.v1",
+      "sha256": "b9bfc4f7a7deb0db9ee7dc45dd00e25a9e10eae13b3576884b1c1970a6bb2804",
       "imports": [
         "web/strategy-switch-console/application/account_mapping/policy.js",
         "web/strategy-switch-console/application/account_settings/helpers.js"
@@ -494,6 +517,7 @@
       "dependency_role": "preparer",
       "kind": "js_module",
       "required_version": "node>=22.0",
+      "sha256": "eb0c22970adfd836d404d706c0d676cab6b1480a1c471b80c7916ae6bb101c5f",
       "imports": [
         "web/strategy-switch-console/application/account_settings/constants.js",
         "web/strategy-switch-console/application/console_api/risk_tiers.js",
@@ -508,6 +532,7 @@
       "dependency_role": "preparer",
       "kind": "js_module",
       "required_version": "node>=22.0",
+      "sha256": "8d0d2eae0b7784dba035de1073e23c91dd4cb7d2d7fe3e0d1a83ffed17be451c",
       "imports": []
     },
     {
@@ -517,6 +542,7 @@
       "dependency_role": "preparer",
       "kind": "js_module",
       "required_version": "node>=22.0",
+      "sha256": "15bf028f7dec3726932b744b8e0136f4329f591fa290dc1d27baac815399bb66",
       "imports": []
     },
     {
@@ -526,6 +552,7 @@
       "dependency_role": "preparer",
       "kind": "js_module",
       "required_version": "node>=22.0",
+      "sha256": "df1dca79de2e561a7acd3c2d382f2d958db2dd1f8ee922e620a33ab38f2c411b",
       "imports": [
         "web/strategy-switch-console/config.js"
       ]
@@ -537,6 +564,7 @@
       "dependency_role": "preparer",
       "kind": "js_module",
       "required_version": "node>=22.0",
+      "sha256": "318587a032a76b8e8a31c9c2a2a590428dd1321d9749214e845c2dc4fa637a00",
       "imports": []
     },
     {
@@ -546,6 +574,7 @@
       "dependency_role": "preparer",
       "kind": "js_module",
       "required_version": "node>=22.0",
+      "sha256": "0278cacbc2bf95bd2712e19bfee344d4b2a3dc7293c1eb7e85d9742d623bd6c8",
       "imports": [
         "web/strategy-switch-console/application/security_headers.js"
       ]
@@ -557,6 +586,7 @@
       "dependency_role": "preparer",
       "kind": "js_module",
       "required_version": "node>=22.0",
+      "sha256": "c9b7ac29fbf8fb323eb6312d6ea12b621116a55c8823fd813535f5e9df0bd5d4",
       "imports": []
     },
     {
@@ -566,6 +596,7 @@
       "dependency_role": "preparer",
       "kind": "js_module",
       "required_version": "node>=22.0",
+      "sha256": "27e4995e3236cd7ba493af686defcb21f14ee4d7c4ecaf1792359b682fb0c8cf",
       "imports": []
     },
     {
@@ -575,6 +606,7 @@
       "dependency_role": "preparer",
       "kind": "js_module",
       "required_version": "node>=22.0",
+      "sha256": "4089d0c6eff83b8abf676c5512db7c573b1363784ca3e1704b994023b74f3ab8",
       "imports": [
         "web/strategy-switch-console/application/research_task/constants.js"
       ]
@@ -586,6 +618,7 @@
       "dependency_role": "preparer",
       "kind": "js_module",
       "required_version": "node>=22.0",
+      "sha256": "b9cc93113290226aa92520cd2c5fe1ad8ae87e7139aa3690bb16e4f879b8afaf",
       "imports": [
         "web/strategy-switch-console/display_names_data.js"
       ]
@@ -597,6 +630,7 @@
       "dependency_role": "preparer",
       "kind": "js_module",
       "required_version": "node>=22.0",
+      "sha256": "3f778e18be1e881b30ee6ddb9897e9a4eb5b5660d1f5a12575a244f8ee67fc9c",
       "imports": []
     },
     {
@@ -606,7 +640,9 @@
       "dependency_role": "preparer",
       "kind": "js_module",
       "required_version": "node>=22.0",
+      "sha256": "8c0aa0c17254e87036a23ab2d92727393dcc57a88f417a7f789e7196ccf06c38",
       "imports": []
     }
-  ]
+  ],
+  "base_pin": "Base members are pinned by sha256 to the landed B2 synthetic base; preflight rejects a base member whose bytes differ."
 }

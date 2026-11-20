@@ -173,8 +173,11 @@ assert code == 200 and res['delivery'] == 'accepted', (code, res)
 headers = [line for line in sent[0].splitlines() if line.startswith('🏦 ')]
 assert len(headers) == 10, headers
 origins = preflight.assert_isolated_imports(pkg)
-assert all(path.startswith(str(pkg.resolve())) for path in origins.values()), origins
-print(json.dumps({'checked': len(checked), 'headers': len(headers), 'origins': len(origins)}))
+assert all(isinstance(path, str) and not path.startswith('/') and '..' not in path for path in origins.values())
+assert origins['notification_snapshot.unified_contract'] == 'python/scripts/notification_snapshot/unified_contract.py'
+resources = preflight.resource_origins(pkg)
+print(json.dumps({'checked': len(checked), 'headers': len(headers), 'origins': len(origins),
+                  'resources': len(resources)}))
 """
             for locale in ('en', 'zh'):
                 gen_proc = subprocess.run(
@@ -221,6 +224,49 @@ preflight.verify_package(pkg, role='generation')
                     self.assertNotEqual(proc.returncode, 0, f'omission of {dest_rel} unexpectedly passed')
                     if dest_rel != 'python/scripts/digest_package_preflight.py':
                         self.assertIn(dest_rel, proc.stderr + proc.stdout)
+
+    def test_all_role_omission_and_base_pin_are_rejected_by_member(self):
+        manifest = json.loads(MANIFEST_PATH.read_text(encoding='utf-8'))
+        check_script = """
+import sys
+from pathlib import Path
+pkg = Path(sys.argv[1])
+sys.path.insert(0, str(pkg / 'python' / 'scripts'))
+import digest_package_preflight as preflight
+preflight.verify_package(pkg, role='all')
+"""
+        kinds = {member['kind'] for member in manifest['members']}
+        self.assertIn('status_resource', kinds)
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            base_pkg = tmp / 'base-pkg'
+            _materialize_package(base_pkg, role='all')
+
+            def run(pkg):
+                return subprocess.run([sys.executable, '-I', '-c', check_script, str(pkg)], cwd=tmp,
+                                      env={'PATH': os.environ['PATH']}, capture_output=True, text=True, timeout=15)
+            self.assertEqual(run(base_pkg).returncode, 0)
+            rejected = 0
+            for member in manifest['members']:
+                with self.subTest(omitted=member['destination']):
+                    omitted = tmp / 'omitted'
+                    if omitted.exists():
+                        shutil.rmtree(omitted)
+                    shutil.copytree(base_pkg, omitted)
+                    (omitted / member['destination']).unlink()
+                    proc = run(omitted)
+                    self.assertNotEqual(proc.returncode, 0)
+                    if member['destination'] != 'python/scripts/digest_package_preflight.py':
+                        self.assertIn(f"missing_package_member:{member['destination']}", proc.stderr)
+                    rejected += 1
+            self.assertEqual(rejected, len(manifest['members']))
+            # A base member that differs from the pinned synthetic base.
+            pinned = next(member for member in manifest['members'] if member['origin'] == 'base')
+            self.assertRegex(pinned['sha256'], '^[0-9a-f]{64}$')
+            with open(base_pkg / pinned['destination'], 'ab') as handle:
+                handle.write(b'\n')
+            proc = run(base_pkg)
+            self.assertIn(f"package_member_version_mismatch:{pinned['destination']}", proc.stderr)
 
 
 if __name__ == '__main__':

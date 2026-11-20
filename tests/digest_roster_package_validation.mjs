@@ -2,7 +2,7 @@
 // JS preparation (B1 projectAccountManagement + B2 exportAppliedRecords +
 // buildManagementReadback) and isolated Python constructor/generation outside
 // the repository checkout, plus single-member omission rejection for both
-// preparer and generation packages.
+// every manifest role through the normal fixture entry.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { cp, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
@@ -94,32 +94,48 @@ try {
   ));
   await writeFile(join(work, "readback.json"), JSON.stringify(liveReadback));
 
-  // Step 1: Run packaged JS preparer outside checkout.
-  execFileSync(
-    process.execPath,
-    [join(pkg, "scripts/prepare_digest_enrollment_inputs.mjs"), "--input", join(work, "do_obs.json"), "--output", join(work, "js_bundle.json")],
-    { cwd: work, env: { PATH: process.env.PATH, QSL_DIGEST_CONSOLE_DIR: join(pkg, "web/strategy-switch-console") }, stdio: "pipe" },
-  );
+  // The normal fixture entry: all-role preflight of the materialized package,
+  // then real JS and Python preparation, then constructor and generation, all
+  // from packaged assets only, outside the checkout.
+  const preflightScript = `
+import sys
+from pathlib import Path
+pkg = Path(sys.argv[1])
+sys.path.insert(0, str(pkg / 'python' / 'scripts'))
+import digest_package_preflight as preflight
+preflight.verify_package(pkg, role='all')
+`;
+  async function entry(pkgDir, out) {
+    await rm(out, { recursive: true, force: true });
+    await mkdir(out, { recursive: true });
+    execFileSync("python3", ["-I", "-c", preflightScript, pkgDir], { cwd: out, env: { PATH: process.env.PATH }, stdio: "pipe" });
+    execFileSync(
+      process.execPath,
+      [join(pkgDir, "scripts/prepare_digest_enrollment_inputs.mjs"), "--input", join(work, "do_obs.json"), "--output", join(out, "js_bundle.json")],
+      { cwd: out, env: { PATH: process.env.PATH, QSL_DIGEST_CONSOLE_DIR: join(pkgDir, "web/strategy-switch-console") }, stdio: "pipe" },
+    );
+    const prepOut = execFileSync(
+      "python3",
+      [
+        "-I", join(pkgDir, "python/scripts/project_digest_display_roster.py"), "prepare-mapping",
+        "--js-bundle", join(out, "js_bundle.json"),
+        "--legacy-roster", join(work, "legacy_roster.json"),
+        "--observation-bindings", join(work, "obs_bindings.json"),
+        "--source", "synthetic-enrollment",
+        "--version", "v1", "--membership-version", "m1", "--label-version", "l1", "--link-version", "k1",
+        "--prepared-at", doObservation.observed_at,
+        "--artifact-output", join(out, "artifact.json"),
+        "--selection-output", join(out, "selection.json"),
+      ],
+      { cwd: out, env: { PATH: process.env.PATH, PYTHONPATH: join(pkgDir, "python/scripts") }, encoding: "utf8", stdio: "pipe" },
+    );
+    assert.match(prepOut, /digest_mapping_prepared/);
+    for (const name of ["readback.json", "do_obs.json"]) await cp(join(work, name), join(out, name));
+    return JSON.parse(execFileSync("python3", ["-I", "-c", pyGen, pkgDir, out], {
+      cwd: out, env: { PATH: process.env.PATH }, encoding: "utf8", stdio: "pipe",
+    }).trim());
+  }
 
-  // Step 2: Run packaged Python preparer CLI outside checkout (python3 -I).
-  const prepOut = execFileSync(
-    "python3",
-    [
-      "-I", join(pkg, "python/scripts/project_digest_display_roster.py"), "prepare-mapping",
-      "--js-bundle", join(work, "js_bundle.json"),
-      "--legacy-roster", join(work, "legacy_roster.json"),
-      "--observation-bindings", join(work, "obs_bindings.json"),
-      "--source", "synthetic-enrollment",
-      "--version", "v1", "--membership-version", "m1", "--label-version", "l1", "--link-version", "k1",
-      "--prepared-at", doObservation.observed_at,
-      "--artifact-output", join(work, "artifact.json"),
-      "--selection-output", join(work, "selection.json"),
-    ],
-    { cwd: work, env: { PATH: process.env.PATH, PYTHONPATH: join(pkg, "python/scripts") }, encoding: "utf8" },
-  );
-  assert.match(prepOut, /digest_mapping_prepared/);
-
-  // Step 3: Run packaged Python constructor + generation outside checkout (python3 -I).
   const pyGen = `
 import json, os, sys
 from datetime import datetime, timedelta
@@ -127,7 +143,7 @@ from pathlib import Path
 pkg, work = Path(sys.argv[1]), Path(sys.argv[2])
 sys.path.insert(0, str(pkg / 'python' / 'scripts'))
 import digest_package_preflight as preflight
-preflight.verify_package(pkg, role='generation')
+preflight.verify_package(pkg, role='all')
 import cloud_run_daily_digest as app
 import digest_roster_authority as authority
 import digest_roster_generation as generation
@@ -172,41 +188,53 @@ assert code == 200 and res['delivery'] == 'accepted', (code, res)
 headers = [l for l in sent[0].splitlines() if l.startswith('🏦 ')]
 assert len(headers) == 10, headers
 origins = preflight.assert_isolated_imports(pkg)
-assert all(p.startswith(str(pkg.resolve())) for p in origins.values())
-print(json.dumps({'headers': len(headers), 'origins': len(origins)}))
+assert all(isinstance(p, str) and not p.startswith('/') and '..' not in p for p in origins.values()), 'origins'
+assert origins.get('notification_snapshot.unified_contract') == 'python/scripts/notification_snapshot/unified_contract.py'
+assert origins.get('notification_snapshot') == 'python/scripts/notification_snapshot/__init__.py'
+resources = preflight.resource_origins(pkg)
+assert resources['schema:qsl-digest-account-roster.v1.schema.json'] == 'schemas/qsl-digest-account-roster.v1.schema.json'
+print(json.dumps({'headers': len(headers), 'origins': len(origins), 'resources': len(resources),
+                  'qualified': sum('.' in name for name in origins)}))
 `;
-  const genOut = execFileSync("python3", ["-I", "-c", pyGen, pkg, work], {
-    cwd: work, env: { PATH: process.env.PATH }, encoding: "utf8",
-  });
-  const genStats = JSON.parse(genOut.trim());
+  const genStats = await entry(pkg, join(tmp, "out-positive"));
   assert.equal(genStats.headers, 10);
+  assert.ok(genStats.qualified >= 2);
 
-  // Step 4: Verify omitting any JS preparer module fails JS preparer or preflight.
-  const jsMembers = MANIFEST.members.filter(m => m.dependency_role === "preparer" && m.kind === "js_module");
-  for (const member of jsMembers) {
-    const omittedDir = join(tmp, "omit-js");
+  // Omit each required manifest member in turn, every role and kind
+  // (modules, schemas, data and both status resources), and run the same
+  // normal entry: each omission must fail by member or by isolated import.
+  let byMember = 0;
+  let byImport = 0;
+  for (const member of MANIFEST.members) {
+    const omittedDir = join(tmp, "omit");
     await rm(omittedDir, { recursive: true, force: true });
     await cp(pkg, omittedDir, { recursive: true });
     await unlink(join(omittedDir, member.destination));
-    let failed = false;
+    let failure = null;
     try {
-      execFileSync(
-        process.execPath,
-        [join(omittedDir, "scripts/prepare_digest_enrollment_inputs.mjs"), "--input", join(work, "do_obs.json")],
-        { cwd: work, env: { PATH: process.env.PATH, QSL_DIGEST_CONSOLE_DIR: join(omittedDir, "web/strategy-switch-console") }, stdio: "pipe" },
-      );
-    } catch {
-      failed = true;
+      await entry(omittedDir, join(tmp, "out-omit"));
+    } catch (error) {
+      failure = String(error.stderr || "") + String(error.stdout || "") + String(error.message || "");
     }
-    assert.equal(failed, true, `omitting JS preparer member ${member.destination} should fail`);
+    assert.ok(failure !== null, `omitting ${member.destination} should fail`);
+    if (failure.includes(`missing_package_member:${member.destination}`)) byMember += 1;
+    else if (/ModuleNotFoundError|ImportError|No such file/.test(failure)) byImport += 1;
+    else assert.fail(`omitting ${member.destination} failed for an unrelated reason`);
   }
+  assert.equal(byMember + byImport, MANIFEST.members.length);
 
   assert.equal(harness.outbound.count, 0);
   console.log(JSON.stringify({
     suite: "digest_roster_package_validation",
     ok: true,
     headers: genStats.headers,
-    js_omissions_rejected: jsMembers.length,
+    origins: genStats.origins,
+    qualified_origins: genStats.qualified,
+    resources: genStats.resources,
+    omissions_rejected: byMember + byImport,
+    omissions_by_member: byMember,
+    omissions_by_isolated_import: byImport,
+    members: MANIFEST.members.length,
     outbound_calls: harness.outbound.count,
   }));
 } finally {
