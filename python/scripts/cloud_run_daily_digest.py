@@ -25,6 +25,7 @@ import notification_candidate_adapter as adapter
 from account_daily_digest import render_account_daily, render_account_daily_unavailable, valid_crypto_symbol
 from account_daily_facts import collect_account_facts
 from daily_digest_delivery_store import GCSDeliveryStore, StoreUnavailable, location
+from digest_roster_recipient import IBKR_TELEGRAM_BINDING, authorized_ibkr_telegram_accounts
 from digest_roster_validator import MAPPING_MODE, ROSTER_FORMAT, RosterBootConfig, strict_json
 from display_names import broker_account_identity, configured_account_label, safe_display_text as _safe_display_text
 
@@ -32,7 +33,6 @@ SGT = ZoneInfo('Asia/Singapore')
 IDENTITY = adapter.IDENTITY[:4]
 SLOT = re.compile(r'[a-z0-9][a-z0-9_-]{0,40}')
 BINANCE_SNAPSHOT_PATH = '/api/internal/binance-account-facts/digest'
-IBKR_TELEGRAM_BINDING = ('candidate_slot', 'opaque_account_uid', 'target_id')
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -55,26 +55,7 @@ def project_expected_target_label(binding, account_option):
 
 
 def _ibkr_telegram_accounts(expected, raw, recipient):
-    if not raw or not recipient:
-        return {}
-    try:
-        value = json.loads(raw)
-        if value['recipient_id'] != recipient:
-            return {}
-        eligible = {tuple(row[key] for key in IBKR_TELEGRAM_BINDING)
-                    for row in expected if row['platform_id'] == 'ibkr'}
-        accounts, owners = {}, {}
-        for row in value['accounts']:
-            identity = tuple(row[key] for key in IBKR_TELEGRAM_BINDING)
-            uid = row['opaque_account_uid']
-            account = broker_account_identity('ibkr', row['account_id'])
-            if (identity not in eligible or not account
-                    or accounts.setdefault(uid, account) != account
-                    or owners.setdefault(account, uid) != uid):
-                return {}
-        return accounts
-    except (KeyError, TypeError, ValueError):
-        return {}
+    return authorized_ibkr_telegram_accounts(expected, raw, recipient)
 
 
 @dataclass(frozen=True)

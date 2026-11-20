@@ -88,6 +88,10 @@ from digest_roster_compatibility import (
     accept_current_enrollment_artifact,
     accept_current_roster,
 )
+from digest_roster_recipient import (
+    authorize_generation_recipient_accounts,
+    authorized_ibkr_telegram_accounts,
+)
 from display_names import safe_display_text
 
 
@@ -1059,6 +1063,24 @@ def acquire_and_validate_roster(
     raise last_error
 
 
+def generation_recipient_accounts(roster, raw, recipient, *, preview=False, trigger_provenance=None):
+    """Revalidate private IBKR Telegram recipient bindings against this generation's
+    accepted legacy enrollments via the shared role-compatible leaf (FLAG-6).
+
+    Never accepts non-GenerationRoster inputs, preview runs, non-authorized trigger
+    provenance, observation-only bindings, or invalid/conflicting maps.
+    """
+    if not isinstance(roster, GenerationRoster):
+        return {}
+    return authorize_generation_recipient_accounts(
+        roster.run_bindings(),
+        raw,
+        recipient,
+        preview=preview,
+        trigger_provenance=trigger_provenance,
+    )
+
+
 __all__ = [
     'AcceptedRoster',
     'AcquisitionClient',
@@ -1079,11 +1101,13 @@ __all__ = [
     'accept_current_enrollment_artifact',
     'accept_current_roster',
     'acquire_and_validate_roster',
+    'authorized_ibkr_telegram_accounts',
     'build_available_roster_envelope',
     'build_fallback_roster_envelope',
     'build_unavailable_roster_envelope',
     'canonical_json_bytes',
     'compose_generation',
+    'generation_recipient_accounts',
     'headers_from_roster',
     'load_artifact',
     'make_run_scope',

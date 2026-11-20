@@ -1,0 +1,196 @@
+{
+  "format": "qsl_digest_package_manifest.v1",
+  "batch": "D2-B3-A",
+  "runtime_versions": {
+    "python": ">=3.12",
+    "node": ">=22.0",
+    "google-cloud-storage": "==3.17.1"
+  },
+  "entry_points": {
+    "constructor": "cloud_run_daily_digest.Configuration",
+    "constructor_env": "cloud_run_daily_digest.Configuration.from_environment",
+    "producer_publication": "digest_roster_publication.ConditionalRosterPublisher.publish_generation",
+    "python_preparer": "project_digest_display_roster.main",
+    "js_preparer": "scripts/prepare_digest_enrollment_inputs.mjs"
+  },
+  "preparer_runtime_binding": {
+    "selection_format": "qsl_digest_enrollment_selection.v1",
+    "artifact_format": "qsl_digest_enrollment_artifact.v1",
+    "roster_format": "qsl_digest_account_roster.v1",
+    "producer_entry": "project_digest_display_roster.prepare_mapping_enrollment",
+    "runtime_consumer": "digest_roster_authority.load_artifact -> digest_roster_authority.compose_generation -> digest_roster_authority.acquire_and_validate_roster -> digest_roster_publication.ConditionalRosterPublisher.publish_generation"
+  },
+  "members": [
+    {
+      "source": "python/scripts/digest_roster_validator.py",
+      "destination": "python/scripts/digest_roster_validator.py",
+      "origin": "b3_overlay",
+      "dependency_role": "both",
+      "kind": "module",
+      "required_version": "qsl_digest_account_roster.v1",
+      "suppliers": {
+        "python_preparer": "b3_overlay:preparer_inventory",
+        "constructor_env": "b3_overlay:base_inventory",
+        "producer_publication": "b3_overlay:base_inventory"
+      },
+      "imports": [
+        "display_names",
+        "schemas/qsl-digest-account-roster.v1.schema.json",
+        "schemas/qsl-digest-enrollment-selection.v1.schema.json",
+        "schemas/qsl-digest-enrollment-artifact.v1.schema.json"
+      ]
+    },
+    {
+      "source": "python/scripts/digest_roster_recipient.py",
+      "destination": "python/scripts/digest_roster_recipient.py",
+      "origin": "b3_overlay",
+      "dependency_role": "both",
+      "kind": "module",
+      "required_version": "qsl_digest_account_roster.v1",
+      "suppliers": {
+        "python_preparer": "b3_overlay:preparer_inventory",
+        "constructor_env": "b3_overlay:base_inventory",
+        "producer_publication": "b3_overlay:base_inventory"
+      },
+      "imports": [
+        "display_names"
+      ]
+    },
+    {
+      "source": "python/scripts/digest_roster_compatibility.py",
+      "destination": "python/scripts/digest_roster_compatibility.py",
+      "origin": "b3_overlay",
+      "dependency_role": "both",
+      "kind": "module",
+      "required_version": "qsl_digest_account_roster.v1",
+      "suppliers": {
+        "python_preparer": "b3_overlay:preparer_inventory",
+        "producer_publication": "b3_overlay:base_inventory"
+      },
+      "imports": [
+        "digest_roster_validator"
+      ]
+    },
+    {
+      "source": "python/scripts/digest_roster_authority.py",
+      "destination": "python/scripts/digest_roster_authority.py",
+      "origin": "b3_overlay",
+      "dependency_role": "both",
+      "kind": "module",
+      "required_version": "qsl_digest_enrollment_artifact.v1",
+      "suppliers": {
+        "python_preparer": "b3_overlay:preparer_inventory",
+        "producer_publication": "b3_overlay:base_inventory"
+      },
+      "imports": [
+        "digest_roster_compatibility",
+        "digest_roster_recipient",
+        "digest_roster_validator",
+        "display_names"
+      ]
+    },
+    {
+      "source": "python/scripts/digest_roster_publication.py",
+      "destination": "python/scripts/digest_roster_publication.py",
+      "origin": "b3_overlay",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "qsl_digest_account_roster.v1",
+      "suppliers": {
+        "producer_publication": "b3_overlay:base_inventory"
+      },
+      "imports": [
+        "daily_digest_delivery_store",
+        "digest_roster_authority",
+        "digest_roster_validator"
+      ]
+    },
+    {
+      "source": "python/scripts/project_digest_display_roster.py",
+      "destination": "python/scripts/project_digest_display_roster.py",
+      "origin": "b3_overlay",
+      "dependency_role": "preparer",
+      "kind": "module",
+      "required_version": "qsl_digest_enrollment_artifact.v1",
+      "suppliers": {
+        "python_preparer": "b3_overlay:preparer_inventory"
+      },
+      "imports": [
+        "digest_roster_authority",
+        "digest_roster_validator",
+        "display_names"
+      ]
+    },
+    {
+      "source": "python/scripts/cloud_run_daily_digest.py",
+      "destination": "python/scripts/cloud_run_daily_digest.py",
+      "origin": "b3_overlay",
+      "dependency_role": "generation",
+      "kind": "module",
+      "required_version": "qsl_digest_account_roster.v1",
+      "suppliers": {
+        "constructor_env": "b3_overlay:release_overlay"
+      },
+      "imports": [
+        "account_daily_digest",
+        "account_daily_facts",
+        "daily_digest_aggregator",
+        "daily_digest_delivery_store",
+        "digest_roster_recipient",
+        "digest_roster_validator",
+        "display_names",
+        "merge_digest_candidates",
+        "notification_candidate_adapter"
+      ]
+    },
+    {
+      "source": "python/scripts/display_names.py",
+      "destination": "python/scripts/display_names.py",
+      "origin": "base",
+      "dependency_role": "both",
+      "kind": "module",
+      "required_version": "python>=3.12",
+      "sha256": "7b3e1b2281c70fd57e3a43b4a25973cd97deabe9f9e0bac59ef93eb7aeebf390",
+      "imports": [
+        "python/scripts/display_names.json"
+      ]
+    },
+    {
+      "source": "python/scripts/display_names.json",
+      "destination": "python/scripts/display_names.json",
+      "origin": "base",
+      "dependency_role": "both",
+      "kind": "data",
+      "required_version": "display_names.v1",
+      "sha256": "0066d8010100b2db891ac91571a5da8d83500b62d5909bded74dbb3177a7d241",
+      "imports": []
+    },
+    {
+      "source": "schemas/qsl-digest-account-roster.v1.schema.json",
+      "destination": "schemas/qsl-digest-account-roster.v1.schema.json",
+      "origin": "b3_overlay",
+      "dependency_role": "both",
+      "kind": "schema",
+      "required_version": "qsl_digest_account_roster.v1",
+      "imports": []
+    },
+    {
+      "source": "schemas/qsl-digest-enrollment-selection.v1.schema.json",
+      "destination": "schemas/qsl-digest-enrollment-selection.v1.schema.json",
+      "origin": "b3_overlay",
+      "dependency_role": "both",
+      "kind": "schema",
+      "required_version": "qsl_digest_enrollment_selection.v1",
+      "imports": []
+    },
+    {
+      "source": "schemas/qsl-digest-enrollment-artifact.v1.schema.json",
+      "destination": "schemas/qsl-digest-enrollment-artifact.v1.schema.json",
+      "origin": "b3_overlay",
+      "dependency_role": "both",
+      "kind": "schema",
+      "required_version": "qsl_digest_enrollment_artifact.v1",
+      "imports": []
+    }
+  ]
+}
