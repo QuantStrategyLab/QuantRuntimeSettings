@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/QuantStrategyLab/QuantRuntimeSettings/schemas/qsl-digest-enrollment-selection.v1.schema.json",
+  "title": "QSL Digest Enrollment Selection v1",
+  "description": "Closed B3-internal selection pointer tying a protected enrollment source to immutable membership/label/link versions and the SHA-256 digest of the validated qsl_digest_enrollment_artifact.v1 payload. Unknown format/version, extra fields, or digest mismatches must fail closed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "source",
+    "version",
+    "artifact_sha256",
+    "membership_version",
+    "label_version",
+    "link_version"
+  ],
+  "properties": {
+    "format": {
+      "const": "qsl_digest_enrollment_selection.v1"
+    },
+    "source": {
+      "$ref": "#/$defs/version_token"
+    },
+    "version": {
+      "$ref": "#/$defs/version_token"
+    },
+    "artifact_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "membership_version": {
+      "$ref": "#/$defs/version_token"
+    },
+    "label_version": {
+      "$ref": "#/$defs/version_token"
+    },
+    "link_version": {
+      "$ref": "#/$defs/version_token"
+    }
+  },
+  "$defs": {
+    "version_token": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    }
+  }
+}

@@ -25,6 +25,7 @@ import notification_candidate_adapter as adapter
 from account_daily_digest import render_account_daily, render_account_daily_unavailable, valid_crypto_symbol
 from account_daily_facts import collect_account_facts
 from daily_digest_delivery_store import GCSDeliveryStore, StoreUnavailable, location
+from digest_roster_validator import MAPPING_MODE, ROSTER_FORMAT, RosterBootConfig, strict_json
 from display_names import broker_account_identity, configured_account_label, safe_display_text as _safe_display_text
 
 SGT = ZoneInfo('Asia/Singapore')
@@ -89,51 +90,73 @@ class Configuration:
     binance_snapshot_token: str = field(default='', repr=False)
     telegram_ibkr_accounts: dict = field(default_factory=dict, repr=False)
     deadline_alert_enabled: bool = False
+    roster_boot: RosterBootConfig | None = None
+
+    @property
+    def is_mapping_mode(self):
+        return isinstance(self.roster_boot, RosterBootConfig) and self.roster_boot.mode == MAPPING_MODE
 
     def __post_init__(self):
-        adapter.validate_expected(self.expected)
-        expected = []
-        for row in self.expected:
-            if 'account_label' in row:
-                value = row['account_label']
-                if (not isinstance(value, str) or len(value) > 70
-                        or (value and (not value.isprintable() or not _safe_display_text(value)))):
-                    raise ValueError('digest_account_label_invalid')
-            # Existing config generators can carry the selected option's fields
-            # on the binding. Normalize them at the actual environment intake.
-            projected = project_expected_target_label(row, row)
-            if row.get('account_label'):
-                projected['account_label'] = row['account_label']
-            expected.append(projected)
-        object.__setattr__(self, 'expected', expected)
-        platforms = {row['platform_id'] for row in self.expected}
-        if not isinstance(self.candidate_uris, dict) or any(
-                platform not in platforms for platform in self.candidate_uris):
-            raise ValueError('digest_candidate_sources_invalid')
-        for uri in self.candidate_uris.values():
-            try:
-                if not isinstance(uri, str):
-                    raise TypeError()
-                location(uri)
-            except (TypeError, ValueError):
-                raise ValueError('digest_candidate_sources_invalid') from None
-        identities, objects = set(), set()
-        for row in self.expected:
-            if not SLOT.fullmatch(row.get('candidate_slot', '')):
-                raise ValueError('digest_candidate_slot_required')
-            identity = tuple(row[key] for key in IDENTITY)
-            object_key = row['platform_id'], row['candidate_slot']
-            if identity in identities or object_key in objects:
-                raise ValueError('digest_duplicate_target_binding')
-            identities.add(identity)
-            objects.add(object_key)
-            if 'snapshot_only' in row and row['snapshot_only'] is not True:
-                raise ValueError('digest_snapshot_binding_invalid')
-            if 'receipt_candidate' in row and row['receipt_candidate'] is not True:
-                raise ValueError('digest_receipt_binding_invalid')
-            if 'expected_runs' in row and (
-                    type(row['expected_runs']) is not int or row['expected_runs'] <= 0):
-                raise ValueError('digest_expected_targets_invalid')
+        if self.roster_boot is not None and not isinstance(self.roster_boot, RosterBootConfig):
+            raise ValueError('digest_roster_mode_invalid')
+        if not self.is_mapping_mode:
+            if isinstance(self.expected, dict) and self.expected.get('format') == ROSTER_FORMAT:
+                raise ValueError('digest_roster_mode_required')
+            adapter.validate_expected(self.expected)
+            expected = []
+            for row in self.expected:
+                if 'account_label' in row:
+                    value = row['account_label']
+                    if (not isinstance(value, str) or len(value) > 70
+                            or (value and (not value.isprintable() or not _safe_display_text(value)))):
+                        raise ValueError('digest_account_label_invalid')
+                # Existing config generators can carry the selected option's fields
+                # on the binding. Normalize them at the actual environment intake.
+                projected = project_expected_target_label(row, row)
+                if row.get('account_label'):
+                    projected['account_label'] = row['account_label']
+                expected.append(projected)
+            object.__setattr__(self, 'expected', expected)
+            platforms = {row['platform_id'] for row in self.expected}
+            if not isinstance(self.candidate_uris, dict) or any(
+                    platform not in platforms for platform in self.candidate_uris):
+                raise ValueError('digest_candidate_sources_invalid')
+            for uri in self.candidate_uris.values():
+                try:
+                    if not isinstance(uri, str):
+                        raise TypeError()
+                    location(uri)
+                except (TypeError, ValueError):
+                    raise ValueError('digest_candidate_sources_invalid') from None
+            identities, objects = set(), set()
+            for row in self.expected:
+                if not SLOT.fullmatch(row.get('candidate_slot', '')):
+                    raise ValueError('digest_candidate_slot_required')
+                identity = tuple(row[key] for key in IDENTITY)
+                object_key = row['platform_id'], row['candidate_slot']
+                if identity in identities or object_key in objects:
+                    raise ValueError('digest_duplicate_target_binding')
+                identities.add(identity)
+                objects.add(object_key)
+                if 'snapshot_only' in row and row['snapshot_only'] is not True:
+                    raise ValueError('digest_snapshot_binding_invalid')
+                if 'receipt_candidate' in row and row['receipt_candidate'] is not True:
+                    raise ValueError('digest_receipt_binding_invalid')
+                if 'expected_runs' in row and (
+                        type(row['expected_runs']) is not int or row['expected_runs'] <= 0):
+                    raise ValueError('digest_expected_targets_invalid')
+        else:
+            object.__setattr__(self, 'expected', [])
+            if not isinstance(self.candidate_uris, dict) or any(
+                    platform not in adapter.PLATFORMS for platform in self.candidate_uris):
+                raise ValueError('digest_candidate_sources_invalid')
+            for uri in self.candidate_uris.values():
+                try:
+                    if not isinstance(uri, str):
+                        raise TypeError()
+                    location(uri)
+                except (TypeError, ValueError):
+                    raise ValueError('digest_candidate_sources_invalid') from None
         date.fromisoformat(self.cutover_date)
         if not re.fullmatch(r'[a-zA-Z0-9_-]{1,64}', self.recipient_scope):
             raise ValueError('digest_recipient_scope_invalid')
@@ -158,6 +181,25 @@ class Configuration:
             candidate_uris = json.loads(os.environ.get('DIGEST_CANDIDATES_BY_PLATFORM_JSON', '{}'))
         except ValueError:
             raise ValueError('digest_candidate_sources_invalid') from None
+        roster_boot = None
+        boot_json = (os.environ.get('DIGEST_ROSTER_BOOT_JSON') or '').strip()
+        mode_env = os.environ.get('DIGEST_ROSTER_MODE')
+        if boot_json:
+            roster_boot = RosterBootConfig.from_protected(strict_json(boot_json))
+            if mode_env is not None and mode_env != roster_boot.mode:
+                raise ValueError('digest_roster_mode_invalid')
+        elif 'DIGEST_ROSTER_MODE' in os.environ:
+            roster_boot = RosterBootConfig.from_protected({'mode': mode_env})
+        if roster_boot is not None and roster_boot.mode == MAPPING_MODE:
+            return cls([],
+                       os.environ['DIGEST_SCHEDULER_JOB_NAME'], os.environ['DIGEST_RECIPIENT_SCOPE'],
+                       os.environ['DIGEST_CUTOVER_REPORT_DATE'], flag == 'true',
+                       os.environ.get('QSL_NOTIFY_LANG', 'en'), candidate_uris,
+                       os.environ.get('DIGEST_BINANCE_SNAPSHOT_ENDPOINT', ''),
+                       os.environ.get('DIGEST_BINANCE_SNAPSHOT_TOKEN', ''),
+                       {},
+                       deadline_alert_enabled=(deadline_flag == 'true'),
+                       roster_boot=roster_boot)
         expected = json.loads(os.environ['DIGEST_EXPECTED_TARGETS_JSON'])
         return cls(expected,
                    os.environ['DIGEST_SCHEDULER_JOB_NAME'], os.environ['DIGEST_RECIPIENT_SCOPE'],
@@ -167,7 +209,8 @@ class Configuration:
                    os.environ.get('DIGEST_BINANCE_SNAPSHOT_TOKEN', ''),
                    _ibkr_telegram_accounts(expected, os.environ.get('DIGEST_TELEGRAM_IBKR_ACCOUNT_IDS_JSON'),
                                            os.environ.get('QSL_GLOBAL_TELEGRAM_CHAT_ID')),
-                   deadline_alert_enabled=(deadline_flag == 'true'))
+                   deadline_alert_enabled=(deadline_flag == 'true'),
+                   roster_boot=roster_boot)
 
 
 def utc_now():
