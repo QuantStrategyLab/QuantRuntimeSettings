@@ -202,7 +202,8 @@ class Races(Harness):
         new_time = '2026-11-19T21:00:00.000Z'
         old_time = changed['groups'][index]['applied']['effective_at']
         changed['groups'][index]['applied']['effective_at'] = new_time
-        pair = (changed['groups'][index]['deployments'][0]['platform'], changed['groups'][index]['deployments'][0]['key'])
+        deployment = changed['groups'][index]['deployments'][0]
+        pair = (deployment['platform'], deployment['key'])
         for record in changed['effective_export']['records']:
             if (record['platform'], record['legacy_key']) == pair:
                 self.assertEqual(record['effective_at'], old_time)
@@ -308,7 +309,8 @@ class Fallback(Harness):
     def test_row_11_no_baseline_or_other_context_is_roster_unavailable(self):
         self.transport.responses.append((403, {}, b''))
         outcome = self.run_once()
-        self.assertEqual((outcome.status, outcome.snapshot, outcome.context), (generation.ROSTER_UNAVAILABLE, None, None))
+        self.assertEqual((outcome.status, outcome.snapshot, outcome.context),
+                         (generation.ROSTER_UNAVAILABLE, None, None))
         self.baseline()
         other = self.make(scope='other_recipient')
         self.transport.responses.append((403, {}, b''))

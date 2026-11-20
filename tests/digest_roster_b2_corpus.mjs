@@ -74,6 +74,11 @@ const liveOn = ELIGIBLE.filter(deployments => deployments !== paper && INSTANCES
 scenarios.four_on = await withStore(async store => {
   for (const deployments of ELIGIBLE) if (deployments !== paper && !liveOn.includes(deployments)) await off(deployments)(store);
 });
+// The four-on cohort with one group's applied rows lost (live, then paper).
+const fourOn = async store => { for (const deployments of ELIGIBLE) if (deployments !== paper && !liveOn.includes(deployments)) await off(deployments)(store); };
+const lose = deployments => store => { for (const deployment of deployments) run(store, "DELETE FROM account_management_applied WHERE platform = ? AND account_key = ?", ...ref(deployment)); };
+scenarios.four_on_live_missing = await withStore(async store => { await fourOn(store); lose(liveOn[0])(store); });
+scenarios.four_on_paper_missing = await withStore(async store => { await fourOn(store); lose(paper)(store); });
 const liveOff = ELIGIBLE.filter(deployments => deployments.length === 1 && deployments !== paper
   && INSTANCES.find(item => `${item.platform}/${item.key}` === deployments[0]).config.broker_environment === "live").at(-1);
 scenarios.one_off = await withStore(off(liveOff));

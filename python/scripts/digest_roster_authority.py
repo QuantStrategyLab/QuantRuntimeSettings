@@ -630,7 +630,8 @@ def validate_artifact(document):
         _exact(group, ARTIFACT_GROUP_KEYS, 'enrollment_artifact_invalid')
         pairs = group['deployments']
         if (not isinstance(pairs, list) or not pairs
-                or not all(isinstance(pair, list) and len(pair) == 2 and all(map(_identifier, pair)) for pair in pairs)):
+                or not all(isinstance(pair, list) and len(pair) == 2 and all(map(_identifier, pair))
+                           for pair in pairs)):
             _fail('enrollment_artifact_invalid')
         pairs = [tuple(pair) for pair in pairs]
         if seen & set(pairs) or len(set(pairs)) != len(pairs):
@@ -661,7 +662,8 @@ def validate_artifact(document):
                     or not (binding['opaque_account_uid'] is None or _identifier(binding['opaque_account_uid']))):
                 _fail('enrollment_artifact_invalid')
             sources.add(binding['binding_id'])
-    if not all(CODE.fullmatch(name) and type(count) is int and count > 0 for name, count in document['rejected'].items()):
+    if not all(CODE.fullmatch(name) and type(count) is int and count > 0
+               for name, count in document['rejected'].items()):
         _fail('enrollment_artifact_invalid')
 
 
@@ -675,7 +677,8 @@ def _projection_groups(projection, live):
         _fail('projection_invalid')
     groups = []
     for account in accounts:
-        pairs = tuple(sorted((item.get('platform'), item.get('legacy_key')) for item in account.get('deployments') or []))
+        pairs = tuple(sorted((item.get('platform'), item.get('legacy_key'))
+                             for item in account.get('deployments') or []))
         revision = account.get('configuration_revision') or {}
         if (revision.get('instances') != live.instance_revision
                 or revision.get('mapping_policy') != live.policy_revision):
@@ -769,14 +772,16 @@ def prepare_enrollment_artifact(*, readback, effective_records, projection, inst
             if reason:
                 rejected[reason] += 1
                 continue
-            runs.append({**dict(zip(BINDING_FIELDS, identity)), 'strategy_profile': roster[identity]['strategy_profile']})
+            runs.append({**dict(zip(BINDING_FIELDS, identity)),
+                         'strategy_profile': roster[identity]['strategy_profile']})
         labels = []
         for pair in pairs:
             label = (configured.get(pair) or {}).get('label')
             if isinstance(label, str) and label and safe_display_text(label) == label:
                 labels.append([*pair, label])
         groups.append({'deployments': [list(pair) for pair in pairs], 'labels': labels,
-                       'legacy_run_bindings': sorted(runs, key=lambda row: tuple(row[name] for name in RUN_BINDING_FIELDS)),
+                       'legacy_run_bindings': sorted(
+                           runs, key=lambda row: tuple(row[name] for name in RUN_BINDING_FIELDS)),
                        'observation_bindings': []})
 
     owners = {pair: index for index, group in enumerate(live.groups) for pair in group.deployments}
@@ -795,7 +800,8 @@ def prepare_enrollment_artifact(*, readback, effective_records, projection, inst
         elif binding['broker_environment'] != live.groups[index].scope:
             reason = 'observation_scope_inconsistent'
         elif binding['opaque_account_uid'] is not None and binding['opaque_account_uid'] not in {
-                run['opaque_account_uid'] for run in groups[index]['legacy_run_bindings'] if run['platform_id'] == pair[0]}:
+                run['opaque_account_uid'] for run in groups[index]['legacy_run_bindings']
+                if run['platform_id'] == pair[0]}:
             reason = 'observation_identity_unenrolled'
         elif not all(_identifier(binding[name]) for name in OBSERVATION_BINDING_FIELDS if name != 'opaque_account_uid'):
             reason = 'observation_binding_invalid'
@@ -864,8 +870,9 @@ def compose_generation(observation, artifact):
     if (artifact.instance_revision != observation.instance_revision
             or artifact.policy_revision != observation.policy_revision):
         _fail('structural_revision_mismatch', CONFLICT)
-    structure = {frozenset(tuple(pair) for pair in group['deployments']): group for group in artifact.document['groups']}
-    if len(structure) != len(artifact.document['groups']) or set(structure) != {group.key for group in observation.groups}:
+    structural = artifact.document['groups']
+    structure = {frozenset(tuple(pair) for pair in group['deployments']): group for group in structural}
+    if len(structure) != len(structural) or set(structure) != {group.key for group in observation.groups}:
         _fail('grouping_mismatch', CONFLICT)
     groups = []
     for live in observation.groups:

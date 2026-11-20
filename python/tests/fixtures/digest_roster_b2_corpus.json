@@ -1123,6 +1123,609 @@
       ],
       "uncovered_deployments": []
     },
+    "four_on_live_missing": {
+      "ok": true,
+      "format": "qsl_account_management_readback.v1",
+      "evidence_scope": "runtime_instances_sqlite",
+      "status": "available",
+      "reasons": [],
+      "observed_at": "2026-11-19T23:00:00.000Z",
+      "instance_revision": 41,
+      "effective_export": {
+        "format": "qsl_account_management_effective_export.v1",
+        "instance_revision": 41,
+        "policy_revision": 3,
+        "records": [
+          {
+            "platform": "ibkr",
+            "legacy_key": "syn-acct-02",
+            "management_enabled": true,
+            "revision": 1,
+            "effective_at": "2026-11-19T20:00:04.000Z"
+          },
+          {
+            "platform": "ibkr",
+            "legacy_key": "syn-acct-03",
+            "management_enabled": true,
+            "revision": 1,
+            "effective_at": "2026-11-19T20:00:06.000Z"
+          },
+          {
+            "platform": "ibkr",
+            "legacy_key": "syn-acct-04",
+            "management_enabled": false,
+            "revision": 2,
+            "effective_at": "2026-11-19T20:00:20.000Z"
+          },
+          {
+            "platform": "schwab",
+            "legacy_key": "syn-acct-05",
+            "management_enabled": false,
+            "revision": 2,
+            "effective_at": "2026-11-19T20:00:22.000Z"
+          },
+          {
+            "platform": "longbridge",
+            "legacy_key": "syn-acct-06",
+            "management_enabled": false,
+            "revision": 2,
+            "effective_at": "2026-11-19T20:00:24.000Z"
+          },
+          {
+            "platform": "longbridge",
+            "legacy_key": "syn-acct-07",
+            "management_enabled": true,
+            "revision": 1,
+            "effective_at": "2026-11-19T20:00:14.000Z"
+          },
+          {
+            "platform": "binance",
+            "legacy_key": "syn-acct-09",
+            "management_enabled": false,
+            "revision": 2,
+            "effective_at": "2026-11-19T20:00:26.000Z"
+          },
+          {
+            "platform": "firstrade",
+            "legacy_key": "syn-acct-10",
+            "management_enabled": false,
+            "revision": 2,
+            "effective_at": "2026-11-19T20:00:28.000Z"
+          }
+        ]
+      },
+      "policy_revision": 3,
+      "policy_status": "available",
+      "physical_grouping_complete": true,
+      "counts": {
+        "physical_accounts": 10,
+        "display_deployments": 11,
+        "uncovered_deployments": 0,
+        "managed": 3,
+        "management_disabled": 5,
+        "not_under_management": 1,
+        "unknown": 1
+      },
+      "groups": [
+        {
+          "management_class": "eligible",
+          "management_status": "management_disabled",
+          "evidence_state": "known",
+          "reasons": [],
+          "scope": "unknown",
+          "processing_eligible": false,
+          "processing_denial": "management_disabled",
+          "applied": {
+            "management_enabled": false,
+            "revision": 2,
+            "effective_at": "2026-11-19T20:00:26.000Z"
+          },
+          "deployments": [
+            {
+              "platform": "binance",
+              "key": "syn-acct-09",
+              "present": true
+            }
+          ]
+        },
+        {
+          "management_class": "eligible",
+          "management_status": "management_disabled",
+          "evidence_state": "known",
+          "reasons": [],
+          "scope": "unknown",
+          "processing_eligible": false,
+          "processing_denial": "management_disabled",
+          "applied": {
+            "management_enabled": false,
+            "revision": 2,
+            "effective_at": "2026-11-19T20:00:28.000Z"
+          },
+          "deployments": [
+            {
+              "platform": "firstrade",
+              "key": "syn-acct-10",
+              "present": true
+            }
+          ]
+        },
+        {
+          "management_class": "eligible",
+          "management_status": "unknown",
+          "evidence_state": "unknown",
+          "reasons": [
+            "effective_state_missing"
+          ],
+          "scope": "live",
+          "processing_eligible": false,
+          "processing_denial": "management_status_unknown",
+          "applied": null,
+          "deployments": [
+            {
+              "platform": "ibkr",
+              "key": "syn-acct-01",
+              "present": true
+            },
+            {
+              "platform": "ibkr",
+              "key": "syn-acct-01-b",
+              "present": true
+            }
+          ]
+        },
+        {
+          "management_class": "eligible",
+          "management_status": "managed",
+          "evidence_state": "known",
+          "reasons": [],
+          "scope": "live",
+          "processing_eligible": true,
+          "processing_denial": null,
+          "applied": {
+            "management_enabled": true,
+            "revision": 1,
+            "effective_at": "2026-11-19T20:00:04.000Z"
+          },
+          "deployments": [
+            {
+              "platform": "ibkr",
+              "key": "syn-acct-02",
+              "present": true
+            }
+          ]
+        },
+        {
+          "management_class": "eligible",
+          "management_status": "managed",
+          "evidence_state": "known",
+          "reasons": [],
+          "scope": "live",
+          "processing_eligible": true,
+          "processing_denial": null,
+          "applied": {
+            "management_enabled": true,
+            "revision": 1,
+            "effective_at": "2026-11-19T20:00:06.000Z"
+          },
+          "deployments": [
+            {
+              "platform": "ibkr",
+              "key": "syn-acct-03",
+              "present": true
+            }
+          ]
+        },
+        {
+          "management_class": "eligible",
+          "management_status": "management_disabled",
+          "evidence_state": "known",
+          "reasons": [],
+          "scope": "live",
+          "processing_eligible": false,
+          "processing_denial": "management_disabled",
+          "applied": {
+            "management_enabled": false,
+            "revision": 2,
+            "effective_at": "2026-11-19T20:00:20.000Z"
+          },
+          "deployments": [
+            {
+              "platform": "ibkr",
+              "key": "syn-acct-04",
+              "present": true
+            }
+          ]
+        },
+        {
+          "management_class": "eligible",
+          "management_status": "management_disabled",
+          "evidence_state": "known",
+          "reasons": [],
+          "scope": "live",
+          "processing_eligible": false,
+          "processing_denial": "management_disabled",
+          "applied": {
+            "management_enabled": false,
+            "revision": 2,
+            "effective_at": "2026-11-19T20:00:24.000Z"
+          },
+          "deployments": [
+            {
+              "platform": "longbridge",
+              "key": "syn-acct-06",
+              "present": true
+            }
+          ]
+        },
+        {
+          "management_class": "eligible",
+          "management_status": "managed",
+          "evidence_state": "known",
+          "reasons": [],
+          "scope": "paper",
+          "processing_eligible": true,
+          "processing_denial": null,
+          "applied": {
+            "management_enabled": true,
+            "revision": 1,
+            "effective_at": "2026-11-19T20:00:14.000Z"
+          },
+          "deployments": [
+            {
+              "platform": "longbridge",
+              "key": "syn-acct-07",
+              "present": true
+            }
+          ]
+        },
+        {
+          "management_class": "display_only",
+          "management_status": "not_under_management",
+          "evidence_state": "known",
+          "reasons": [
+            "effective_state_missing"
+          ],
+          "scope": "live",
+          "processing_eligible": false,
+          "processing_denial": "management_not_under_management",
+          "applied": null,
+          "deployments": [
+            {
+              "platform": "longbridge",
+              "key": "syn-acct-08",
+              "present": true
+            }
+          ]
+        },
+        {
+          "management_class": "eligible",
+          "management_status": "management_disabled",
+          "evidence_state": "known",
+          "reasons": [],
+          "scope": "unknown",
+          "processing_eligible": false,
+          "processing_denial": "management_disabled",
+          "applied": {
+            "management_enabled": false,
+            "revision": 2,
+            "effective_at": "2026-11-19T20:00:22.000Z"
+          },
+          "deployments": [
+            {
+              "platform": "schwab",
+              "key": "syn-acct-05",
+              "present": true
+            }
+          ]
+        }
+      ],
+      "uncovered_deployments": []
+    },
+    "four_on_paper_missing": {
+      "ok": true,
+      "format": "qsl_account_management_readback.v1",
+      "evidence_scope": "runtime_instances_sqlite",
+      "status": "available",
+      "reasons": [],
+      "observed_at": "2026-11-19T23:00:00.000Z",
+      "instance_revision": 41,
+      "effective_export": {
+        "format": "qsl_account_management_effective_export.v1",
+        "instance_revision": 41,
+        "policy_revision": 3,
+        "records": [
+          {
+            "platform": "ibkr",
+            "legacy_key": "syn-acct-01",
+            "management_enabled": true,
+            "revision": 1,
+            "effective_at": "2026-11-19T20:00:02.000Z"
+          },
+          {
+            "platform": "ibkr",
+            "legacy_key": "syn-acct-01-b",
+            "management_enabled": true,
+            "revision": 1,
+            "effective_at": "2026-11-19T20:00:02.000Z"
+          },
+          {
+            "platform": "ibkr",
+            "legacy_key": "syn-acct-02",
+            "management_enabled": true,
+            "revision": 1,
+            "effective_at": "2026-11-19T20:00:04.000Z"
+          },
+          {
+            "platform": "ibkr",
+            "legacy_key": "syn-acct-03",
+            "management_enabled": true,
+            "revision": 1,
+            "effective_at": "2026-11-19T20:00:06.000Z"
+          },
+          {
+            "platform": "ibkr",
+            "legacy_key": "syn-acct-04",
+            "management_enabled": false,
+            "revision": 2,
+            "effective_at": "2026-11-19T20:00:20.000Z"
+          },
+          {
+            "platform": "schwab",
+            "legacy_key": "syn-acct-05",
+            "management_enabled": false,
+            "revision": 2,
+            "effective_at": "2026-11-19T20:00:22.000Z"
+          },
+          {
+            "platform": "longbridge",
+            "legacy_key": "syn-acct-06",
+            "management_enabled": false,
+            "revision": 2,
+            "effective_at": "2026-11-19T20:00:24.000Z"
+          },
+          {
+            "platform": "binance",
+            "legacy_key": "syn-acct-09",
+            "management_enabled": false,
+            "revision": 2,
+            "effective_at": "2026-11-19T20:00:26.000Z"
+          },
+          {
+            "platform": "firstrade",
+            "legacy_key": "syn-acct-10",
+            "management_enabled": false,
+            "revision": 2,
+            "effective_at": "2026-11-19T20:00:28.000Z"
+          }
+        ]
+      },
+      "policy_revision": 3,
+      "policy_status": "available",
+      "physical_grouping_complete": true,
+      "counts": {
+        "physical_accounts": 10,
+        "display_deployments": 11,
+        "uncovered_deployments": 0,
+        "managed": 3,
+        "management_disabled": 5,
+        "not_under_management": 1,
+        "unknown": 1
+      },
+      "groups": [
+        {
+          "management_class": "eligible",
+          "management_status": "management_disabled",
+          "evidence_state": "known",
+          "reasons": [],
+          "scope": "unknown",
+          "processing_eligible": false,
+          "processing_denial": "management_disabled",
+          "applied": {
+            "management_enabled": false,
+            "revision": 2,
+            "effective_at": "2026-11-19T20:00:26.000Z"
+          },
+          "deployments": [
+            {
+              "platform": "binance",
+              "key": "syn-acct-09",
+              "present": true
+            }
+          ]
+        },
+        {
+          "management_class": "eligible",
+          "management_status": "management_disabled",
+          "evidence_state": "known",
+          "reasons": [],
+          "scope": "unknown",
+          "processing_eligible": false,
+          "processing_denial": "management_disabled",
+          "applied": {
+            "management_enabled": false,
+            "revision": 2,
+            "effective_at": "2026-11-19T20:00:28.000Z"
+          },
+          "deployments": [
+            {
+              "platform": "firstrade",
+              "key": "syn-acct-10",
+              "present": true
+            }
+          ]
+        },
+        {
+          "management_class": "eligible",
+          "management_status": "managed",
+          "evidence_state": "known",
+          "reasons": [],
+          "scope": "live",
+          "processing_eligible": true,
+          "processing_denial": null,
+          "applied": {
+            "management_enabled": true,
+            "revision": 1,
+            "effective_at": "2026-11-19T20:00:02.000Z"
+          },
+          "deployments": [
+            {
+              "platform": "ibkr",
+              "key": "syn-acct-01",
+              "present": true
+            },
+            {
+              "platform": "ibkr",
+              "key": "syn-acct-01-b",
+              "present": true
+            }
+          ]
+        },
+        {
+          "management_class": "eligible",
+          "management_status": "managed",
+          "evidence_state": "known",
+          "reasons": [],
+          "scope": "live",
+          "processing_eligible": true,
+          "processing_denial": null,
+          "applied": {
+            "management_enabled": true,
+            "revision": 1,
+            "effective_at": "2026-11-19T20:00:04.000Z"
+          },
+          "deployments": [
+            {
+              "platform": "ibkr",
+              "key": "syn-acct-02",
+              "present": true
+            }
+          ]
+        },
+        {
+          "management_class": "eligible",
+          "management_status": "managed",
+          "evidence_state": "known",
+          "reasons": [],
+          "scope": "live",
+          "processing_eligible": true,
+          "processing_denial": null,
+          "applied": {
+            "management_enabled": true,
+            "revision": 1,
+            "effective_at": "2026-11-19T20:00:06.000Z"
+          },
+          "deployments": [
+            {
+              "platform": "ibkr",
+              "key": "syn-acct-03",
+              "present": true
+            }
+          ]
+        },
+        {
+          "management_class": "eligible",
+          "management_status": "management_disabled",
+          "evidence_state": "known",
+          "reasons": [],
+          "scope": "live",
+          "processing_eligible": false,
+          "processing_denial": "management_disabled",
+          "applied": {
+            "management_enabled": false,
+            "revision": 2,
+            "effective_at": "2026-11-19T20:00:20.000Z"
+          },
+          "deployments": [
+            {
+              "platform": "ibkr",
+              "key": "syn-acct-04",
+              "present": true
+            }
+          ]
+        },
+        {
+          "management_class": "eligible",
+          "management_status": "management_disabled",
+          "evidence_state": "known",
+          "reasons": [],
+          "scope": "live",
+          "processing_eligible": false,
+          "processing_denial": "management_disabled",
+          "applied": {
+            "management_enabled": false,
+            "revision": 2,
+            "effective_at": "2026-11-19T20:00:24.000Z"
+          },
+          "deployments": [
+            {
+              "platform": "longbridge",
+              "key": "syn-acct-06",
+              "present": true
+            }
+          ]
+        },
+        {
+          "management_class": "eligible",
+          "management_status": "unknown",
+          "evidence_state": "unknown",
+          "reasons": [
+            "effective_state_missing"
+          ],
+          "scope": "paper",
+          "processing_eligible": false,
+          "processing_denial": "management_status_unknown",
+          "applied": null,
+          "deployments": [
+            {
+              "platform": "longbridge",
+              "key": "syn-acct-07",
+              "present": true
+            }
+          ]
+        },
+        {
+          "management_class": "display_only",
+          "management_status": "not_under_management",
+          "evidence_state": "known",
+          "reasons": [
+            "effective_state_missing"
+          ],
+          "scope": "live",
+          "processing_eligible": false,
+          "processing_denial": "management_not_under_management",
+          "applied": null,
+          "deployments": [
+            {
+              "platform": "longbridge",
+              "key": "syn-acct-08",
+              "present": true
+            }
+          ]
+        },
+        {
+          "management_class": "eligible",
+          "management_status": "management_disabled",
+          "evidence_state": "known",
+          "reasons": [],
+          "scope": "unknown",
+          "processing_eligible": false,
+          "processing_denial": "management_disabled",
+          "applied": {
+            "management_enabled": false,
+            "revision": 2,
+            "effective_at": "2026-11-19T20:00:22.000Z"
+          },
+          "deployments": [
+            {
+              "platform": "schwab",
+              "key": "syn-acct-05",
+              "present": true
+            }
+          ]
+        }
+      ],
+      "uncovered_deployments": []
+    },
     "one_off": {
       "ok": true,
       "format": "qsl_account_management_readback.v1",

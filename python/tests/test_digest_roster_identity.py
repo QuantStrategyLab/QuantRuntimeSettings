@@ -104,7 +104,8 @@ class ByteIdentity(Base):
         for group in live['groups']:
             group['deployments'].reverse()
         live['groups'].reverse()
-        self.assertEqual(authority.validate_readback(live).vector(), authority.validate_readback(scenario('all_on')).vector())
+        self.assertEqual(authority.validate_readback(live).vector(),
+                         authority.validate_readback(scenario('all_on')).vector())
 
     def test_row_14_safe_label_changes_without_changing_identity(self):
         projection, links, roster, rows = inputs()
@@ -139,7 +140,8 @@ class Links(Base):
         relink(projection, links, roster, 1, candidate_slot=links[0]['candidate_slot'])
         cases['same_platform_slot_collision'] = ((projection, links, roster, rows), 2, 'link_ambiguous')
         projection, links, roster, rows = inputs()
-        next(row for row in rows if row['config']['key'] == links[2]['account_key'])['config']['account_selector'] = 'changed'
+        owner = next(row for row in rows if row['config']['key'] == links[2]['account_key'])
+        owner['config']['account_selector'] = 'changed'
         cases['changed_config_selector'] = ((projection, links, roster, rows), 1, 'link_config_changed')
         projection, links, roster, rows = inputs()
         other = next(account for account in projection['accounts'] if not account['enrollment_links'])
