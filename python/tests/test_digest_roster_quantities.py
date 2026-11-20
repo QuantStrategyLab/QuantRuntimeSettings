@@ -38,9 +38,14 @@ def observation(roster, deployments, facts=None, **changes):
             'facts': facts if facts is not None else {'holdings': [{'symbol': 'SYN', 'quantity': 1}]}, **changes}
 
 
+def bound(document):
+    """A document as read through the binding it names."""
+    return (document.get('binding_id'), document) if isinstance(document, dict) else (None, document)
+
+
 def compute(name, observed=(), rows=()):
     roster = roster_for(name)
-    admitted = quantities.admit_observations(roster, [factory(roster) for factory in observed], DAY, OBSERVED)
+    admitted = quantities.admit_observations(roster, [bound(factory(roster)) for factory in observed], DAY, OBSERVED)
     return roster, admitted, quantities.roster_quantities(roster, admitted, quantities.reduce_runs(roster, rows),
                                                           domains=('holdings',))
 

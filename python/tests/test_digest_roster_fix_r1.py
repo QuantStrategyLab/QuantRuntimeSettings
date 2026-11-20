@@ -418,5 +418,193 @@ class Group2ClosedV1(Base):
             envelope.validate_roster_envelope(document)
 
 
+IN_WINDOW = '2026-11-19T10:00:00Z'
+
+
+def _fill(fill_id, symbol='MSFT'):
+    return {'id': fill_id, 'order_id': f'o-{fill_id}', 'symbol': symbol, 'side': 'buy', 'quantity': 1,
+            'asset_type': 'stock', 'price': 10, 'currency': 'USD', 'occurred_at': IN_WINDOW}
+
+
+class Group3Facts(Base):
+    """F09-F13 and the payload/label bot cases at the Cloud generation path."""
+
+    def setUp(self):
+        super().setUp()
+        with patch.dict(os.environ, e2e._boot_env({'QSL_NOTIFY_LANG': 'en'}), clear=True):
+            self.cfg = app.Configuration.from_environment()
+
+    def generate(self, readback='all_on', rows=None, observations=(), filed=None, data=None, locale='en'):
+        if locale != 'en':
+            with patch.dict(os.environ, e2e._boot_env({'QSL_NOTIFY_LANG': locale}), clear=True):
+                cfg = app.Configuration.from_environment()
+        else:
+            cfg = self.cfg
+        source = SyntheticEnrollmentSource(data) if data is not None else self.source
+        transport = SyntheticTransport(ok(scenario(readback)), ok(scenario(readback)))
+        client = authority.AcquisitionClient(BOOT, SyntheticAuth(), transport)
+        runner = generation.GenerationRunner(BOOT, client, source, lambda: e2e.OBS_CLOCK,
+                                             generation.DisplaySnapshotStore(), recipient_scope='syn-scope')
+        store = MemoryStore(dict(rows or {}))
+        for path, document in (filed or {}).items():
+            store.rows.setdefault(path, {'observations': []})['observations'].append(document)
+        sent = []
+        code, result = e2e._slot_args(cfg, store, sent, runner=runner, raw_observations=observations)
+        self.assertEqual((code, result['delivery']), (200, 'accepted'))
+        return sent[0]
+
+    def binding(self, pair, readback='all_on'):
+        bindings = e2e.support.observation_bindings(scenario(readback))
+        return next(item for item in bindings if (item['platform'], item['legacy_key']) == pair)
+
+    @staticmethod
+    def path(binding):
+        return f"observations/{binding['platform']}/{e2e.DAY}/{binding['binding_id']}.json"
+
+    def coverage(self, text, scope):
+        line = next(line for line in text.splitlines() if line.startswith('Live coverage'))
+        if scope == 'paper':
+            return 'managed ' + line.split('Paper managed ')[1]
+        return line.split('Live coverage: ')[1].split(' | Paper')[0]
+
+    def test_f09_document_from_another_bindings_source_earns_nothing(self):
+        paper = self.binding(PAPER_PAIR)
+        live = self.binding(('ibkr', 'syn-acct-03'))
+        document = e2e._obs(paper, facts={'holdings': [{'symbol': 'AAPL', 'quantity': 2, 'asset_type': 'stock'}]})
+        text = self.generate(filed={self.path(live): document})
+        self.assertIn('managed 0/1, raw 0/1', self.coverage(text, 'paper'))
+        self.assertNotIn('AAPL', text)
+        control = self.generate(observations=[document])
+        self.assertIn('managed 1/1, raw 1/1', self.coverage(control, 'paper'))
+
+    def test_f10_stale_unsupported_or_malformed_observations_earn_nothing(self):
+        paper = self.binding(PAPER_PAIR)
+        live = self.binding(('ibkr', 'syn-acct-03'))
+        good = e2e._obs(live, facts={'holdings': [{'symbol': 'SPY', 'quantity': 3, 'asset_type': 'stock'}]})
+        cases = {
+            'four_days_old': e2e._obs(paper, facts={'holdings': [{'symbol': 'AAPL', 'quantity': 2}]},
+                                      observed_at='2026-11-15T23:00:00Z'),
+            'unsupported_domain': e2e._obs(paper, facts={'positions_v9': [{'symbol': 'AAPL'}]}),
+            'malformed_activity': e2e._obs(paper, facts={'activity': {'orders': 1}}),
+            'malformed_snapshot': e2e._obs(paper, facts={'snapshots': [None]}),
+            'malformed_position': e2e._obs(paper, facts={'holdings': [{'quantity': 'x'}]}),
+        }
+        for name, document in cases.items():
+            with self.subTest(name):
+                text = self.generate(observations=[document, good])
+                self.assertIn('managed 0/1, raw 0/1', self.coverage(text, 'paper'))
+                self.assertIn('SPY 3 shares', text, 'the other groups still render')
+                self.assertEqual(text.count('🏦 '), 10)
+        empty = self.generate(observations=[e2e._obs(paper, facts={'holdings': []})])
+        self.assertIn('managed 1/1, raw 1/1', self.coverage(empty, 'paper'), 'explicit empty observation')
+
+    def pair_rows(self, fills_by_slot):
+        links = FIXTURE['enrollment_links']
+        rows = {}
+        for index, fills in fills_by_slot.items():
+            link = links[index]
+            binding = {**{name: link[name] for name in authority.BINDING_FIELDS},
+                       'strategy_profile': f'syn_profile_{index}'}
+            rows[f"ibkr/{e2e.DAY}/{link['candidate_slot']}.json"] = {'runs': [e2e._run_row(
+                binding, run_id=f'run-{index}', fills=len(fills), orders=len(fills),
+                extra={'account_daily_facts': {'fills': fills}})]}
+        return rows
+
+    def test_f11_one_legacy_fill_contributes_once_across_group_and_account(self):
+        text = self.generate(rows=self.pair_rows({0: [_fill('f-1')]}))
+        self.assertIn('Fills: 1', text)
+        self.assertNotIn('Fills: 2', text)
+        # The same fact presented by both sibling deployments is one fact;
+        # two distinct facts remain two.
+        self.assertIn('Fills: 1', self.generate(rows=self.pair_rows({0: [_fill('f-1')], 1: [_fill('f-1')]})))
+        self.assertIn('Fills: 2', self.generate(rows=self.pair_rows({0: [_fill('f-1')], 1: [_fill('f-2')]})))
+
+    def test_f11_distinct_sibling_uids_keep_both_identities_once(self):
+        links = deepcopy(FIXTURE['enrollment_links'])
+        original = links[1]['opaque_account_uid']
+        links[1]['opaque_account_uid'] = 'uid:SYN-Opaque/01-sibling'
+        projection = deepcopy(e2e.support.preparation('complete')['projection'])
+        for account in projection['accounts']:
+            for item in account.get('enrollment_links') or []:
+                if item.get('candidate_slot') == links[1]['candidate_slot']:
+                    item['opaque_account_uid'] = links[1]['opaque_account_uid']
+        data, _ = prepare(links=links, roster=legacy_roster(links), projection=projection)
+        artifact = json.loads(data)
+        pair_group = next(group for group in artifact['groups'] if len(group['deployments']) == 2)
+        self.assertEqual({run['opaque_account_uid'] for run in pair_group['legacy_run_bindings']},
+                         {links[0]['opaque_account_uid'], links[1]['opaque_account_uid']})
+        self.assertNotEqual(original, links[1]['opaque_account_uid'])
+        rows = {}
+        for index, fill in ((0, _fill('f-1')), (1, _fill('f-2'))):
+            link = links[index]
+            binding = {**{name: link[name] for name in authority.BINDING_FIELDS},
+                       'strategy_profile': f'syn_profile_{index}'}
+            rows[f"ibkr/{e2e.DAY}/{link['candidate_slot']}.json"] = {'runs': [e2e._run_row(
+                binding, run_id=f'run-{index}', fills=1, orders=1, extra={'account_daily_facts': {'fills': [fill]}})]}
+        text = self.generate(rows=rows, data=data)
+        self.assertIn('Fills: 2', text)
+        self.assertEqual(text.count('🏦 '), 10)
+
+    def test_f12_all_positions_of_one_observation_render(self):
+        live = self.binding(('ibkr', 'syn-acct-03'))
+        positions = [{'symbol': symbol, 'quantity': 1, 'asset_type': 'stock'} for symbol in ('AAPL', 'MSFT', 'NVDA')]
+        text = self.generate(observations=[e2e._obs(live, facts={'holdings': positions})])
+        for symbol in ('AAPL', 'MSFT', 'NVDA'):
+            self.assertIn(f'{symbol} 1 share', text)
+
+    def test_f12_240_holdings_are_all_accounted_in_both_locales(self):
+        rows = instances()
+        for index, row in enumerate(rows):
+            row['config']['label'] = f'🌟Acct-{index:02d}-' + 'L' * (70 - len(f'🌟Acct-{index:02d}-'))
+        data, _ = prepare(instance_rows=rows)
+        readback = scenario('missing_one')
+        bindings = e2e.support.observation_bindings(readback)
+        observations = [e2e._obs(binding, facts={'holdings': [
+            {'symbol': f'S{number:02d}P{position:02d}', 'quantity': position + 1, 'asset_type': 'stock'}
+            for position in range(30)]}) for number, binding in enumerate(bindings)]
+        self.assertEqual(len(observations), 7)
+        link = FIXTURE['enrollment_links'][3]          # an unknown-scope group with a run binding
+        binding = {**{name: link[name] for name in authority.BINDING_FIELDS}, 'strategy_profile': 'syn_profile_3'}
+        snapshot = {'as_of': '2026-11-19T21:00:00Z', 'holdings': [
+            {'symbol': f'L{position:02d}', 'quantity': 1, 'asset_type': 'stock'} for position in range(30)]}
+        legacy = {f"{link['platform_id']}/{e2e.DAY}/{link['candidate_slot']}.json": {'runs': [e2e._run_row(
+            binding, run_id='run-l', extra={'account_daily_facts': {'snapshots': [snapshot]}})]}}
+        for locale, pattern in (('en', r'(\d+) items omitted \(holdings: (\d+) shown, (\d+) omitted\)'),
+                                ('zh', r'另有 (\d+) 项省略（持仓展示 (\d+) 项、省略 (\d+) 项）')):
+            with self.subTest(locale=locale):
+                text = self.generate('missing_one', rows=legacy, observations=observations, data=data,
+                                     locale=locale)
+                self.assertLessEqual(len(text.encode('utf-16-le')) // 2, 3850)
+                headers = [line for line in text.splitlines() if line.startswith('🏦 ')]
+                self.assertEqual((len(headers), len(set(headers))), (10, 10))
+                rendered = sum(1 for line in text.splitlines() if re.match(r'(S\d\dP\d\d|L\d\d) ', line))
+                match = re.search(pattern, text)
+                shown, omitted = (int(match.group(2)), int(match.group(3))) if match else (rendered, 0)
+                self.assertEqual((shown, shown + omitted), (rendered, 240))
+                self.assertGreater(shown, 8)
+
+    def test_f13_paper_only_unknown_counts_one_paper_group(self):
+        text = self.generate('four_on_paper_missing')
+        self.assertIn('Paper scope: display 1 |', text)
+        self.assertIn('Live coverage: managed 0/3', text)
+        self.assertNotIn('live totals unavailable', text)
+
+    def test_label_suffixes_stay_distinct_against_existing_labels(self):
+        for labels in (('Account', 'Account', 'Account 1'), (None, None, 'Account 1')):
+            for locale in ('en', 'zh'):
+                with self.subTest(labels=labels, locale=locale):
+                    rows = instances()
+                    ibkr = [row for row in rows if row['platform'] == 'ibkr' and row['config']['key'] in
+                            ('syn-acct-02', 'syn-acct-03', 'syn-acct-04')]
+                    default = '账户' if locale == 'zh' else 'Account'
+                    for row, label in zip(ibkr, labels, strict=True):
+                        row['config']['label'] = (label.replace('Account', default) if label else None)
+                    text = self.generate(data=prepare(instance_rows=rows)[0], locale=locale)
+                    headers = [line for line in text.splitlines() if line.startswith('🏦 ')]
+                    self.assertEqual((len(headers), len(set(headers))), (10, 10))
+                    self.assertEqual(sum('quant management' in line.lower() or '量化管理' in line
+                                         for line in text.splitlines()), 10)
+
+
 if __name__ == '__main__':
     unittest.main()

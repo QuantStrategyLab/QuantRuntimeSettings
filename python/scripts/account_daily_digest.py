@@ -729,29 +729,52 @@ def _expectation_for_group(group, expectations):
 
 
 def _group_facts(group, facts):
-    merged = {'orders': [], 'fills': [], 'snapshots': []}
+    """The group's merged facts. Orders, fills and snapshots come only from
+    the physical-group entry (merged once per fact upstream); account-keyed
+    entries contribute only separately sourced wallet and cash values."""
+    merged = {'orders': [], 'fills': [], 'snapshots': [], 'holdings': []}
     if not isinstance(facts, Mapping):
         return merged
     pairs = tuple((d['platform'], d['legacy_key']) for d in group['deployments'])
-    keys = [pairs, *pairs]
-    for binding in group.get('legacy_run_bindings', ()):
-        keys.append((binding['platform_id'], binding['opaque_account_uid']))
-    seen = set()
-    for key in keys:
-        if key in seen:
-            continue
-        seen.add(key)
+    entry = facts.get(pairs)
+    if isinstance(entry, Mapping):
+        for kind in merged:
+            values = entry.get(kind)
+            if isinstance(values, list):
+                merged[kind].extend(value for value in values if isinstance(value, Mapping))
+    accounts = sorted({(binding['platform_id'], binding['opaque_account_uid'])
+                       for binding in group.get('legacy_run_bindings', ())})
+    for key in accounts:
         entry = facts.get(key)
         if not isinstance(entry, Mapping):
             continue
-        for kind in ('orders', 'fills', 'snapshots'):
-            values = entry.get(kind)
-            if isinstance(values, list):
-                merged[kind].extend(values)
         for extra in ('wallet_valuation', 'settled_cash'):
             if extra in entry and extra not in merged:
                 merged[extra] = entry[extra]
     return merged
+
+
+def _distinct_labels(resolved):
+    """Per platform, keep a label that occurs once and number repeated ones,
+    skipping every original or already allocated label so that no two
+    headers of the same platform are equal."""
+    counts, used = {}, {}
+    for platform, label in resolved:
+        counts[(platform, label)] = counts.get((platform, label), 0) + 1
+        used.setdefault(platform, set()).add(label)
+    result, next_index = [], {}
+    for platform, label in resolved:
+        if counts[(platform, label)] == 1:
+            result.append(label)
+            continue
+        index = next_index.get((platform, label), 1)
+        while f'{label} {index}' in used[platform]:
+            index += 1
+        allocated = f'{label} {index}'
+        used[platform].add(allocated)
+        next_index[(platform, label)] = index + 1
+        result.append(allocated)
+    return result
 
 
 def _render_mapped_daily(payload, outcomes, *, facts=None, known_platforms=(), max_units=3850,
@@ -803,9 +826,12 @@ def _render_mapped_daily(payload, outcomes, *, facts=None, known_platforms=(), m
                     label = ibkr_id
                     break
         if not label:
+            private = {value for binding in (*g.get('legacy_run_bindings', ()), *g.get('observation_bindings', ()))
+                       for value in binding.values() if isinstance(value, str)}
             for item in g.get('labels', ()):
                 cand = item.get('label', '')
-                if isinstance(cand, str) and cand and len(cand) <= 70 and safe_display_text(cand) == cand:
+                if (isinstance(cand, str) and cand and len(cand) <= 70 and safe_display_text(cand) == cand
+                        and cand not in private):
                     label = cand
                     break
         if not label:
@@ -813,17 +839,9 @@ def _render_mapped_daily(payload, outcomes, *, facts=None, known_platforms=(), m
         used_per_platform.setdefault(primary_platform, []).append(label)
         resolved_labels.append((primary_platform, label))
 
-    counts_per_label = {}
-    for plat, lbl in resolved_labels:
-        counts_per_label[(plat, lbl)] = counts_per_label.get((plat, lbl), 0) + 1
-    seen_per_label = {}
     headers_for_groups = []
-    for g, (plat, lbl) in zip(raw_groups, resolved_labels, strict=True):
-        display_lbl = lbl
-        if counts_per_label[(plat, lbl)] > 1:
-            idx = seen_per_label.get((plat, lbl), 0) + 1
-            seen_per_label[(plat, lbl)] = idx
-            display_lbl = f'{lbl} {idx}'
+    for g, (plat, _), display_lbl in zip(raw_groups, resolved_labels, _distinct_labels(resolved_labels),
+                                         strict=True):
         platform_label = safe_display_text(display_name('platforms', plat, locale, fallback=plat)) or plat
         scope_tag = (' · 模拟' if zh else ' · paper') if g['scope'] == 'paper' else ''
         headers_for_groups.append(f'🏦 {platform_label} · {display_lbl}{scope_tag}')
@@ -872,7 +890,7 @@ def _render_mapped_daily(payload, outcomes, *, facts=None, known_platforms=(), m
             elif quantities['live_totals_reason'] == 'no_managed_non_paper_accounts':
                 live_line += '｜无已纳入管理的实盘账户' if zh else ' | no managed non-paper accounts'
             lines.append(live_line)
-            paper_disp = en_paper['eligible'] + en_paper['outside'] + en_paper['unknown']
+            paper_disp = disp.get('by_scope', {}).get('paper', 0)
             if paper_disp:
                 lines.append(
                     f"模拟作用域：展示 {paper_disp}｜已确认管理 {en_paper['confirmed']}｜未知 {en_paper['unknown']}"
@@ -951,12 +969,18 @@ def _render_mapped_daily(payload, outcomes, *, facts=None, known_platforms=(), m
                     1,
                 ))
             snaps = g_facts.get('snapshots') or []
-            if snaps:
-                latest = snaps[0]
-                eq = _balance_money(latest.get('equity'), latest.get('equity_currency'), unknown)
+            valued = next((snap for snap in snaps if snap.get('equity') is not None), None)
+            if valued is not None:
+                eq = _balance_money(valued.get('equity'), valued.get('equity_currency'), unknown)
                 if eq != unknown:
                     details.append((('总资产：' if zh else 'Total assets: ') + eq, 1))
-                for pos in latest.get('holdings') or []:
+            # Holdings come from one selected observation, all of its
+            # positions together: a holdings observation first, otherwise the
+            # first snapshot that lists holdings.
+            selected = next((snap for snap in (*(g_facts.get('holdings') or ()), *snaps)
+                             if isinstance(snap.get('holdings'), list)), None)
+            if selected is not None:
+                for pos in selected['holdings']:
                     if not isinstance(pos, Mapping):
                         continue
                     sym = _symbol(pos.get('symbol'), unknown, asset_type=pos.get('asset_type'))

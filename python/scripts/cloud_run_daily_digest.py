@@ -26,7 +26,7 @@ from account_daily_digest import render_account_daily, render_account_daily_unav
 from account_daily_facts import SIMULATION_MODES, collect_account_facts
 from daily_digest_delivery_store import GCSDeliveryStore, StoreUnavailable, location
 from digest_roster_authority import (
-    LEGACY_MODE, MAPPING_MODE, AcquisitionClient, AuthorityError, GenerationRoster,
+    LEGACY_MODE, MAPPING_MODE, OBSERVATION_BINDING_FIELDS, AcquisitionClient, AuthorityError, GenerationRoster,
     RosterBootConfig, SourceRead, generation_recipient_accounts, strict_json,
 )
 from digest_roster_envelope import ROSTER_FORMAT, build_roster_envelope
@@ -440,61 +440,76 @@ def _sources(configuration, store, day, end, *, now, monotonic, evidence=None):
                                 now=now, monotonic=monotonic, evidence=evidence)
 
 
-def _legacy_facts_to_observations(roster, rows, day, clock):
-    """Project verified non-simulated legacy account_daily_facts into typed observations."""
+def _fact_key(value):
+    return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(',', ':'), default=str)
+
+
+def _unique(values):
+    """Each record once, in first-seen order; distinct records are kept."""
+    seen, result = set(), []
+    for value in values:
+        key = _fact_key(value)
+        if key not in seen:
+            seen.add(key)
+            result.append(value)
+    return result
+
+
+def _legacy_group_facts(roster, rows, day):
+    """Verified non-simulated legacy account facts per physical group, merged
+    once per fact across every enrolled sibling identity of the group."""
     bindings = roster.run_bindings()
     if not bindings or not rows:
-        return []
+        return {}
     facts_by_account = collect_account_facts(rows, bindings, day)
+    result = {}
+    for group in roster.groups:
+        accounts = {(binding['platform_id'], binding['opaque_account_uid']) for binding in group.legacy_run_bindings}
+        merged = {'orders': [], 'fills': [], 'snapshots': []}
+        for account in sorted(accounts):
+            entry = facts_by_account.get(account) or {}
+            for kind in merged:
+                merged[kind].extend(item for item in entry.get(kind) or () if isinstance(item, dict))
+        merged = {kind: _unique(values) for kind, values in merged.items()}
+        if any(merged.values()):
+            result[group.deployments] = merged
+    return result
+
+
+def _legacy_facts_to_observations(roster, legacy, day, clock):
+    """Present verified legacy facts as observations of the group's own
+    observation binding, so they pass the same identity, time and domain
+    admission as typed observations. Returns (binding_id, document) reads."""
     clock_iso = clock.astimezone(UTC).isoformat(timespec='seconds').replace('+00:00', 'Z')
     derived = []
     for group in roster.groups:
-        if not group.observation_bindings:
+        merged = legacy.get(group.deployments)
+        if not merged or not group.observation_bindings:
             continue
-        uids = {b['opaque_account_uid'] for b in group.legacy_run_bindings}
-        obs_binding = group.observation_bindings[0]
-        account_fact = None
-        for uid in uids:
-            candidate = facts_by_account.get((obs_binding['platform'], uid))
-            if candidate:
-                account_fact = candidate
-                break
-        if not account_fact:
-            continue
+        binding = group.observation_bindings[0]
         domain_facts = {}
-        if account_fact.get('orders') or account_fact.get('fills'):
-            domain_facts['activity'] = {
-                'orders': account_fact.get('orders', []),
-                'fills': account_fact.get('fills', []),
-            }
-        snaps = account_fact.get('snapshots') or []
-        if snaps:
-            domain_facts['snapshots'] = snaps
-            if any(s.get('holdings') or s.get('holdings_complete') or s.get('no_stocks') or s.get('no_spot_earn')
-                   for s in snaps):
-                domain_facts['holdings'] = [s.get('holdings', []) for s in snaps]
-        if domain_facts:
-            derived.append({
-                'type': 'account_observation',
-                **{k: obs_binding[k] for k in ('binding_id', 'platform', 'legacy_key',
-                                               'opaque_account_uid', 'broker_environment', 'account_scope')},
-                'business_day': day,
-                'observed_at': clock_iso,
-                'facts': domain_facts,
-            })
+        if merged['orders'] or merged['fills']:
+            domain_facts['activity'] = {'orders': merged['orders'], 'fills': merged['fills']}
+        if merged['snapshots']:
+            domain_facts['snapshots'] = merged['snapshots']
+        derived.append((binding['binding_id'], {
+            'type': 'account_observation', **{name: binding[name] for name in OBSERVATION_BINDING_FIELDS},
+            'business_day': day, 'observed_at': clock_iso, 'facts': domain_facts,
+        }))
     return derived
 
 
-def _sources_mapping(roster, configuration, store, day, end, *, now, monotonic, evidence=None,
-                     raw_observations=()):
-    """Acquire legacy run candidates and typed account observations for one GenerationRoster."""
+def _sources_mapping(roster, configuration, store, day, end, *, now, monotonic, evidence=None):
+    """Acquire legacy run candidates and typed account observations for one
+    GenerationRoster. Every observation document stays paired with the
+    binding whose source returned it."""
     if not isinstance(roster, GenerationRoster):
         raise ValueError('generation_roster_required')
     run_bindings = roster.run_bindings()
     rows, outcomes, stale = _sources_for_bindings(
         run_bindings, configuration, store, day, end, now=now, monotonic=monotonic, evidence=evidence,
     )
-    typed_observations = list(raw_observations)
+    reads = []
     budget_end = monotonic() + min(120, max(0, (end - now()).total_seconds()))
     for group in roster.groups:
         for binding in group.observation_bindings:
@@ -502,7 +517,6 @@ def _sources_mapping(roster, configuration, store, day, end, *, now, monotonic, 
             if timeout <= 0:
                 continue
             try:
-                raw = None
                 if hasattr(store, 'observation'):
                     raw = store.observation(binding, day, timeout)
                 else:
@@ -510,23 +524,23 @@ def _sources_mapping(roster, configuration, store, day, end, *, now, monotonic, 
                                           timeout)
             except StoreUnavailable:
                 raw = None
-            if isinstance(raw, dict):
-                if isinstance(raw.get('observations'), list):
-                    typed_observations.extend(raw['observations'])
-                elif raw.get('type') == 'account_observation':
-                    typed_observations.append(raw)
+            if isinstance(raw, dict) and isinstance(raw.get('observations'), list):
+                documents = raw['observations']
             elif isinstance(raw, list):
-                typed_observations.extend(raw)
+                documents = raw
+            else:
+                documents = [raw] if isinstance(raw, dict) else []
+            reads.extend((binding['binding_id'], document) for document in documents)
     clock = now().astimezone(UTC)
     non_sim_rows = [r for r in rows if str(r.get('execution_mode') or '').strip().lower() not in SIMULATION_MODES]
-    typed_observations.extend(_legacy_facts_to_observations(roster, non_sim_rows, day, clock))
-    admitted = admit_observations(roster, typed_observations, day, clock)
+    legacy = _legacy_group_facts(roster, non_sim_rows, day)
+    reads.extend(_legacy_facts_to_observations(roster, legacy, day, clock))
+    admitted = admit_observations(roster, reads, day, clock)
     return {
         'rows': rows,
         'outcomes': outcomes,
         'stale': stale,
         'admitted': admitted,
-        'typed_observations': typed_observations,
         'evidence': list(evidence) if evidence is not None else None,
     }
 
@@ -571,28 +585,22 @@ def _digest_eligible_platforms(config, expected):
 
 
 def _admitted_facts_by_group(admitted):
-    """Decode admitted canonical typed observations keyed by group deployments."""
+    """Decode admitted typed observations per group: orders, fills, the
+    snapshots and, per holdings observation, one snapshot with all of its
+    positions. Each fact contributes once."""
     per_group = {}
     for deployments, entries in admitted.facts.items():
-        merged = {'orders': [], 'fills': [], 'snapshots': []}
+        merged = {'orders': [], 'fills': [], 'snapshots': [], 'holdings': []}
         for domain, raw_json in entries:
             data = json.loads(raw_json)
-            if domain == 'activity' and isinstance(data, dict):
+            if domain == 'activity':
                 merged['orders'].extend(data.get('orders') or [])
                 merged['fills'].extend(data.get('fills') or [])
-            elif domain == 'snapshots' and isinstance(data, list):
+            elif domain == 'snapshots':
                 merged['snapshots'].extend(data)
-            elif domain == 'snapshots' and isinstance(data, dict):
-                merged['snapshots'].append(data)
-            elif domain == 'holdings' and isinstance(data, list):
-                for item in data:
-                    if isinstance(item, dict) and 'holdings' in item:
-                        merged['snapshots'].append(item)
-                    elif isinstance(item, dict) and 'symbol' in item:
-                        merged['snapshots'].append({'holdings': [item], 'holdings_complete': False})
-                    elif isinstance(item, list):
-                        merged['snapshots'].append({'holdings': item, 'holdings_complete': False})
-        per_group[deployments] = merged
+            elif domain == 'holdings':
+                merged['holdings'].append({'holdings': data, 'holdings_complete': True})
+        per_group[deployments] = {kind: _unique(values) for kind, values in merged.items()}
     return per_group
 
 
@@ -623,22 +631,28 @@ def _report(configuration, rows, outcomes, day, platform_config, *, stale_observ
                                                                   domains=ACCOUNT_FACT_DOMAINS)
             non_sim_rows = [r for r in rows
                             if str(r.get('execution_mode') or '').strip().lower() not in SIMULATION_MODES]
-            facts = collect_account_facts(
-                [*non_sim_rows, *(row for row in stale_observations if isinstance(row, dict))],
-                roster.run_bindings(), day,
-            )
+            # One entry per physical group: verified typed and legacy records
+            # merged once per fact. Account-keyed entries carry only the
+            # separately sourced wallet valuation and settled cash.
+            facts = {}
             for observation in stale_observations:
                 if isinstance(observation, _BinanceWalletObservation):
-                    facts['binance', observation.account_uid]['wallet_valuation'] = {
+                    facts.setdefault(('binance', observation.account_uid), {})['wallet_valuation'] = {
                         'as_of': observation.as_of, 'amount': observation.amount,
                     }
                 elif isinstance(observation, _SettledCashObservation):
-                    facts['ibkr', observation.account_uid]['settled_cash'] = {
+                    facts.setdefault(('ibkr', observation.account_uid), {})['settled_cash'] = {
                         'amount': observation.amount, 'statement_date': observation.statement_date,
                     }
-            group_facts = _admitted_facts_by_group(admitted)
-            for deployments, g_data in group_facts.items():
-                facts[deployments] = g_data
+            typed = _admitted_facts_by_group(admitted)
+            legacy = _legacy_group_facts(
+                roster, [*non_sim_rows, *(row for row in stale_observations if isinstance(row, dict))], day)
+            for deployments in {*typed, *legacy}:
+                entry = {'orders': [], 'fills': [], 'snapshots': [], 'holdings': []}
+                for source in (typed.get(deployments) or {}, legacy.get(deployments) or {}):
+                    for kind in entry:
+                        entry[kind].extend(source.get(kind) or ())
+                facts[deployments] = {kind: _unique(values) for kind, values in entry.items()}
             telegram_ibkr = (
                 generation_recipient_accounts(roster, configuration.telegram_ibkr_raw, configuration.telegram_recipient)
                 if include_telegram_account_ids else {}
@@ -707,8 +721,7 @@ def _report(configuration, rows, outcomes, day, platform_config, *, stale_observ
 
 
 def execute(headers, configuration, store, send, *, preview=False, now=utc_now,
-            monotonic=clock.monotonic, platform_config=None, roster_runner=None,
-            raw_observations=()):
+            monotonic=clock.monotonic, platform_config=None, roster_runner=None):
     try:
         report_date, day, scheduled_at, check = report_slot(headers, configuration, now())
     except (ValueError, KeyError, TypeError, AttributeError) as error:
@@ -722,7 +735,7 @@ def execute(headers, configuration, store, send, *, preview=False, now=utc_now,
     return execute_slot(report_date, day, check, {'scheduled_at': scheduled_at.isoformat()},
                         configuration, store, send, preview=preview, now=now,
                         monotonic=monotonic, platform_config=platform_config,
-                        roster_runner=roster_runner, raw_observations=raw_observations)
+                        roster_runner=roster_runner)
 
 
 def _maybe_send_deadline_alert(report_date, day, schedule_record, configuration, store, send, *, now=utc_now):
@@ -781,7 +794,7 @@ class _UnavailableEnrollmentSource:
 
 def execute_slot(report_date, day, check, schedule_record, configuration, store, send, *,
                  preview=False, now=utc_now, monotonic=clock.monotonic, platform_config=None,
-                 roster_runner=None, raw_observations=()):
+                 roster_runner=None):
     """Run the unchanged business logic after the calling platform validates its trigger."""
     safe = {'report_date': report_date.isoformat(), 'business_day': day, 'delivery': 'not_attempted'}
     if not preview and now().astimezone(SGT).date() != report_date:
@@ -833,7 +846,6 @@ def execute_slot(report_date, day, check, schedule_record, configuration, store,
                 return _sources_mapping(
                     roster, configuration, store, day, read_end,
                     now=now, monotonic=monotonic, evidence=attempt_evidence,
-                    raw_observations=raw_observations,
                 )
 
             outcome = runner.run(collect_for_roster, deadline=read_end.astimezone(UTC))

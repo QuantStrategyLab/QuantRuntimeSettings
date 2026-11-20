@@ -99,6 +99,11 @@ def _obs(binding, *, facts, business_day=DAY, observed_at=None):
 def _slot_args(cfg, store, sent, *, preview=False, now_fn=None, provenance='cloud_scheduler',
                runner=None, raw_observations=()):
     schedule = {'scheduled_at': REPORT_DATE.isoformat(), 'trigger_provenance': provenance}
+    # Typed observations are filed at their own binding's storage path; the
+    # generation reads each binding's path and keeps that binding with it.
+    for document in raw_observations:
+        path = f"observations/{document['platform']}/{DAY}/{document['binding_id']}.json"
+        store.rows.setdefault(path, {'observations': []})['observations'].append(document)
     return app.execute_slot(
         REPORT_DATE.date(), DAY, False, schedule, cfg, store,
         lambda body: (sent.append(body), 101)[1],
@@ -106,7 +111,6 @@ def _slot_args(cfg, store, sent, *, preview=False, now_fn=None, provenance='clou
         now=now_fn or (lambda: REPORT_DATE),
         platform_config=_platform_config(),
         roster_runner=runner,
-        raw_observations=raw_observations,
     )
 
 

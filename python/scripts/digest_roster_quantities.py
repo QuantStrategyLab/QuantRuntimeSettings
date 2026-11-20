@@ -17,13 +17,16 @@ activity, run counts or coverage.
 from __future__ import annotations
 
 import json
+import math
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import date, datetime, time
 
 from account_daily_facts import SIMULATION_MODES
 from digest_roster_authority import (
-    CODE, MAX_FUTURE_SKEW, OBSERVATION_BINDING_FIELDS, GenerationRoster, parse_instant, trusted_clock,
+    MAX_FUTURE_SKEW, OBSERVATION_BINDING_FIELDS, GenerationRoster, parse_instant, trusted_clock,
 )
+from notification_snapshot.unified_contract import SGT
 
 PAPER, LIVE = 'paper', 'live'
 SCOPES = (LIVE, PAPER)
@@ -31,6 +34,50 @@ ANY_DOMAIN = 'any'
 OBSERVATION_TYPE = 'account_observation'
 OBSERVATION_KEYS = frozenset({'type', *OBSERVATION_BINDING_FIELDS, 'business_day', 'observed_at', 'facts'})
 RUN_IDENTITY = ('platform_id', 'opaque_account_uid', 'target_id', 'strategy_profile', 'source_run_id')
+SUPPORTED_DOMAINS = ('holdings', 'activity', 'snapshots')
+
+
+def _number(value):
+    return value is None or (type(value) in (int, float) and math.isfinite(value))
+
+
+def _text(value):
+    return value is None or isinstance(value, str)
+
+
+def _position(item):
+    return (isinstance(item, dict) and all(isinstance(name, str) for name in item)
+            and isinstance(item.get('symbol'), str) and bool(item['symbol'])
+            and _number(item.get('quantity')) and _text(item.get('asset_type')))
+
+
+def _record(item):
+    return isinstance(item, dict) and all(isinstance(name, str) for name in item)
+
+
+def _snapshot(item):
+    return (isinstance(item, dict) and all(isinstance(name, str) for name in item)
+            and _number(item.get('equity')) and _text(item.get('equity_currency')) and _text(item.get('as_of'))
+            and (item.get('holdings') is None
+                 or (isinstance(item['holdings'], list) and all(map(_position, item['holdings'])))))
+
+
+def domain_valid(domain, value):
+    """The nested shape each supported domain's consumers read. An explicit
+    empty list (or empty activity) is a supported empty observation."""
+    if domain == 'holdings':
+        return isinstance(value, list) and all(map(_position, value))
+    if domain == 'snapshots':
+        return isinstance(value, list) and all(map(_snapshot, value))
+    if domain == 'activity':
+        return (isinstance(value, dict) and set(value) <= {'orders', 'fills'}
+                and all(isinstance(value[name], list) and all(map(_record, value[name])) for name in value))
+    return False
+
+
+def reporting_window_start(business_day):
+    """Start of the SGT 06:00 business window of `business_day`."""
+    return datetime.combine(date.fromisoformat(business_day), time(6), SGT)
 
 
 def scope_of(group):
@@ -49,51 +96,64 @@ class AdmittedObservations:
     rejected: dict       # reason code -> count
 
 
-def admit_observations(roster, observations, business_day, clock):
+def admit_observations(roster, reads, business_day, clock):
     """Admit typed account observations against this generation's bindings.
 
-    Every bound field must match the binding exactly; the declared business
-    day must be the requested day and the observation time must be valid and
-    not later than the generation clock (plus the permitted skew). A run row
-    presented as an observation, a wrong owner, an ambiguous source or an
-    inconsistent environment/scope admits nothing. A raw row cannot create a
-    binding. An identical repeated observation contributes once.
+    `reads` holds `(requested_binding_id, observation)` pairs: each document
+    keeps the identity of the binding whose source returned it, and only a
+    document naming exactly that binding can be admitted. Every bound field
+    must match; the declared business day must be the requested day and the
+    observation time must lie between the start of that day's reporting
+    window and the generation clock (plus the permitted skew). Only the
+    supported domains with valid nested records are admitted; a run row, a
+    misfiled, stale, unsupported or malformed observation admits nothing. A
+    raw row cannot create a binding. An identical repeated observation
+    contributes once.
     """
     if not isinstance(roster, GenerationRoster):
         raise ValueError('generation_roster_required')
     clock = trusted_clock(clock)
+    earliest = reporting_window_start(business_day)
     bindings = {}
     for group in roster.groups:
         for binding in group.observation_bindings:
             bindings[binding['binding_id']] = (group, binding)
     facts, covered, rejected = defaultdict(dict), defaultdict(set), defaultdict(int)
-    for raw in observations:
+    for item in reads:
+        requested, raw = item if isinstance(item, tuple) and len(item) == 2 else (None, item)
         reason = None
         if not isinstance(raw, dict) or raw.get('type') != OBSERVATION_TYPE:
             presented_run = isinstance(raw, dict) and 'source_run_id' in raw
             reason = 'run_as_observation' if presented_run else 'observation_type_invalid'
         elif frozenset(raw) != OBSERVATION_KEYS:
             reason = 'observation_shape_invalid'
-        elif raw['binding_id'] not in bindings:
+        elif not isinstance(requested, str) or requested not in bindings:
             reason = 'observation_binding_unknown'
+        elif raw['binding_id'] != requested:
+            reason = 'observation_source_mismatch'
         else:
-            group, binding = bindings[raw['binding_id']]
+            group, binding = bindings[requested]
             observed = parse_instant(raw['observed_at'])
             if any(raw[name] != binding[name] for name in OBSERVATION_BINDING_FIELDS):
                 reason = 'observation_binding_mismatch'
             elif raw['business_day'] != business_day:
                 reason = 'observation_day_mismatch'
-            elif observed is None or observed > clock + MAX_FUTURE_SKEW:
+            elif observed is None or observed > clock + MAX_FUTURE_SKEW or observed < earliest:
                 reason = 'observation_time_invalid'
             elif (not isinstance(raw['facts'], dict) or not raw['facts']
-                  or not all(isinstance(name, str) and CODE.fullmatch(name) and name != ANY_DOMAIN
-                             and isinstance(value, (list, dict)) for name, value in raw['facts'].items())):
+                  or not all(isinstance(name, str) and name in SUPPORTED_DOMAINS and domain_valid(name, value)
+                             for name, value in raw['facts'].items())):
+                reason = 'observation_facts_invalid'
+        if not reason:
+            try:
+                encoded = [(domain, _canonical(value)) for domain, value in raw['facts'].items()]
+            except (TypeError, ValueError):
                 reason = 'observation_facts_invalid'
         if reason:
             rejected[reason] += 1
             continue
-        for domain, value in raw['facts'].items():
-            facts[group.deployments][(domain, _canonical(value))] = None
+        for domain, value in encoded:
+            facts[group.deployments][(domain, value)] = None
             covered[group.deployments].add(domain)
     return AdmittedObservations({key: tuple(value) for key, value in facts.items()},
                                 {key: frozenset(value) for key, value in covered.items()}, dict(rejected))
@@ -202,7 +262,8 @@ def roster_quantities(roster, admitted, runs, domains=()):
     display = sum(groups.values())
     eligible = sum(len(cohort[scope]['eligible']) for scope in SCOPES)
     result = {
-        'display': {'count': display, 'unresolved_deployments': unresolved, 'last_known': False},
+        'display': {'count': display, 'by_scope': dict(groups), 'unresolved_deployments': unresolved,
+                    'last_known': False},
         'eligible': {'count': eligible, 'unresolved': unresolved, 'denominator': display,
                      'total': eligible if unresolved == 0 else None},
         'enabled': {}, 'managed_coverage': {}, 'raw_coverage': {}, 'runs': runs,
