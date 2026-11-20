@@ -29,7 +29,7 @@ from digest_roster_authority import (
     LEGACY_MODE, MAPPING_MODE, AcquisitionClient, AuthorityError, GenerationRoster,
     RosterBootConfig, SourceRead, generation_recipient_accounts, strict_json,
 )
-from digest_roster_envelope import ROSTER_FORMAT, build_roster_envelope, validate_roster_envelope
+from digest_roster_envelope import ROSTER_FORMAT, build_roster_envelope
 from digest_roster_generation import CURRENT, FALLBACK, ROSTER_UNAVAILABLE, GenerationOutcome, GenerationRunner
 from digest_roster_quantities import (
     admit_observations, managed_run_bindings, reduce_runs, roster_quantities, unavailable_quantities,
@@ -100,8 +100,6 @@ class Configuration:
     telegram_ibkr_accounts: dict = field(default_factory=dict, repr=False)
     deadline_alert_enabled: bool = False
     roster_boot: RosterBootConfig | None = None
-    roster_outcome: GenerationOutcome | None = None
-    roster_envelope: dict | None = None
     management_expectations: dict | None = None
     telegram_ibkr_raw: str = field(default='', repr=False)
     telegram_recipient: str = field(default='', repr=False)
@@ -172,12 +170,6 @@ class Configuration:
                     location(uri)
                 except (TypeError, ValueError):
                     raise ValueError('digest_candidate_sources_invalid') from None
-            if self.roster_outcome is not None:
-                if not isinstance(self.roster_outcome, GenerationOutcome):
-                    raise ValueError('digest_roster_outcome_invalid')
-                build_roster_envelope(self.roster_outcome)
-            if self.roster_envelope is not None:
-                validate_roster_envelope(self.roster_envelope)
         date.fromisoformat(self.cutover_date)
         if not re.fullmatch(r'[a-zA-Z0-9_-]{1,64}', self.recipient_scope):
             raise ValueError('digest_recipient_scope_invalid')
@@ -608,7 +600,7 @@ def _report(configuration, rows, outcomes, day, platform_config, *, stale_observ
             include_telegram_account_ids=False, roster_outcome=None, admitted_observations=None,
             quantities=None):
     config = deepcopy(platform_config or aggregator.load_platform_config())
-    outcome = roster_outcome if roster_outcome is not None else configuration.roster_outcome
+    outcome = roster_outcome
     if configuration.is_mapping_mode or outcome is not None:
         if outcome is None:
             outcome = GenerationOutcome(ROSTER_UNAVAILABLE, None, failure_code='management_read_unavailable',
@@ -716,7 +708,7 @@ def _report(configuration, rows, outcomes, day, platform_config, *, stale_observ
 
 def execute(headers, configuration, store, send, *, preview=False, now=utc_now,
             monotonic=clock.monotonic, platform_config=None, roster_runner=None,
-            roster_outcome=None, raw_observations=()):
+            raw_observations=()):
     try:
         report_date, day, scheduled_at, check = report_slot(headers, configuration, now())
     except (ValueError, KeyError, TypeError, AttributeError) as error:
@@ -730,8 +722,7 @@ def execute(headers, configuration, store, send, *, preview=False, now=utc_now,
     return execute_slot(report_date, day, check, {'scheduled_at': scheduled_at.isoformat()},
                         configuration, store, send, preview=preview, now=now,
                         monotonic=monotonic, platform_config=platform_config,
-                        roster_runner=roster_runner, roster_outcome=roster_outcome,
-                        raw_observations=raw_observations)
+                        roster_runner=roster_runner, raw_observations=raw_observations)
 
 
 def _maybe_send_deadline_alert(report_date, day, schedule_record, configuration, store, send, *, now=utc_now):
@@ -772,6 +763,14 @@ def _maybe_send_deadline_alert(report_date, day, schedule_record, configuration,
         return
 
 
+def _runner_matches(runner, configuration):
+    """The runner must serve exactly the active protected boot configuration,
+    its enrollment source and context, and this recipient scope."""
+    boot = configuration.roster_boot
+    return (isinstance(runner, GenerationRunner) and configuration.is_mapping_mode and runner.boot == boot
+            and runner.key == (boot.enrollment_source, boot.config_context, configuration.recipient_scope))
+
+
 class _UnavailableEnrollmentSource:
     def read_selection(self):
         return SourceRead('', False, b'')
@@ -782,7 +781,7 @@ class _UnavailableEnrollmentSource:
 
 def execute_slot(report_date, day, check, schedule_record, configuration, store, send, *,
                  preview=False, now=utc_now, monotonic=clock.monotonic, platform_config=None,
-                 roster_runner=None, roster_outcome=None, raw_observations=()):
+                 roster_runner=None, raw_observations=()):
     """Run the unchanged business logic after the calling platform validates its trigger."""
     safe = {'report_date': report_date.isoformat(), 'business_day': day, 'delivery': 'not_attempted'}
     if not preview and now().astimezone(SGT).date() != report_date:
@@ -813,18 +812,22 @@ def execute_slot(report_date, day, check, schedule_record, configuration, store,
     evidence = None if preview else []
     if late and not preview:
         text, coverage = '', 'unavailable'
-    elif configuration.is_mapping_mode or roster_outcome is not None or roster_runner is not None:
+    elif configuration.is_mapping_mode or roster_runner is not None:
         read_end = now() + timedelta(seconds=120) if preview else stop
-        outcome = roster_outcome if roster_outcome is not None else configuration.roster_outcome
-        collected = None
-        if outcome is None:
-            runner = roster_runner
-            if runner is None:
-                runner = GenerationRunner(
-                    configuration.roster_boot, AcquisitionClient(configuration.roster_boot),
-                    _UnavailableEnrollmentSource(), now, recipient_scope=configuration.recipient_scope,
-                )
-
+        # Every mapped generation, preview included, acquires its own initial
+        # and confirming reads through a runner bound to this configuration's
+        # protected source, context and recipient. A runner for another scope
+        # is not consulted at all: neither its reads nor its display cache.
+        runner = roster_runner
+        if runner is None and configuration.is_mapping_mode:
+            runner = GenerationRunner(
+                configuration.roster_boot, AcquisitionClient(configuration.roster_boot),
+                _UnavailableEnrollmentSource(), now, recipient_scope=configuration.recipient_scope,
+            )
+        if not _runner_matches(runner, configuration):
+            outcome, collected = GenerationOutcome(ROSTER_UNAVAILABLE, None, failure_code='roster_scope_mismatch',
+                                                   failure_kind='unavailable'), None
+        else:
             def collect_for_roster(roster):
                 attempt_evidence = [] if evidence is not None else None
                 return _sources_mapping(
@@ -835,15 +838,6 @@ def execute_slot(report_date, day, check, schedule_record, configuration, store,
 
             outcome = runner.run(collect_for_roster, deadline=read_end.astimezone(UTC))
             collected = outcome.collected
-        elif outcome.status == CURRENT and outcome.context is not None:
-            collected = outcome.collected
-            if collected is None:
-                attempt_evidence = [] if evidence is not None else None
-                collected = _sources_mapping(
-                    outcome.context.roster, configuration, store, day, read_end,
-                    now=now, monotonic=monotonic, evidence=attempt_evidence,
-                    raw_observations=raw_observations,
-                )
         if outcome.status == CURRENT and isinstance(collected, dict):
             rows = collected['rows']
             outcomes = collected['outcomes']

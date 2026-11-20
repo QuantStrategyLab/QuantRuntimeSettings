@@ -50,12 +50,46 @@ class DisplaySnapshot:
         return parse_instant(self.observed_at)
 
 
+def compare_lineage(new, old):
+    """Order two validated observation vectors on their revision axes.
+
+    Returns `advanced` when any instance, policy or per-group applied revision
+    moved forward and `same` otherwise. A backwards revision on any axis, a
+    repeated applied revision with different content, or different structural
+    content (membership, class or scope) at the same instance and policy
+    revisions raises a conflict. A coherent management-only apply advances
+    the per-group applied revision without a structural change.
+    """
+    new_instance, new_policy, new_groups, new_uncovered = new
+    old_instance, old_policy, old_groups, old_uncovered = old
+    if new_instance < old_instance or new_policy < old_policy:
+        raise AuthorityError('revision_regressed', CONFLICT)
+    advanced = (new_instance, new_policy) != (old_instance, old_policy)
+    if not advanced and ({group[0]: (group[1], group[4]) for group in new_groups}
+                         != {group[0]: (group[1], group[4]) for group in old_groups}
+                         or new_uncovered != old_uncovered):
+        raise AuthorityError('revision_content_mismatch', CONFLICT)
+    prior = {group[0]: group[-1] for group in old_groups}
+    for group in new_groups:
+        applied, old_applied = group[-1], prior.get(group[0])
+        if applied is None or old_applied is None:
+            continue
+        if applied[1] < old_applied[1]:
+            raise AuthorityError('revision_regressed', CONFLICT)
+        if applied[1] == old_applied[1] and applied != old_applied:
+            raise AuthorityError('revision_content_mismatch', CONFLICT)
+        advanced = advanced or applied[1] > old_applied[1]
+    return 'advanced' if advanced else 'same'
+
+
 class DisplaySnapshotStore:
     """In-process last-validated display snapshots, replaced atomically.
 
-    A snapshot replaces the current one only when its observation is newer,
-    or equally new from a later-started generation; an older or concurrent
-    completion never regresses the cache.
+    Publication compares the candidate's lineage with the latest snapshot
+    under the lock. A regressed or contradictory lineage is refused, and the
+    generation that produced it cannot return current. An advanced lineage
+    replaces the snapshot; an equal lineage replaces it only when observed
+    later, or equally late by a later-started generation.
     """
 
     def __init__(self):
@@ -66,15 +100,26 @@ class DisplaySnapshotStore:
         with self._lock:
             return self._items.get(key)
 
-    def replace(self, snapshot):
+    def publish(self, snapshot):
+        """Accept `snapshot` for publication or raise AuthorityError. Returns
+        whether it replaced the retained display snapshot."""
         if not isinstance(snapshot, DisplaySnapshot):
             raise TypeError('display_snapshot_invalid')
         with self._lock:
             current = self._items.get(snapshot.key)
-            if current is not None and (snapshot.observed, snapshot.started) <= (current.observed, current.started):
-                return False
+            if current is not None:
+                relation = compare_lineage(snapshot.lineage, current.lineage)
+                if relation == 'same' and (snapshot.observed, snapshot.started) <= (current.observed,
+                                                                                    current.started):
+                    return False
             self._items[snapshot.key] = snapshot
             return True
+
+    def replace(self, snapshot):
+        try:
+            return self.publish(snapshot)
+        except AuthorityError:
+            return False
 
 
 @dataclass(frozen=True)
@@ -154,26 +199,14 @@ class GenerationRunner:
         self._artifacts = {selection: artifact}
         return artifact
 
+    @property
+    def boot(self):
+        return self._boot
+
     def _lineage(self, observation):
         baseline = self._snapshots.get(self.key)
-        if baseline is None:
-            return
-        instance, policy, groups, _ = baseline.lineage
-        if observation.instance_revision < instance or observation.policy_revision < policy:
-            raise AuthorityError('revision_regressed', CONFLICT)
-        prior = {vector[0]: vector for vector in groups}
-        for group in observation.groups:
-            old = prior.get(group.deployments)
-            if old is None or old[-1] is None or group.applied is None:
-                continue
-            if group.applied[1] < old[-1][1]:
-                raise AuthorityError('revision_regressed', CONFLICT)
-            if group.applied[1] == old[-1][1] and group.applied != old[-1]:
-                raise AuthorityError('revision_content_mismatch', CONFLICT)
-        if (observation.instance_revision, observation.policy_revision) == (instance, policy):
-            same = {vector[0]: vector[:2] for vector in groups}
-            if {group.deployments: group.vector()[:2] for group in observation.groups} != same:
-                raise AuthorityError('revision_content_mismatch', CONFLICT)
+        if baseline is not None:
+            compare_lineage(observation.vector(), baseline.lineage)
 
     def _attempt(self, collect, deadline, attempts):
         selection = self._select()
@@ -185,13 +218,18 @@ class GenerationRunner:
         roster = compose_generation(first, artifact)
         collected = collect(roster) if collect is not None else None
         confirmation = self._client.acquire(self._now(), timeout=self._remaining(deadline))
+        final = self._select()
+        # The decision to render follows the last read: both observations and
+        # the generation deadline are judged at this instant.
         decided = self._now()
-        if not (within_window(first.observed, decided) and within_window(confirmation.observed, decided)):
-            raise AuthorityError('observation_stale', STALE)
         if confirmation.vector() != first.vector():
             raise AuthorityError('revision_race', CONFLICT)
-        if self._select() != selection:
+        if final != selection:
             raise AuthorityError('enrollment_selection_changed', CONFLICT)
+        if not (within_window(first.observed, decided) and within_window(confirmation.observed, decided)):
+            raise AuthorityError('observation_stale', STALE)
+        if decided > deadline:
+            raise AuthorityError('generation_deadline_exhausted')
         return GenerationContext(roster, confirmation, decided, self.key, attempts), collected
 
     def run(self, collect=None, *, deadline):
@@ -206,15 +244,18 @@ class GenerationRunner:
                 if self._remaining(deadline) <= 0:
                     raise AuthorityError('generation_deadline_exhausted')
                 context, collected = self._attempt(collect, deadline, attempts)
+                snapshot = DisplaySnapshot(self.key, context.observed_at, tuple(
+                    DisplayHeader(group.deployments, group.labels, group.live.scope)
+                    for group in context.roster.groups), context.roster.observation.vector(), started)
+                # Accepting the result for publication and return compares
+                # lineage with the latest snapshot atomically; a regression
+                # discards this attempt's provisional output.
+                self._snapshots.publish(snapshot)
             except AuthorityError as error:
                 failure = error
                 if error.kind in RETRYABLE and attempts < 2 and self._remaining(deadline) > 0:
                     continue
                 break
-            snapshot = DisplaySnapshot(self.key, context.observed_at, tuple(
-                DisplayHeader(group.deployments, group.labels, group.live.scope) for group in context.roster.groups),
-                context.roster.observation.vector(), started)
-            self._snapshots.replace(snapshot)
             return GenerationOutcome(CURRENT, context, collected, snapshot, attempts=attempts,
                                      age=observation_age(context.roster.observation.observed, context.decided_at))
         return self._fallback(failure, attempts)
@@ -235,4 +276,4 @@ class GenerationRunner:
 
 
 __all__ = ['CURRENT', 'FALLBACK', 'ROSTER_UNAVAILABLE', 'UNAVAILABLE', 'DisplayHeader', 'DisplaySnapshot',
-           'DisplaySnapshotStore', 'GenerationContext', 'GenerationOutcome', 'GenerationRunner']
+           'DisplaySnapshotStore', 'compare_lineage', 'GenerationContext', 'GenerationOutcome', 'GenerationRunner']

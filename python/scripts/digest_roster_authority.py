@@ -877,6 +877,14 @@ def compose_generation(observation, artifact):
     groups = []
     for live in observation.groups:
         prepared = structure[live.key]
+        # Bindings were certified against the structure at these revisions;
+        # a live group whose owner or environment no longer matches them is
+        # a contradiction, never a silent move of facts between scopes.
+        platforms = {pair[0] for pair in live.deployments}
+        if any(binding['platform_id'] not in platforms for binding in prepared['legacy_run_bindings']) or any(
+                (binding['platform'], binding['legacy_key']) not in live.deployments
+                or binding['broker_environment'] != live.scope for binding in prepared['observation_bindings']):
+            _fail('binding_scope_mismatch', CONFLICT)
         groups.append(RosterGroup(live, tuple(tuple(item) for item in prepared['labels']),
                                   tuple(dict(item) for item in prepared['legacy_run_bindings']),
                                   tuple(dict(item) for item in prepared['observation_bindings'])))

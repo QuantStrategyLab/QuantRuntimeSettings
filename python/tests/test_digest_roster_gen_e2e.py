@@ -97,7 +97,7 @@ def _obs(binding, *, facts, business_day=DAY, observed_at=None):
 
 
 def _slot_args(cfg, store, sent, *, preview=False, now_fn=None, provenance='cloud_scheduler',
-               runner=None, outcome=None, raw_observations=()):
+               runner=None, raw_observations=()):
     schedule = {'scheduled_at': REPORT_DATE.isoformat(), 'trigger_provenance': provenance}
     return app.execute_slot(
         REPORT_DATE.date(), DAY, False, schedule, cfg, store,
@@ -106,7 +106,6 @@ def _slot_args(cfg, store, sent, *, preview=False, now_fn=None, provenance='clou
         now=now_fn or (lambda: REPORT_DATE),
         platform_config=_platform_config(),
         roster_runner=runner,
-        roster_outcome=outcome,
         raw_observations=raw_observations,
     )
 
