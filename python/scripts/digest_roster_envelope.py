@@ -8,10 +8,11 @@ from datetime import UTC
 from pathlib import Path
 
 from digest_roster_authority import (
-    BINDING_FIELDS, CODE, CONFLICT, EVIDENCE_SCOPE, EVIDENCE_STATES, MANAGEMENT_CLASSES,
-    MANAGEMENT_ROUTE, MANAGEMENT_STATUSES, OBSERVATION_BINDING_FIELDS, RUN_BINDING_FIELDS,
-    SCOPES, SHA256, STALE, UNAVAILABLE, AuthorityError, _expected_status, _fail, _identifier,
-    _revision, parse_instant, strict_json,
+    BINDING_FIELDS, CODE, CONFLICT, DENIAL_CODES, EVIDENCE_SCOPE, EVIDENCE_STATES, GROUP_REASON_CODES,
+    MANAGEMENT_CLASSES, MANAGEMENT_ROUTE, MANAGEMENT_STATUSES, MAX_FUTURE_SKEW, MAX_OBSERVATION_AGE,
+    OBSERVATION_BINDING_FIELDS, RUNTIME_TARGET_FIELDS, SCOPES, SHA256, STALE, UNAVAILABLE, AuthorityError,
+    _expected_status, _fail, _identifier, _member, _revision, expected_denial, parse_instant,
+    private_identities, run_binding_ok, strict_json,
 )
 from digest_roster_generation import CURRENT, FALLBACK, ROSTER_UNAVAILABLE, GenerationOutcome
 from display_names import safe_display_text
@@ -33,8 +34,9 @@ ROSTER_KEYS = frozenset({
     'failure_kind', 'counts', 'groups', 'uncovered_deployments', 'rejected',
 })
 COUNT_KEYS = frozenset({
-    'physical_accounts', 'display_groups', 'uncovered_deployments', *MANAGEMENT_STATUSES,
+    'physical_accounts', 'display_groups', 'display_deployments', 'uncovered_deployments', *MANAGEMENT_STATUSES,
 })
+UNCOVERED_REASON_CODES = frozenset({*GROUP_REASON_CODES, 'deployment_uncovered'})
 GROUP_KEYS = frozenset({
     'deployments', 'labels', 'scope', 'management_class', 'management_status', 'evidence_state',
     'processing_eligible', 'processing_denial', 'reasons', 'applied', 'legacy_run_bindings',
@@ -60,8 +62,14 @@ def _exact(value, keys, code='roster_shape_invalid'):
         _fail(code)
 
 
-def _codes(value):
-    return isinstance(value, list) and all(isinstance(item, str) and CODE.fullmatch(item) for item in value)
+def _codes(value, vocabulary=None):
+    return isinstance(value, list) and all(
+        isinstance(item, str) and CODE.fullmatch(item) and (vocabulary is None or item in vocabulary)
+        for item in value)
+
+
+def _deployment_total(groups, uncovered):
+    return sum(len(group['deployments']) for group in groups) + len(uncovered)
 
 
 def _schemas_dir():
@@ -142,7 +150,7 @@ def build_roster_envelope(outcome):
             'generation_status': CURRENT,
             'observed_at': context.observed_at,
             'decided_at': _format_utc(context.decided_at),
-            'observation_age_seconds': round(outcome.age.total_seconds(), 6) if outcome.age is not None else 0.0,
+            'observation_age_seconds': round(outcome.age.total_seconds(), 6) if outcome.age is not None else None,
             'live_source': MANAGEMENT_ROUTE,
             'evidence_scope': EVIDENCE_SCOPE,
             'instance_revision': roster.observation.instance_revision,
@@ -163,6 +171,7 @@ def build_roster_envelope(outcome):
             'counts': {
                 'physical_accounts': len(groups),
                 'display_groups': len(groups),
+                'display_deployments': _deployment_total(groups, uncovered),
                 'uncovered_deployments': len(uncovered),
                 **{status: status_counts.get(status, 0) for status in MANAGEMENT_STATUSES},
             },
@@ -212,6 +221,7 @@ def build_roster_envelope(outcome):
             'counts': {
                 'physical_accounts': None,
                 'display_groups': len(groups),
+                'display_deployments': _deployment_total(groups, ()),
                 'uncovered_deployments': 0,
                 **{status: None for status in MANAGEMENT_STATUSES},
             },
@@ -241,6 +251,7 @@ def build_roster_envelope(outcome):
             'counts': {
                 'physical_accounts': None,
                 'display_groups': 0,
+                'display_deployments': 0,
                 'uncovered_deployments': 0,
                 **{status: None for status in MANAGEMENT_STATUSES},
             },
@@ -261,7 +272,7 @@ def validate_roster_envelope(document):
         _fail('roster_format_unsupported')
     _exact(document, ROSTER_KEYS, 'roster_shape_invalid')
     status = document['generation_status']
-    if status not in GENERATION_STATUSES:
+    if not _member(status, GENERATION_STATUSES):
         _fail('roster_shape_invalid')
     if document['live_source'] != MANAGEMENT_ROUTE or document['evidence_scope'] != EVIDENCE_SCOPE:
         _fail('roster_scope_invalid')
@@ -282,7 +293,7 @@ def validate_roster_envelope(document):
     if document['failure_code'] is not None and (
             not isinstance(document['failure_code'], str) or not CODE.fullmatch(document['failure_code'])):
         _fail('roster_shape_invalid')
-    if document['failure_kind'] is not None and document['failure_kind'] not in FAILURE_KINDS:
+    if document['failure_kind'] is not None and not _member(document['failure_kind'], FAILURE_KINDS):
         _fail('roster_shape_invalid')
 
     selection = document['selection']
@@ -301,7 +312,8 @@ def validate_roster_envelope(document):
         _fail('roster_shape_invalid')
 
     claims = Counter()
-    runs, slots, obs_sources = set(), set(), set()
+    runs, slots, targets, obs_sources = set(), set(), set(), set()
+    reasons_vocabulary = GROUP_REASON_CODES if status == CURRENT else None
     group_statuses = Counter()
     for raw in document['groups']:
         _exact(raw, GROUP_KEYS, 'roster_group_invalid')
@@ -318,33 +330,39 @@ def validate_roster_envelope(document):
         claims.update(pairs)
         pair_set = set(pairs)
 
-        if not isinstance(raw['labels'], list):
+        if (not _member(raw['scope'], SCOPES)
+                or (raw['management_class'] is not None and not _member(raw['management_class'], MANAGEMENT_CLASSES))
+                or not _member(raw['management_status'], MANAGEMENT_STATUSES)
+                or not _member(raw['evidence_state'], EVIDENCE_STATES)
+                or type(raw['processing_eligible']) is not bool
+                or not (raw['processing_denial'] is None or _member(raw['processing_denial'], DENIAL_CODES))
+                or not _codes(raw['reasons'], reasons_vocabulary)
+                or not isinstance(raw['labels'], list)
+                or not isinstance(raw['legacy_run_bindings'], list)
+                or not isinstance(raw['observation_bindings'], list)):
             _fail('roster_group_invalid')
+        private = private_identities([binding for binding in (*raw['legacy_run_bindings'],
+                                                              *raw['observation_bindings'])
+                                      if isinstance(binding, dict)])
         for lbl in raw['labels']:
             _exact(lbl, frozenset({'platform', 'legacy_key', 'label'}), 'roster_group_invalid')
             if ((lbl['platform'], lbl['legacy_key']) not in pair_set
                     or not isinstance(lbl['label'], str) or not lbl['label']
                     or len(lbl['label']) > 70 or safe_display_text(lbl['label']) != lbl['label']):
                 _fail('roster_group_invalid')
-
-        if (raw['scope'] not in SCOPES
-                or (raw['management_class'] is not None and raw['management_class'] not in MANAGEMENT_CLASSES)
-                or raw['management_status'] not in MANAGEMENT_STATUSES
-                or raw['evidence_state'] not in EVIDENCE_STATES
-                or type(raw['processing_eligible']) is not bool
-                or not (raw['processing_denial'] is None
-                        or (isinstance(raw['processing_denial'], str) and CODE.fullmatch(raw['processing_denial'])))
-                or not _codes(raw['reasons'])
-                or not isinstance(raw['legacy_run_bindings'], list)
-                or not isinstance(raw['observation_bindings'], list)):
-            _fail('roster_group_invalid')
+            if lbl['label'] in private:
+                _fail('roster_label_private_identity', CONFLICT)
 
         applied = raw['applied']
         if applied is not None:
             _exact(applied, frozenset({'management_enabled', 'revision', 'effective_at'}), 'roster_group_invalid')
+            effective = parse_instant(applied['effective_at'])
             if (type(applied['management_enabled']) is not bool or not _revision(applied['revision'])
-                    or parse_instant(applied['effective_at']) is None):
+                    or effective is None):
                 _fail('roster_group_invalid')
+            observed = parse_instant(document['observed_at'])
+            if observed is not None and effective > observed:
+                _fail('applied_effective_after_observation', STALE)
             applied_tuple = (applied['management_enabled'], applied['revision'], applied['effective_at'])
         else:
             applied_tuple = None
@@ -353,27 +371,31 @@ def validate_roster_envelope(document):
             expected_status = _expected_status(raw['management_class'], raw['evidence_state'], applied_tuple)
             processing = (raw['management_class'] == 'eligible' and raw['evidence_state'] == 'known'
                           and raw['management_status'] == 'managed')
-            if expected_status != raw['management_status'] or raw['processing_eligible'] is not processing:
+            if (expected_status != raw['management_status'] or raw['processing_eligible'] is not processing
+                    or raw['processing_denial'] != expected_denial(processing, expected_status, raw['reasons'])):
                 _fail('roster_status_inconsistent', CONFLICT)
         elif raw['management_status'] != 'unknown' or raw['processing_eligible'] is not False or applied is not None:
             _fail('roster_status_inconsistent', CONFLICT)
 
         for binding in raw['legacy_run_bindings']:
-            _exact(binding, frozenset(RUN_BINDING_FIELDS), 'roster_binding_invalid')
-            if not all(_identifier(binding[name]) for name in RUN_BINDING_FIELDS):
+            if not run_binding_ok(binding):
                 _fail('roster_binding_invalid')
             identity = tuple(binding[name] for name in BINDING_FIELDS)
             slot = (binding['platform_id'], binding['candidate_slot'])
-            if identity in runs or slot in slots or binding['platform_id'] not in {p for p, _ in pairs}:
+            target = tuple(binding[name] for name in RUNTIME_TARGET_FIELDS)
+            if (identity in runs or slot in slots or target in targets
+                    or binding['platform_id'] not in {p for p, _ in pairs}):
                 _fail('roster_binding_invalid', CONFLICT)
             runs.add(identity)
             slots.add(slot)
+            targets.add(target)
 
         for binding in raw['observation_bindings']:
             _exact(binding, frozenset(OBSERVATION_BINDING_FIELDS), 'roster_binding_invalid')
-            if (binding['binding_id'] in obs_sources
+            if (not isinstance(binding['binding_id'], str) or binding['binding_id'] in obs_sources
                     or (binding['platform'], binding['legacy_key']) not in pair_set
-                    or binding['broker_environment'] not in {'paper', 'live'}
+                    or not _member(binding['broker_environment'], {'paper', 'live'})
+                    or binding['broker_environment'] != raw['scope']
                     or not all(_identifier(binding[name]) for name in OBSERVATION_BINDING_FIELDS
                                if name != 'opaque_account_uid')
                     or not (binding['opaque_account_uid'] is None or _identifier(binding['opaque_account_uid']))):
@@ -386,9 +408,8 @@ def validate_roster_envelope(document):
         _exact(raw, UNCOVERED_KEYS, 'roster_uncovered_invalid')
         if (not _identifier(raw['platform']) or not _identifier(raw['key'])
                 or raw['management_status'] != 'unknown' or raw['evidence_state'] != 'unknown'
-                or raw['processing_eligible'] is not False or not _codes(raw['reasons'])
-                or not (raw['processing_denial'] is None
-                        or (isinstance(raw['processing_denial'], str) and CODE.fullmatch(raw['processing_denial'])))):
+                or raw['processing_eligible'] is not False or not _codes(raw['reasons'], UNCOVERED_REASON_CODES)
+                or not _member(raw['processing_denial'], DENIAL_CODES)):
             _fail('roster_uncovered_invalid')
         uncovered.append((raw['platform'], raw['key']))
     claims.update(uncovered)
@@ -401,6 +422,8 @@ def validate_roster_envelope(document):
         _fail('roster_counts_inconsistent', CONFLICT)
     if type(counts['uncovered_deployments']) is not int or counts['uncovered_deployments'] != len(uncovered):
         _fail('roster_counts_inconsistent', CONFLICT)
+    if type(counts['display_deployments']) is not int or counts['display_deployments'] != sum(claims.values()):
+        _fail('roster_counts_inconsistent', CONFLICT)
 
     if status == CURRENT:
         if (document['observed_at'] is None or document['decided_at'] is None
@@ -412,6 +435,14 @@ def validate_roster_envelope(document):
             _fail('roster_shape_invalid')
         if any(group['management_class'] is None for group in document['groups']):
             _fail('roster_status_inconsistent', CONFLICT)
+        # A current document is coherent in time: the decision falls within
+        # -30 s <= G - T <= 300 s of the observation and the age it reports
+        # is exactly the displayed age at that decision.
+        observed, decided = parse_instant(document['observed_at']), parse_instant(document['decided_at'])
+        delta = decided - observed
+        if (not -MAX_FUTURE_SKEW <= delta <= MAX_OBSERVATION_AGE or age is None
+                or abs(age - max(0.0, delta.total_seconds())) > 1e-6):
+            _fail('roster_time_invalid', STALE)
         if type(counts['physical_accounts']) is not int or counts['physical_accounts'] != len(document['groups']):
             _fail('roster_counts_inconsistent', CONFLICT)
         for name in MANAGEMENT_STATUSES:

@@ -483,6 +483,7 @@ class GenE2ETests(unittest.TestCase):
             env_stale['groups'][0]['evidence_state'] = 'stale'
             env_stale['groups'][0]['management_status'] = 'unknown'
             env_stale['groups'][0]['processing_eligible'] = False
+            env_stale['groups'][0]['processing_denial'] = 'management_status_unknown'
             env_stale['counts']['managed'] -= 1
             env_stale['counts']['unknown'] += 1
 
@@ -551,6 +552,7 @@ class GenE2ETests(unittest.TestCase):
             env_doc['groups'][2]['evidence_state'] = 'unknown'
             env_doc['groups'][2]['management_status'] = 'unknown'
             env_doc['groups'][2]['processing_eligible'] = False
+            env_doc['groups'][2]['processing_denial'] = 'management_status_unknown'
             env_doc['counts']['managed'] -= 1
             env_doc['counts']['unknown'] += 1
 

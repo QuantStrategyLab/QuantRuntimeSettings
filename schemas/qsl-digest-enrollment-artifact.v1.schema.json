@@ -124,8 +124,19 @@
         },
         "strategy_profile": {
           "$ref": "#/$defs/identifier"
+        },
+        "snapshot_only": {
+          "const": true
+        },
+        "receipt_candidate": {
+          "const": true
+        },
+        "expected_runs": {
+          "type": "integer",
+          "minimum": 1
         }
-      }
+      },
+      "description": "Exact legacy identity and protected strategy profile, plus the allowlisted existing source options with their original validation."
     },
     "observation_binding": {
       "type": "object",

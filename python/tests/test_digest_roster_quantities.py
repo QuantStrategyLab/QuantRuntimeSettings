@@ -260,7 +260,7 @@ class Coverage(Base):
     def test_unresolved_deployments_are_live_unknown_never_paper(self):
         document = scenario('all_on')
         document['uncovered_deployments'] = [{'platform': 'ibkr', 'key': 'syn-loose', 'management_status': 'unknown',
-                                              'evidence_state': 'unknown', 'reasons': ['deployment_unmapped'],
+                                              'evidence_state': 'unknown', 'reasons': ['deployment_unclassified'],
                                               'processing_eligible': False,
                                               'processing_denial': 'management_status_unknown'}]
         document['counts']['uncovered_deployments'] = 1

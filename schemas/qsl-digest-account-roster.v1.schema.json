@@ -249,6 +249,7 @@
       "required": [
         "physical_accounts",
         "display_groups",
+        "display_deployments",
         "uncovered_deployments",
         "managed",
         "management_disabled",
@@ -262,6 +263,11 @@
         "display_groups": {
           "type": "integer",
           "minimum": 0
+        },
+        "display_deployments": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Enumerated deployments across groups and uncovered deployments."
         },
         "uncovered_deployments": {
           "type": "integer",
@@ -365,8 +371,19 @@
         },
         "strategy_profile": {
           "$ref": "#/$defs/identifier"
+        },
+        "snapshot_only": {
+          "const": true
+        },
+        "receipt_candidate": {
+          "const": true
+        },
+        "expected_runs": {
+          "type": "integer",
+          "minimum": 1
         }
-      }
+      },
+      "description": "Exact legacy identity and protected strategy profile, plus the allowlisted existing source options with their original validation."
     },
     "observation_binding": {
       "type": "object",
@@ -488,18 +505,26 @@
         "processing_denial": {
           "anyOf": [
             {
-              "$ref": "#/$defs/code"
+              "enum": [
+                "management_disabled",
+                "management_not_under_management",
+                "management_policy_invalid",
+                "management_policy_unavailable",
+                "management_status_unknown"
+              ]
             },
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "B2 processingDenial: null exactly when processing_eligible is true."
         },
         "reasons": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/code"
-          }
+          },
+          "description": "Current groups carry only B2 producer-defined reason codes (closed vocabulary, enforced by the reader); a fallback group carries its bounded failure code."
         },
         "applied": {
           "anyOf": [
@@ -553,20 +578,50 @@
         "reasons": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/code"
+            "enum": [
+              "claimant_shadowing",
+              "declared_environment_differs_from_current",
+              "deployment_claimed_by_multiple_accounts",
+              "deployment_unclassified",
+              "deployment_uncovered",
+              "effective_state_differs_across_deployments",
+              "effective_state_duplicated",
+              "effective_state_missing",
+              "effective_state_shape_rejected",
+              "history_identity_differs_from_current",
+              "legacy_key_cross_platform_collision",
+              "local_history_unreadable",
+              "local_store_unreadable",
+              "management_binding_changed",
+              "management_binding_invalidated",
+              "management_enabled_for_ineligible_class",
+              "management_identity_differs_from_current",
+              "management_journal_unreadable",
+              "management_policy_invalid",
+              "management_policy_unavailable",
+              "management_record_unreadable",
+              "management_schema_unverified",
+              "physical_identity_changed",
+              "runtime_instances_not_initialized",
+              "sibling_duplicated",
+              "sibling_not_current",
+              "sibling_retiring",
+              "stored_identity_differs_from_current",
+              "stored_identity_unreadable",
+              "top_config_key_mismatch"
+            ]
           }
         },
         "processing_eligible": {
           "const": false
         },
         "processing_denial": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/code"
-            },
-            {
-              "type": "null"
-            }
+          "enum": [
+            "management_disabled",
+            "management_not_under_management",
+            "management_policy_invalid",
+            "management_policy_unavailable",
+            "management_status_unknown"
           ]
         }
       }

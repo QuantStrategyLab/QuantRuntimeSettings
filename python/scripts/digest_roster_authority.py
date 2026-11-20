@@ -56,6 +56,33 @@ RUN_BINDING_FIELDS = (*BINDING_FIELDS, 'strategy_profile')
 OBSERVATION_BINDING_FIELDS = ('binding_id', 'platform', 'legacy_key', 'opaque_account_uid',
                               'broker_environment', 'account_scope')
 
+# B2's producer-defined reason vocabulary (resolveManagement, the effective
+# state reducer and storedPolicy in application/runtime_instances and
+# application/account_mapping). A well-formed code outside it is not
+# authority; parity with the JS sources is tested.
+GROUP_REASON_CODES = frozenset({
+    'claimant_shadowing', 'declared_environment_differs_from_current', 'deployment_claimed_by_multiple_accounts',
+    'deployment_unclassified', 'effective_state_differs_across_deployments', 'effective_state_duplicated',
+    'effective_state_missing', 'effective_state_shape_rejected', 'history_identity_differs_from_current',
+    'legacy_key_cross_platform_collision', 'local_history_unreadable', 'local_store_unreadable',
+    'management_binding_changed', 'management_binding_invalidated', 'management_enabled_for_ineligible_class',
+    'management_identity_differs_from_current', 'management_journal_unreadable', 'management_policy_invalid',
+    'management_policy_unavailable', 'management_record_unreadable', 'management_schema_unverified',
+    'physical_identity_changed', 'runtime_instances_not_initialized', 'sibling_duplicated', 'sibling_not_current',
+    'sibling_retiring', 'stored_identity_differs_from_current', 'stored_identity_unreadable',
+    'top_config_key_mismatch',
+})
+POLICY_DENIALS = ('management_policy_unavailable', 'management_policy_invalid')
+DENIAL_CODES = frozenset({*POLICY_DENIALS, 'management_disabled', 'management_not_under_management',
+                          'management_status_unknown'})
+# Existing legacy-binding source options, with their original validation.
+RUN_BINDING_OPTIONS = {
+    'snapshot_only': lambda value: value is True,
+    'receipt_candidate': lambda value: value is True,
+    'expected_runs': lambda value: type(value) is int and value > 0,
+}
+RUNTIME_TARGET_FIELDS = ('platform_id', 'opaque_account_uid', 'target_id', 'strategy_profile')
+
 # Failure kinds keep the Q5 distinction a fallback must preserve.
 UNAVAILABLE, STALE, CONFLICT = 'unavailable', 'stale', 'conflict'
 CODE = re.compile(r'[a-z0-9][a-z0-9_]{0,63}')
@@ -159,8 +186,46 @@ def _identifier(value):
     return isinstance(value, str) and bool(value) and value.isprintable() and len(value) <= 200
 
 
-def _codes(value):
-    return isinstance(value, list) and all(isinstance(item, str) and CODE.fullmatch(item) for item in value)
+def _codes(value, vocabulary=None):
+    return isinstance(value, list) and all(
+        isinstance(item, str) and CODE.fullmatch(item) and (vocabulary is None or item in vocabulary)
+        for item in value)
+
+
+def _member(value, allowed):
+    """Enum membership after a type check: an unhashable or non-string value
+    is simply not a member."""
+    return isinstance(value, str) and value in allowed
+
+
+def expected_denial(eligible, status, reasons):
+    """B2's processingDenial over one resolved group or deployment."""
+    if eligible:
+        return None
+    for reason in POLICY_DENIALS:
+        if reason in reasons:
+            return reason
+    return {'management_disabled': 'management_disabled',
+            'not_under_management': 'management_not_under_management'}.get(status, 'management_status_unknown')
+
+
+def run_binding_ok(binding):
+    """A legacy run binding: the five identity/profile fields exactly, plus
+    any allowlisted source option with its original validation."""
+    return (isinstance(binding, dict) and set(RUN_BINDING_FIELDS) <= set(binding)
+            and set(binding) <= {*RUN_BINDING_FIELDS, *RUN_BINDING_OPTIONS}
+            and all(_identifier(binding[name]) for name in RUN_BINDING_FIELDS)
+            and all(RUN_BINDING_OPTIONS[name](binding[name]) for name in binding if name in RUN_BINDING_OPTIONS))
+
+
+def private_identities(group_bindings):
+    """Identity values of a group's bindings that a display label may never equal."""
+    values = set()
+    for binding in group_bindings:
+        for name in ('opaque_account_uid', 'target_id', 'candidate_slot', 'account_hint', 'binding_id'):
+            if isinstance(binding.get(name), str):
+                values.add(binding[name])
+    return values
 
 
 def _exact(value, keys, code):
@@ -258,11 +323,11 @@ def validate_readback(document):
     groups = []
     for raw in document['groups']:
         _exact(raw, GROUP_KEYS, 'readback_group_invalid')
-        if (raw['management_class'] not in MANAGEMENT_CLASSES or raw['management_status'] not in MANAGEMENT_STATUSES
-                or raw['evidence_state'] not in EVIDENCE_STATES or raw['scope'] not in SCOPES
-                or not _codes(raw['reasons']) or type(raw['processing_eligible']) is not bool
-                or not (raw['processing_denial'] is None
-                        or (isinstance(raw['processing_denial'], str) and CODE.fullmatch(raw['processing_denial'])))):
+        if (not _member(raw['management_class'], MANAGEMENT_CLASSES)
+                or not _member(raw['management_status'], MANAGEMENT_STATUSES)
+                or not _member(raw['evidence_state'], EVIDENCE_STATES) or not _member(raw['scope'], SCOPES)
+                or not _codes(raw['reasons'], GROUP_REASON_CODES) or type(raw['processing_eligible']) is not bool
+                or not (raw['processing_denial'] is None or _member(raw['processing_denial'], DENIAL_CODES))):
             _fail('readback_group_invalid')
         if not isinstance(raw['deployments'], list) or not raw['deployments']:
             _fail('readback_group_invalid')
@@ -288,7 +353,8 @@ def validate_readback(document):
         status = _expected_status(raw['management_class'], raw['evidence_state'], applied)
         processing = (raw['management_class'] == 'eligible' and raw['evidence_state'] == 'known'
                       and raw['management_status'] == 'managed')
-        if status != raw['management_status'] or raw['processing_eligible'] is not processing:
+        if (status != raw['management_status'] or raw['processing_eligible'] is not processing
+                or raw['processing_denial'] != expected_denial(processing, status, raw['reasons'])):
             _fail('readback_status_inconsistent', CONFLICT)
         groups.append(LiveGroup(tuple(sorted(pairs)), raw['management_class'], raw['management_status'],
                                 raw['evidence_state'], raw['scope'], tuple(raw['reasons']), processing,
@@ -297,7 +363,9 @@ def validate_readback(document):
     for raw in document['uncovered_deployments']:
         _exact(raw, UNCOVERED_KEYS, 'readback_uncovered_invalid')
         if (not _identifier(raw['platform']) or not _identifier(raw['key'])
-                or raw['management_status'] != 'unknown' or raw['processing_eligible'] is not False):
+                or raw['management_status'] != 'unknown' or raw['evidence_state'] != 'unknown'
+                or raw['processing_eligible'] is not False
+                or not _codes(raw['reasons'], GROUP_REASON_CODES) or not _member(raw['processing_denial'], DENIAL_CODES)):
             _fail('readback_uncovered_invalid')
         uncovered.append((raw['platform'], raw['key']))
     claims.update(uncovered)
@@ -533,7 +601,12 @@ class AcquisitionClient:
             _fail('management_read_headers_invalid')
         if len(response.body) > MAX_RESPONSE_BYTES:
             _fail('management_read_oversized')
-        observation = validate_readback(strict_json(response.body))
+        try:
+            observation = validate_readback(strict_json(response.body))
+        except AuthorityError:
+            raise
+        except (TypeError, KeyError, AttributeError, ValueError):
+            _fail('readback_shape_invalid')
         return LiveObservation(observation.observed_at, observation.instance_revision, observation.policy_revision,
                                observation.groups, observation.uncovered, observation.effective_records, _ACQUIRED)
 
@@ -601,7 +674,12 @@ def load_artifact(selection, source):
     if hashlib.sha256(source.payload).hexdigest() != selection.artifact_sha256:
         _fail('enrollment_artifact_version_mismatch')
     document = strict_json(source.payload)
-    validate_artifact(document)
+    try:
+        validate_artifact(document)
+    except AuthorityError:
+        raise
+    except (TypeError, KeyError, AttributeError, ValueError):
+        _fail('enrollment_artifact_invalid')
     if (document['source'] != selection.source or document['version'] != selection.version
             or document['membership_version'] != selection.membership_version
             or document['label_version'] != selection.label_version
@@ -625,7 +703,7 @@ def validate_artifact(document):
             or parse_instant(document['enrollment_observed_at']) is None
             or not isinstance(document['groups'], list) or not isinstance(document['rejected'], dict)):
         _fail('enrollment_artifact_invalid')
-    seen, runs, slots, sources = set(), set(), set(), set()
+    seen, runs, slots, targets, sources = set(), set(), set(), set(), set()
     for group in document['groups']:
         _exact(group, ARTIFACT_GROUP_KEYS, 'enrollment_artifact_invalid')
         pairs = group['deployments']
@@ -637,26 +715,33 @@ def validate_artifact(document):
         if seen & set(pairs) or len(set(pairs)) != len(pairs):
             _fail('enrollment_artifact_invalid')
         seen.update(pairs)
-        labels = group['labels']
-        if not isinstance(labels, list) or not all(
-                isinstance(item, list) and len(item) == 3 and tuple(item[:2]) in pairs
-                and isinstance(item[2], str) and safe_display_text(item[2]) == item[2] and item[2]
-                for item in labels):
+        if not isinstance(group['legacy_run_bindings'], list) or not isinstance(group['observation_bindings'], list):
             _fail('enrollment_artifact_invalid')
         for binding in group['legacy_run_bindings']:
-            _exact(binding, frozenset(RUN_BINDING_FIELDS), 'enrollment_artifact_invalid')
-            if not all(_identifier(binding[name]) for name in RUN_BINDING_FIELDS):
+            if not run_binding_ok(binding):
                 _fail('enrollment_artifact_invalid')
             identity = tuple(binding[name] for name in BINDING_FIELDS)
             slot = binding['platform_id'], binding['candidate_slot']
-            if identity in runs or slot in slots or binding['platform_id'] not in {pair[0] for pair in pairs}:
+            target = tuple(binding[name] for name in RUNTIME_TARGET_FIELDS)
+            if (identity in runs or slot in slots or target in targets
+                    or binding['platform_id'] not in {pair[0] for pair in pairs}):
                 _fail('enrollment_artifact_invalid')
             runs.add(identity)
             slots.add(slot)
+            targets.add(target)
+        labels = group['labels']
+        private = private_identities([*group['legacy_run_bindings'], *group['observation_bindings']])
+        if not isinstance(labels, list) or not all(
+                isinstance(item, list) and len(item) == 3 and tuple(item[:2]) in pairs
+                and isinstance(item[2], str) and safe_display_text(item[2]) == item[2] and item[2]
+                and len(item[2]) <= 70 and item[2] not in private
+                for item in labels):
+            _fail('enrollment_artifact_invalid')
         for binding in group['observation_bindings']:
             _exact(binding, frozenset(OBSERVATION_BINDING_FIELDS), 'enrollment_artifact_invalid')
-            if (binding['binding_id'] in sources or (binding['platform'], binding['legacy_key']) not in pairs
-                    or binding['broker_environment'] not in {'paper', 'live'}
+            if (not isinstance(binding['binding_id'], str) or binding['binding_id'] in sources
+                    or (binding['platform'], binding['legacy_key']) not in pairs
+                    or not _member(binding['broker_environment'], {'paper', 'live'})
                     or not all(_identifier(binding[name]) for name in OBSERVATION_BINDING_FIELDS
                                if name != 'opaque_account_uid')
                     or not (binding['opaque_account_uid'] is None or _identifier(binding['opaque_account_uid']))):
@@ -742,7 +827,7 @@ def prepare_enrollment_artifact(*, readback, effective_records, projection, inst
             accepted_by_group.setdefault(pairs, []).append(tuple(link.get(name) for name in BINDING_FIELDS))
     group_claims = Counter(identity for identities in accepted_by_group.values() for identity in identities)
 
-    groups = []
+    groups, candidates = [], []
     for group in live.groups:
         pairs = group.deployments
         platforms = {pair[0] for pair in pairs}
@@ -767,22 +852,38 @@ def prepare_enrollment_artifact(*, readback, effective_records, projection, inst
                     reason = 'link_roster_mismatch'
                 else:
                     profile = roster[identity].get('strategy_profile')
+                    options = {name: roster[identity][name] for name in RUN_BINDING_OPTIONS
+                               if name in roster[identity]}
                     if not _identifier(profile):
                         reason = 'link_profile_missing'
+                    elif not run_binding_ok({**dict(zip(BINDING_FIELDS, identity)), 'strategy_profile': profile,
+                                             **options}):
+                        reason = 'link_option_invalid'
             if reason:
                 rejected[reason] += 1
                 continue
-            runs.append({**dict(zip(BINDING_FIELDS, identity)),
-                         'strategy_profile': roster[identity]['strategy_profile']})
+            runs.append({**dict(zip(BINDING_FIELDS, identity)), 'strategy_profile': profile, **options})
+        candidates.append(runs)
         labels = []
         for pair in pairs:
-            label = (configured.get(pair) or {}).get('label')
-            if isinstance(label, str) and label and safe_display_text(label) == label:
+            label = _configured_label(pair, configured.get(pair) or {}, [*full_links, *legacy_roster])
+            if label is None and (configured.get(pair) or {}).get('label') not in (None, ''):
+                rejected['label_rejected'] += 1
+            elif label is not None:
                 labels.append([*pair, label])
         groups.append({'deployments': [list(pair) for pair in pairs], 'labels': labels,
-                       'legacy_run_bindings': sorted(
-                           runs, key=lambda row: tuple(row[name] for name in RUN_BINDING_FIELDS)),
-                       'observation_bindings': []})
+                       'legacy_run_bindings': [], 'observation_bindings': []})
+
+    # A four-axis runtime target claimed by more than one accepted link has
+    # no winner either: every claimant is excluded.
+    target_counts = Counter(tuple(run[name] for name in RUNTIME_TARGET_FIELDS) for runs in candidates for run in runs)
+    for group, runs in zip(groups, candidates, strict=True):
+        for run in runs:
+            if target_counts[tuple(run[name] for name in RUNTIME_TARGET_FIELDS)] != 1:
+                rejected['link_ambiguous'] += 1
+                continue
+            group['legacy_run_bindings'].append(run)
+        group['legacy_run_bindings'].sort(key=lambda row: tuple(row[name] for name in RUN_BINDING_FIELDS))
 
     owners = {pair: index for index, group in enumerate(live.groups) for pair in group.deployments}
     source_counts = Counter(binding.get('binding_id') for binding in observation_bindings if isinstance(binding, dict))
@@ -823,6 +924,23 @@ def prepare_enrollment_artifact(*, readback, effective_records, projection, inst
     validate_artifact(document)
     data = json.dumps(document, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
     return data, hashlib.sha256(data).hexdigest()
+
+
+def _configured_label(pair, config, bindings):
+    """A configured label safe for a general header, or None. It may never
+    equal a private identity of a binding on the same platform or of the
+    configured account (the existing projection rule)."""
+    label = config.get('label')
+    if not isinstance(label, str) or not label or safe_display_text(label) != label or len(label) > 70:
+        return None
+    # The two channel names are display text even when the private LongBridge
+    # target uses the same lowercase abbreviation (existing projection rule).
+    if pair[0] == 'longbridge' and label in {'hk', 'sg'}:
+        return label.upper()
+    private = private_identities(binding for binding in bindings
+                                 if isinstance(binding, dict) and binding.get('platform_id') == pair[0])
+    private.update(value for name in CONFIG_IDENTITY_FIELDS if isinstance(value := config.get(name), str))
+    return None if label in private else label
 
 
 # --- Composition ---------------------------------------------------------------
@@ -885,6 +1003,9 @@ def compose_generation(observation, artifact):
                 (binding['platform'], binding['legacy_key']) not in live.deployments
                 or binding['broker_environment'] != live.scope for binding in prepared['observation_bindings']):
             _fail('binding_scope_mismatch', CONFLICT)
+        private = private_identities([*prepared['legacy_run_bindings'], *prepared['observation_bindings']])
+        if any(item[2] in private for item in prepared['labels']):
+            _fail('label_private_identity', CONFLICT)
         groups.append(RosterGroup(live, tuple(tuple(item) for item in prepared['labels']),
                                   tuple(dict(item) for item in prepared['legacy_run_bindings']),
                                   tuple(dict(item) for item in prepared['observation_bindings'])))
