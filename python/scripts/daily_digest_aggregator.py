@@ -738,6 +738,33 @@ def partition_candidates_by_business_day(
     return fresh, stale
 
 
+def _resolve_explicit_roster_context(roster_context: Any) -> tuple[bool, list[dict[str, Any]], str | None]:
+    """Extract (available, run_bindings, failure_code) from an explicit v1 generation context."""
+    from digest_roster_authority import GenerationRoster
+    from digest_roster_envelope import validate_roster_envelope
+    from digest_roster_generation import CURRENT, GenerationContext, GenerationOutcome
+
+    if isinstance(roster_context, GenerationOutcome):
+        if roster_context.status == CURRENT and roster_context.context is not None:
+            return True, roster_context.context.roster.run_bindings(), None
+        return False, [], roster_context.failure_code or "management_read_unavailable"
+    if isinstance(roster_context, GenerationContext):
+        return True, roster_context.roster.run_bindings(), None
+    if isinstance(roster_context, GenerationRoster):
+        return True, roster_context.run_bindings(), None
+    if isinstance(roster_context, (Mapping, bytes, bytearray, str)):
+        envelope = validate_roster_envelope(dict(roster_context) if isinstance(roster_context, Mapping) else roster_context)
+        if envelope["generation_status"] == CURRENT:
+            bindings = [
+                dict(binding)
+                for group in envelope["groups"]
+                for binding in group["legacy_run_bindings"]
+            ]
+            return True, bindings, None
+        return False, [], envelope.get("failure_code") or "management_read_unavailable"
+    raise ValueError("digest_roster_context_invalid")
+
+
 def collect_digest_runs(
     *,
     business_day: str,
@@ -746,10 +773,29 @@ def collect_digest_runs(
     include_github: bool = True,
     locale: str = "zh",
     candidate_failures: Sequence[Mapping[str, str]] | None = None,
+    roster_context: Any = None,
 ) -> CollectResult:
     # SDK callers supply their actual intake outcomes; the CLI retains its
     # explicit workflow outcome contract when no override is supplied.
     store_failures = list(candidate_failures) if candidate_failures is not None else candidate_store_failures()
+    explicit_available = None
+    explicit_expected: list[dict[str, Any]] | None = None
+    if roster_context is not None:
+        explicit_available, explicit_expected, failure_code = _resolve_explicit_roster_context(roster_context)
+        if not explicit_available:
+            failures = tuple([*store_failures, {"source_kind": "management_roster", "reason_code": failure_code}])
+            return CollectResult(
+                runs=[],
+                coverage=digest.EvidenceCoverage(
+                    candidates_configured=False,
+                    candidates_loaded=False,
+                    candidates_count=0,
+                    github_enabled=include_github,
+                    candidate_failures=failures,
+                ),
+                merged_rows=[],
+                notification_summary=None,
+            )
     try:
         loaded_rows, candidates_configured, candidates_loaded = load_candidates_from_file(candidates_path)
     except (OSError, ValueError):
@@ -775,14 +821,19 @@ def collect_digest_runs(
     current_targets = {_target_key(row) for row in file_rows if _target_key(row)}
     for item in stale_notes:
         missing_targets.append(dict(item, reason_code="EVIDENCE_STALE_BUSINESS_DAY"))
-    expected_raw = os.environ.get("DIGEST_EXPECTED_TARGETS_JSON", "").strip()
-    expected = json.loads(expected_raw) if expected_raw else digest_contract(config).get("aggregator", {}).get("expected_targets", [])
-    if routine_mode() == "daily_digest" and not expected:
-        raise ValueError("digest_expected_targets_required")
+    if explicit_expected is not None:
+        expected = explicit_expected
+    else:
+        expected_raw = os.environ.get("DIGEST_EXPECTED_TARGETS_JSON", "").strip()
+        expected = json.loads(expected_raw) if expected_raw else digest_contract(config).get("aggregator", {}).get("expected_targets", [])
+        if routine_mode() == "daily_digest" and not expected:
+            raise ValueError("digest_expected_targets_required")
     if not isinstance(expected, list):
         raise ValueError("digest_expected_targets_invalid")
     if consolidation_enabled():
-        adapter.validate_expected(expected)
+        import notification_candidate_adapter as adapter
+        if explicit_expected is None or expected:
+            adapter.validate_expected(expected)
         # In unified mode a different strategy/account on the same target is
         # not evidence for the protected expected binding.
         observed = {tuple(row.get(name) for name in adapter.IDENTITY[:4]) for row in file_rows}
@@ -905,7 +956,9 @@ def build_digest_payload(
     config: Mapping[str, Any] | None = None,
     candidate_failures: Sequence[Mapping[str, str]] | None = None,
     render_text: bool = True,
-) -> tuple[digest.DailyDigestInput, str, CollectResult]:
+    roster_context: Any = None,
+    roster_mode: str | None = None,
+) -> tuple[digest.DailyDigestInput, Any, CollectResult]:
     config = config if config is not None else load_platform_config(config_path)
     contract = digest_contract(config)
     day = resolve_business_day(explicit=business_day)
@@ -917,6 +970,7 @@ def build_digest_payload(
         include_github=include_github,
         locale=loc,
         candidate_failures=candidate_failures,
+        roster_context=roster_context,
     )
     evidence_status = "has_runs" if collected.runs else (
         "verified_idle"
@@ -936,10 +990,18 @@ def build_digest_payload(
     )
     if not render_text:
         return payload, "", collected
-    from unified_daily_digest import enabled, render
-    text = (render(payload, source_repositories={key: value.get("repository")
-                                               for key, value in config.get("platforms", {}).items()})
-            if enabled() else digest.render_daily_digest(payload))
+    from unified_daily_digest import UnsupportedConsolidatedPresentation, enabled, render
+    if enabled():
+        text = render(
+            payload,
+            source_repositories={key: value.get("repository") for key, value in config.get("platforms", {}).items()},
+            roster_mode=roster_mode,
+            roster_context=roster_context,
+        )
+    elif roster_context is not None or roster_mode == "mapping_v1":
+        text = UnsupportedConsolidatedPresentation()
+    else:
+        text = digest.render_daily_digest(payload)
     return payload, text, collected
 
 
@@ -1017,6 +1079,10 @@ def main(argv: list[str] | None = None) -> int:
         include_github=not args.no_github,
         config_path=args.platform_config,
     )
+    from unified_daily_digest import UnsupportedConsolidatedPresentation
+    if isinstance(text, UnsupportedConsolidatedPresentation):
+        print(text.reason_code)
+        return 2
     if args.write_text:
         args.write_text.parent.mkdir(parents=True, exist_ok=True)
         args.write_text.write_text("Daily digest rendered; private message body withheld.\n", encoding="utf-8")

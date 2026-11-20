@@ -10,6 +10,8 @@ from types import SimpleNamespace
 
 from account_daily_facts import SIMULATION_MODES
 from daily_digest_notify import block_reason_text, normalize_locale
+from digest_roster_envelope import validate_roster_envelope
+from digest_roster_status_text import format_management_status
 from display_names import broker_account_identity, display_name, safe_display_text
 from notification_approved_gates import render_reasons
 from notification_snapshot.unified_contract import SGT, sgt_business_window
@@ -208,7 +210,8 @@ def _snapshot_label(stamp, window, zh):
 
 
 def render_account_daily(payload, expected, outcomes, *, facts=None, known_platforms=(), max_units=3850,
-                         telegram_ibkr_accounts=None):
+                         telegram_ibkr_accounts=None, roster_envelope=None, quantities=None,
+                         admitted_observations=None, management_expectations=None):
     """Render supplied raw binding outcomes and optional per-account evidence.
 
     ``facts`` is keyed by (platform_id, opaque_account_uid). Order and fill IDs
@@ -216,6 +219,13 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
     """
     if max_units < 256:
         raise ValueError('digest_budget_too_small')
+    if roster_envelope is not None:
+        return _render_mapped_daily(
+            payload, outcomes, facts=facts, known_platforms=known_platforms,
+            max_units=max_units, telegram_ibkr_accounts=telegram_ibkr_accounts,
+            roster_envelope=roster_envelope, quantities=quantities,
+            management_expectations=management_expectations,
+        )
     locale = normalize_locale(payload.locale)
     zh = locale == 'zh'
     unknown = '未知' if zh else 'unknown'
@@ -699,8 +709,303 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
     return '\n'.join(lines)
 
 
-def render_account_daily_unavailable(day, locale):
+def _format_fraction(fraction, zh):
+    if not isinstance(fraction, dict) or fraction.get('status') == 'not_applicable':
+        return '不适用' if zh else 'N/A'
+    text = f"{fraction['covered']}/{fraction['denominator']}"
+    if fraction.get('status') == 'confirmed_subset':
+        return f'{text}（已确认子集，整体未完整）' if zh else f'{text} (confirmed subset; incomplete)'
+    return text
+
+
+def _expectation_for_group(group, expectations):
+    if not isinstance(expectations, Mapping):
+        return None
+    pairs = tuple((d['platform'], d['legacy_key']) for d in group['deployments'])
+    for key in (pairs, frozenset(pairs), *(pairs), *(f'{p}/{k}' for p, k in pairs)):
+        if key in expectations and type(expectations[key]) is bool:
+            return expectations[key]
+    return None
+
+
+def _group_facts(group, facts):
+    merged = {'orders': [], 'fills': [], 'snapshots': []}
+    if not isinstance(facts, Mapping):
+        return merged
+    pairs = tuple((d['platform'], d['legacy_key']) for d in group['deployments'])
+    keys = [pairs, *pairs]
+    for binding in group.get('legacy_run_bindings', ()):
+        keys.append((binding['platform_id'], binding['opaque_account_uid']))
+    seen = set()
+    for key in keys:
+        if key in seen:
+            continue
+        seen.add(key)
+        entry = facts.get(key)
+        if not isinstance(entry, Mapping):
+            continue
+        for kind in ('orders', 'fills', 'snapshots'):
+            values = entry.get(kind)
+            if isinstance(values, list):
+                merged[kind].extend(values)
+        for extra in ('wallet_valuation', 'settled_cash'):
+            if extra in entry and extra not in merged:
+                merged[extra] = entry[extra]
+    return merged
+
+
+def _render_mapped_daily(payload, outcomes, *, facts=None, known_platforms=(), max_units=3850,
+                         telegram_ibkr_accounts=None, roster_envelope=None, quantities=None,
+                         management_expectations=None):
+    envelope = validate_roster_envelope(roster_envelope)
+    locale = normalize_locale(payload.locale)
+    zh = locale == 'zh'
+    unknown = '未知' if zh else 'unknown'
+    status = envelope['generation_status']
+    lines = [
+        ('📊 昨日账户日报｜' if zh else '📊 Daily account report | ') + payload.business_day,
+        '🕒 ' + _window_text(payload.business_day, locale),
+    ]
+    if status == 'unavailable':
+        lines.extend([
+            '账户名录不可用；量化管理状态未知' if zh else 'Account roster unavailable; management status unknown',
+            '可展示账户：未知｜已纳入管理：未知' if zh else 'Displayed accounts: unknown | Managed: unknown',
+        ])
+        return '\n'.join(lines)
+
+    telegram_ibkr_accounts = telegram_ibkr_accounts or {}
+    facts = facts or {}
+    binding_outcomes = {}
+    flat_index = 0
+    for g in envelope['groups']:
+        for b in g['legacy_run_bindings']:
+            binding_outcomes[tuple(b[k] for k in ('platform_id', 'opaque_account_uid', 'target_id', 'strategy_profile'))] = (
+                outcomes[flat_index] if flat_index < len(outcomes) else 'missing'
+            )
+            flat_index += 1
+    raw_groups = list(envelope['groups'])
+    raw_groups.sort(key=lambda g: (
+        _platform_display_rank(g['deployments'][0]['platform'], known_platforms),
+        tuple((d['platform'], d['legacy_key']) for d in g['deployments']),
+    ))
+
+    # Resolve safe, distinguishable per-group headers.
+    resolved_labels = []
+    used_per_platform = {}
+    for g in raw_groups:
+        primary_platform = g['deployments'][0]['platform']
+        caps = _platform_capabilities(primary_platform, known_platforms)
+        label = ''
+        if caps.get('supports_telegram_account_id') and telegram_ibkr_accounts:
+            for binding in g.get('legacy_run_bindings', ()):
+                ibkr_id = telegram_ibkr_accounts.get(binding['opaque_account_uid'])
+                if ibkr_id:
+                    label = ibkr_id
+                    break
+        if not label:
+            for item in g.get('labels', ()):
+                cand = item.get('label', '')
+                if isinstance(cand, str) and cand and len(cand) <= 70 and safe_display_text(cand) == cand:
+                    label = cand
+                    break
+        if not label:
+            label = '账户' if zh else 'Account'
+        used_per_platform.setdefault(primary_platform, []).append(label)
+        resolved_labels.append((primary_platform, label))
+
+    counts_per_label = {}
+    for plat, lbl in resolved_labels:
+        counts_per_label[(plat, lbl)] = counts_per_label.get((plat, lbl), 0) + 1
+    seen_per_label = {}
+    headers_for_groups = []
+    for g, (plat, lbl) in zip(raw_groups, resolved_labels, strict=True):
+        display_lbl = lbl
+        if counts_per_label[(plat, lbl)] > 1:
+            idx = seen_per_label.get((plat, lbl), 0) + 1
+            seen_per_label[(plat, lbl)] = idx
+            display_lbl = f'{lbl} {idx}'
+        platform_label = safe_display_text(display_name('platforms', plat, locale, fallback=plat)) or plat
+        scope_tag = (' · 模拟' if zh else ' · paper') if g['scope'] == 'paper' else ''
+        headers_for_groups.append(f'🏦 {platform_label} · {display_lbl}{scope_tag}')
+
+    age_sec = envelope['observation_age_seconds']
+    age_str = (f'{int(age_sec)}秒' if zh else f'{int(age_sec)}s') if age_sec is not None else unknown
+    if status == 'fallback':
+        kind = envelope['failure_kind'] or 'unavailable'
+        kind_label = ({'stale': '过期', 'conflict': '冲突', 'unavailable': '不可用'}[kind]
+                      if zh else kind)
+        lines.append(
+            f"管理名录回退（{kind_label}｜原观测 {envelope['observed_at']}｜已过 {age_str}）"
+            if zh else
+            f"Management roster fallback ({kind_label} | observed {envelope['observed_at']} | age {age_str})"
+        )
+        lines.append(
+            f"最近已知可展示：{len(raw_groups)} 账户｜当前纳入管理：未知｜覆盖率：不可用"
+            if zh else
+            f"Last-known displayed: {len(raw_groups)} accounts | Current managed: unknown | Coverage: unavailable"
+        )
+        blocks = [
+            (hdr, [format_management_status('unknown', 'unknown', locale)], [], [], 0)
+            for hdr in headers_for_groups
+        ]
+    else:
+        lines.append(
+            f"管理观测：{envelope['observed_at']}（已过 {age_str}）"
+            if zh else
+            f"Management observed: {envelope['observed_at']} (age {age_str})"
+        )
+        if quantities:
+            disp = quantities['display']
+            elig = quantities['eligible']
+            en_live = quantities['enabled']['live']
+            en_paper = quantities['enabled']['paper']
+            elig_text = (f"{elig['count']}/{elig['denominator']}" if elig['total'] is not None
+                         else (f"{elig['count']}（另有未确定 {elig['unresolved']}）" if zh
+                               else f"{elig['count']} (+{elig['unresolved']} unresolved)"))
+            live_line = (
+                f"展示 {disp['count']}｜合格 {elig_text}｜实盘管理 {en_live['confirmed']}（停用 {en_live['disabled']}、管理外 {en_live['outside']}、未知 {en_live['unknown']}）"
+                if zh else
+                f"Display {disp['count']} | Eligible {elig_text} | Live managed {en_live['confirmed']} (disabled {en_live['disabled']}, outside {en_live['outside']}, unknown {en_live['unknown']})"
+            )
+            if not quantities['live_totals_available']:
+                live_line += f"｜实盘合计不可用（{quantities['live_totals_reason']}）" if zh else f" | live totals unavailable ({quantities['live_totals_reason']})"
+            elif quantities['live_totals_reason'] == 'no_managed_non_paper_accounts':
+                live_line += '｜无已纳入管理的实盘账户' if zh else ' | no managed non-paper accounts'
+            lines.append(live_line)
+            paper_disp = en_paper['eligible'] + en_paper['outside'] + en_paper['unknown']
+            if paper_disp:
+                lines.append(
+                    f"模拟作用域：展示 {paper_disp}｜已确认管理 {en_paper['confirmed']}｜未知 {en_paper['unknown']}"
+                    if zh else
+                    f"Paper scope: display {paper_disp} | confirmed managed {en_paper['confirmed']} | unknown {en_paper['unknown']}"
+                )
+            mg_live = _format_fraction(quantities['managed_coverage']['any']['live'], zh)
+            rw_live = _format_fraction(quantities['raw_coverage']['any']['live'], zh)
+            cov_line = (f'实盘覆盖：管理 {mg_live}｜原始 {rw_live}' if zh
+                        else f'Live coverage: managed {mg_live} | raw {rw_live}')
+            if paper_disp:
+                mg_paper = _format_fraction(quantities['managed_coverage']['any']['paper'], zh)
+                rw_paper = _format_fraction(quantities['raw_coverage']['any']['paper'], zh)
+                cov_line += (f'｜模拟管理 {mg_paper}、模拟原始 {rw_paper}' if zh
+                             else f' | Paper managed {mg_paper}, raw {rw_paper}')
+            lines.append(cov_line)
+            r_live = quantities['runs']['live']
+            r_str = (str(r_live.observed_runs) if r_live.observed_runs is not None
+                     else (f'未知（已见 {r_live.confirmed_runs}）' if zh else f'unknown ({r_live.confirmed_runs} observed)'))
+            sim_note = ((f'（排除模拟 {r_live.simulated_excluded}）' if zh
+                         else f' ({r_live.simulated_excluded} simulated excluded)')
+                        if r_live.simulated_excluded else '')
+            target_part = (
+                f'目标 {r_live.covered_targets}/{r_live.expected_targets}' if zh
+                else f'targets {r_live.covered_targets}/{r_live.expected_targets}'
+            ) if r_live.expected_targets else ('无绑定目标' if zh else 'targets none')
+            lines.append(
+                f"实盘运行：{r_str}｜{target_part}{sim_note}"
+                if zh else
+                f"Live runs: {r_str} | {target_part}{sim_note}"
+            )
+
+        rows_by_target = {}
+        for row in payload.runs:
+            rows_by_target.setdefault((row.platform_id, row.opaque_account_uid, row.target_id, row.strategy_profile), []).append(row)
+
+        blocks = []
+        for g, hdr in zip(raw_groups, headers_for_groups, strict=True):
+            observed_enabled = (
+                g['applied']['management_enabled'] if g['applied'] is not None
+                else (True if g['management_status'] == 'managed'
+                      else False if g['management_status'] in {'management_disabled', 'not_under_management'}
+                      else None)
+            )
+            expected_enabled = _expectation_for_group(g, management_expectations)
+            status_line = format_management_status(
+                g['management_status'], g['evidence_state'], locale,
+                expected_enabled=expected_enabled,
+                observed_enabled=observed_enabled if g['evidence_state'] == 'known' else None,
+            )
+            details = []
+            holding_lines = []
+            group_rows = []
+            for b in g['legacy_run_bindings']:
+                key = (b['platform_id'], b['opaque_account_uid'], b['target_id'], b['strategy_profile'])
+                group_rows.extend(rows_by_target.get(key, ()))
+                outcome = binding_outcomes.get(key, 'missing')
+                if outcome in {'missing', 'read_failed', 'invalid', 'stale'}:
+                    strat = safe_display_text(display_name('strategies', b['strategy_profile'], locale, fallback='策略' if zh else 'Strategy'))
+                    msg = {
+                        'missing': ('报告缺失', 'report missing'),
+                        'read_failed': ('报告读取失败', 'read failed'),
+                        'invalid': ('报告无效', 'invalid'),
+                        'stale': ('报告过期', 'stale'),
+                    }[outcome][0 if zh else 1]
+                    details.append((f'{strat}：{msg}' if zh else f'{strat}: {msg}', 1))
+            actual_rows = [r for r in group_rows if r.execution_mode.strip().lower() not in SIMULATION_MODES]
+            if len(actual_rows) != len(group_rows):
+                details.append(('模拟记录已排除' if zh else 'Simulated runs excluded', 1))
+            g_facts = _group_facts(g, facts)
+            orders = g_facts.get('orders') or []
+            fills = g_facts.get('fills') or []
+            if orders or fills:
+                details.append((
+                    f'订单 {len(orders)} 笔｜成交 {len(fills)} 笔' if zh else f'Orders: {len(orders)} | Fills: {len(fills)}',
+                    1,
+                ))
+            snaps = g_facts.get('snapshots') or []
+            if snaps:
+                latest = snaps[0]
+                eq = _balance_money(latest.get('equity'), latest.get('equity_currency'), unknown)
+                if eq != unknown:
+                    details.append((('总资产：' if zh else 'Total assets: ') + eq, 1))
+                for pos in latest.get('holdings') or []:
+                    if not isinstance(pos, Mapping):
+                        continue
+                    sym = _symbol(pos.get('symbol'), unknown, asset_type=pos.get('asset_type'))
+                    qty = _quantity(pos.get('quantity'), pos.get('asset_type'), zh, unknown)
+                    holding_lines.append((f'{sym} {qty}', 1))
+            blocks.append((hdr, [status_line], details, holding_lines, 0))
+
+    # Header-reservation loop: reserve all headers + concise status lines first, then add details.
+    total_holding_items = sum(inline + sum(c for _, c in h_items) for _, _, _, h_items, inline in blocks)
+    upper_bound = max(
+        total_holding_items,
+        sum(1 + len(core) + len(details) + sum(c for _, c in h_items) for _, core, details, h_items, _ in blocks),
+    )
+
+    def suffix(n):
+        return (f'另有 {n} 项省略（持仓展示 {n} 项、省略 {n} 项）' if zh else
+                f'{n} items omitted (holdings: {n} shown, {n} omitted)')
+
+    reserved, omitted, omitted_holdings = [], 0, 0
+    for header, core, details, holdings, inline in blocks:
+        prior = [line for h, c, _, _ in reserved for line in ['', h, *c]]
+        if _units('\n'.join(lines + prior + ['', header, *core, suffix(upper_bound)])) <= max_units:
+            reserved.append((header, core, details, holdings))
+        else:
+            omitted += 1 + len(core) + len(details) + len(holdings)
+            omitted_holdings += inline + sum(c for _, c in holdings)
+    for index, (header, core, details, holdings) in enumerate(reserved):
+        lines.extend(('', header, *core))
+        later = [line for h, c, _, _ in reserved[index + 1:] for line in ['', h, *c]]
+        for group_items, is_holding in ((details, False), (holdings, True)):
+            for detail, item_count in group_items:
+                if _units('\n'.join(lines + [detail] + later + [suffix(upper_bound)])) <= max_units:
+                    lines.append(detail)
+                else:
+                    omitted += 1
+                    omitted_holdings += item_count if is_holding else 0
+    if omitted:
+        shown = total_holding_items - omitted_holdings
+        ending = (f'（持仓展示 {shown} 项、省略 {omitted_holdings} 项）' if zh else
+                  f' (holdings: {shown} shown, {omitted_holdings} omitted)') if omitted_holdings else ''
+        lines.append((f'另有 {omitted} 项省略' if zh else f'{omitted} items omitted') + ending)
+    return '\n'.join(lines)
+
+
+def render_account_daily_unavailable(day, locale, *, roster_mode=False):
     zh = normalize_locale(locale) == 'zh'
     title = ('📊 昨日账户日报｜' if zh else '📊 Daily account report | ') + day
-    detail = '交易、资产和持仓无法确认' if zh else 'Trades, assets and holdings could not be confirmed'
+    if roster_mode:
+        detail = '账户名录不可用；量化管理状态未知' if zh else 'Account roster unavailable; management status unknown'
+    else:
+        detail = '交易、资产和持仓无法确认' if zh else 'Trades, assets and holdings could not be confirmed'
     return '\n'.join((title, '🕒 ' + _window_text(day, 'zh' if zh else 'en'), detail))

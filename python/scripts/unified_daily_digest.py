@@ -1,8 +1,11 @@
 """Compact bilingual digest. Pure rendering; never split one digest into sends."""
 from __future__ import annotations
 
+import json
 import math
+import os
 import re
+from dataclasses import dataclass
 from datetime import date, datetime, time
 from notification_mode import consolidation_enabled, routine_mode
 from notification_snapshot.unified_contract import SGT, sgt_business_window
@@ -27,7 +30,40 @@ def _window_text(business_day: str, locale: str) -> str:
     return f"统计区间：{interval}" if locale == "zh" else f"Reporting window: {interval}"
 
 
-def render(payload: DailyDigestInput, *, max_units: int = 3900, source_repositories=None) -> str:
+@dataclass(frozen=True)
+class UnsupportedConsolidatedPresentation:
+    """Typed refusal for standalone consolidated mapping-mode presentation (deferred to B9)."""
+
+    supported: bool = False
+    reason_code: str = "standalone_consolidated_mapping_unsupported"
+    deferred_to: str = "B9"
+    requested_mode: str = "mapping_v1"
+
+
+def _mapping_mode_requested(roster_mode=None, roster_context=None) -> bool:
+    if roster_context is not None:
+        return True
+    if roster_mode == "mapping_v1":
+        return True
+    if roster_mode == "legacy":
+        return False
+    mode = os.environ.get("DIGEST_ROSTER_MODE")
+    if mode == "mapping_v1":
+        return True
+    boot_raw = (os.environ.get("DIGEST_ROSTER_BOOT_JSON") or "").strip()
+    if boot_raw:
+        try:
+            boot = json.loads(boot_raw)
+        except ValueError as exc:
+            raise ValueError("digest_roster_mode_invalid") from exc
+        return isinstance(boot, dict) and boot.get("mode") == "mapping_v1"
+    return False
+
+
+def render(payload: DailyDigestInput, *, max_units: int = 3900, source_repositories=None,
+           roster_mode: str | None = None, roster_context=None) -> str | UnsupportedConsolidatedPresentation:
+    if _mapping_mode_requested(roster_mode=roster_mode, roster_context=roster_context):
+        return UnsupportedConsolidatedPresentation()
     if max_units < 256:
         raise ValueError("digest_budget_too_small")
     if consolidation_enabled():

@@ -23,12 +23,22 @@ import daily_digest_aggregator as aggregator
 import merge_digest_candidates as candidate_contract
 import notification_candidate_adapter as adapter
 from account_daily_digest import render_account_daily, render_account_daily_unavailable, valid_crypto_symbol
-from account_daily_facts import collect_account_facts
+from account_daily_facts import SIMULATION_MODES, collect_account_facts
 from daily_digest_delivery_store import GCSDeliveryStore, StoreUnavailable, location
+from digest_roster_authority import (
+    LEGACY_MODE, MAPPING_MODE, AcquisitionClient, AuthorityError, GenerationRoster,
+    RosterBootConfig, SourceRead, generation_recipient_accounts, strict_json,
+)
+from digest_roster_envelope import ROSTER_FORMAT, build_roster_envelope, validate_roster_envelope
+from digest_roster_generation import CURRENT, FALLBACK, ROSTER_UNAVAILABLE, GenerationOutcome, GenerationRunner
+from digest_roster_quantities import (
+    admit_observations, managed_run_bindings, reduce_runs, roster_quantities, unavailable_quantities,
+)
 from display_names import broker_account_identity, configured_account_label, safe_display_text as _safe_display_text
 
 SGT = ZoneInfo('Asia/Singapore')
 IDENTITY = adapter.IDENTITY[:4]
+ACCOUNT_FACT_DOMAINS = ('holdings', 'activity', 'snapshots')
 SLOT = re.compile(r'[a-z0-9][a-z0-9_-]{0,40}')
 BINANCE_SNAPSHOT_PATH = '/api/internal/binance-account-facts/digest'
 IBKR_TELEGRAM_BINDING = ('candidate_slot', 'opaque_account_uid', 'target_id')
@@ -89,51 +99,85 @@ class Configuration:
     binance_snapshot_token: str = field(default='', repr=False)
     telegram_ibkr_accounts: dict = field(default_factory=dict, repr=False)
     deadline_alert_enabled: bool = False
+    roster_boot: RosterBootConfig | None = None
+    roster_outcome: GenerationOutcome | None = None
+    roster_envelope: dict | None = None
+    management_expectations: dict | None = None
+    telegram_ibkr_raw: str = field(default='', repr=False)
+    telegram_recipient: str = field(default='', repr=False)
+
+    @property
+    def is_mapping_mode(self):
+        return isinstance(self.roster_boot, RosterBootConfig) and self.roster_boot.mode == MAPPING_MODE
 
     def __post_init__(self):
-        adapter.validate_expected(self.expected)
-        expected = []
-        for row in self.expected:
-            if 'account_label' in row:
-                value = row['account_label']
-                if (not isinstance(value, str) or len(value) > 70
-                        or (value and (not value.isprintable() or not _safe_display_text(value)))):
-                    raise ValueError('digest_account_label_invalid')
-            # Existing config generators can carry the selected option's fields
-            # on the binding. Normalize them at the actual environment intake.
-            projected = project_expected_target_label(row, row)
-            if row.get('account_label'):
-                projected['account_label'] = row['account_label']
-            expected.append(projected)
-        object.__setattr__(self, 'expected', expected)
-        platforms = {row['platform_id'] for row in self.expected}
-        if not isinstance(self.candidate_uris, dict) or any(
-                platform not in platforms for platform in self.candidate_uris):
-            raise ValueError('digest_candidate_sources_invalid')
-        for uri in self.candidate_uris.values():
-            try:
-                if not isinstance(uri, str):
-                    raise TypeError()
-                location(uri)
-            except (TypeError, ValueError):
-                raise ValueError('digest_candidate_sources_invalid') from None
-        identities, objects = set(), set()
-        for row in self.expected:
-            if not SLOT.fullmatch(row.get('candidate_slot', '')):
-                raise ValueError('digest_candidate_slot_required')
-            identity = tuple(row[key] for key in IDENTITY)
-            object_key = row['platform_id'], row['candidate_slot']
-            if identity in identities or object_key in objects:
-                raise ValueError('digest_duplicate_target_binding')
-            identities.add(identity)
-            objects.add(object_key)
-            if 'snapshot_only' in row and row['snapshot_only'] is not True:
-                raise ValueError('digest_snapshot_binding_invalid')
-            if 'receipt_candidate' in row and row['receipt_candidate'] is not True:
-                raise ValueError('digest_receipt_binding_invalid')
-            if 'expected_runs' in row and (
-                    type(row['expected_runs']) is not int or row['expected_runs'] <= 0):
-                raise ValueError('digest_expected_targets_invalid')
+        if self.roster_boot is not None and not isinstance(self.roster_boot, RosterBootConfig):
+            raise ValueError('digest_roster_mode_invalid')
+        mapping_mode = self.is_mapping_mode
+        if not mapping_mode:
+            if isinstance(self.expected, dict) and self.expected.get('format') == ROSTER_FORMAT:
+                raise ValueError('digest_roster_mode_required')
+            adapter.validate_expected(self.expected)
+            expected = []
+            for row in self.expected:
+                if 'account_label' in row:
+                    value = row['account_label']
+                    if (not isinstance(value, str) or len(value) > 70
+                            or (value and (not value.isprintable() or not _safe_display_text(value)))):
+                        raise ValueError('digest_account_label_invalid')
+                # Existing config generators can carry the selected option's fields
+                # on the binding. Normalize them at the actual environment intake.
+                projected = project_expected_target_label(row, row)
+                if row.get('account_label'):
+                    projected['account_label'] = row['account_label']
+                expected.append(projected)
+            object.__setattr__(self, 'expected', expected)
+            platforms = {row['platform_id'] for row in self.expected}
+            if not isinstance(self.candidate_uris, dict) or any(
+                    platform not in platforms for platform in self.candidate_uris):
+                raise ValueError('digest_candidate_sources_invalid')
+            for uri in self.candidate_uris.values():
+                try:
+                    if not isinstance(uri, str):
+                        raise TypeError()
+                    location(uri)
+                except (TypeError, ValueError):
+                    raise ValueError('digest_candidate_sources_invalid') from None
+            identities, objects = set(), set()
+            for row in self.expected:
+                if not SLOT.fullmatch(row.get('candidate_slot', '')):
+                    raise ValueError('digest_candidate_slot_required')
+                identity = tuple(row[key] for key in IDENTITY)
+                object_key = row['platform_id'], row['candidate_slot']
+                if identity in identities or object_key in objects:
+                    raise ValueError('digest_duplicate_target_binding')
+                identities.add(identity)
+                objects.add(object_key)
+                if 'snapshot_only' in row and row['snapshot_only'] is not True:
+                    raise ValueError('digest_snapshot_binding_invalid')
+                if 'receipt_candidate' in row and row['receipt_candidate'] is not True:
+                    raise ValueError('digest_receipt_binding_invalid')
+                if 'expected_runs' in row and (
+                        type(row['expected_runs']) is not int or row['expected_runs'] <= 0):
+                    raise ValueError('digest_expected_targets_invalid')
+        else:
+            object.__setattr__(self, 'expected', [])
+            if not isinstance(self.candidate_uris, dict) or any(
+                    platform not in adapter.PLATFORMS for platform in self.candidate_uris):
+                raise ValueError('digest_candidate_sources_invalid')
+            for uri in self.candidate_uris.values():
+                try:
+                    if not isinstance(uri, str):
+                        raise TypeError()
+                    location(uri)
+                except (TypeError, ValueError):
+                    raise ValueError('digest_candidate_sources_invalid') from None
+            if self.roster_outcome is not None:
+                if not isinstance(self.roster_outcome, GenerationOutcome):
+                    raise ValueError('digest_roster_outcome_invalid')
+                build_roster_envelope(self.roster_outcome)
+            if self.roster_envelope is not None:
+                validate_roster_envelope(self.roster_envelope)
         date.fromisoformat(self.cutover_date)
         if not re.fullmatch(r'[a-zA-Z0-9_-]{1,64}', self.recipient_scope):
             raise ValueError('digest_recipient_scope_invalid')
@@ -158,6 +202,24 @@ class Configuration:
             candidate_uris = json.loads(os.environ.get('DIGEST_CANDIDATES_BY_PLATFORM_JSON', '{}'))
         except ValueError:
             raise ValueError('digest_candidate_sources_invalid') from None
+        roster_boot = None
+        boot_json = (os.environ.get('DIGEST_ROSTER_BOOT_JSON') or '').strip()
+        if boot_json:
+            roster_boot = RosterBootConfig.from_protected(strict_json(boot_json))
+        elif 'DIGEST_ROSTER_MODE' in os.environ:
+            roster_boot = RosterBootConfig.from_protected({'mode': os.environ['DIGEST_ROSTER_MODE']})
+        if roster_boot is not None and roster_boot.mode == MAPPING_MODE:
+            return cls([],
+                       os.environ['DIGEST_SCHEDULER_JOB_NAME'], os.environ['DIGEST_RECIPIENT_SCOPE'],
+                       os.environ['DIGEST_CUTOVER_REPORT_DATE'], flag == 'true',
+                       os.environ.get('QSL_NOTIFY_LANG', 'en'), candidate_uris,
+                       os.environ.get('DIGEST_BINANCE_SNAPSHOT_ENDPOINT', ''),
+                       os.environ.get('DIGEST_BINANCE_SNAPSHOT_TOKEN', ''),
+                       {},
+                       deadline_alert_enabled=(deadline_flag == 'true'),
+                       roster_boot=roster_boot,
+                       telegram_ibkr_raw=os.environ.get('DIGEST_TELEGRAM_IBKR_ACCOUNT_IDS_JSON', ''),
+                       telegram_recipient=os.environ.get('QSL_GLOBAL_TELEGRAM_CHAT_ID', ''))
         expected = json.loads(os.environ['DIGEST_EXPECTED_TARGETS_JSON'])
         return cls(expected,
                    os.environ['DIGEST_SCHEDULER_JOB_NAME'], os.environ['DIGEST_RECIPIENT_SCOPE'],
@@ -167,7 +229,8 @@ class Configuration:
                    os.environ.get('DIGEST_BINANCE_SNAPSHOT_TOKEN', ''),
                    _ibkr_telegram_accounts(expected, os.environ.get('DIGEST_TELEGRAM_IBKR_ACCOUNT_IDS_JSON'),
                                            os.environ.get('QSL_GLOBAL_TELEGRAM_CHAT_ID')),
-                   deadline_alert_enabled=(deadline_flag == 'true'))
+                   deadline_alert_enabled=(deadline_flag == 'true'),
+                   roster_boot=roster_boot)
 
 
 def utc_now():
@@ -279,7 +342,7 @@ def _binance_snapshot(configuration, binding, day, timeout):
     return snapshot, wallet
 
 
-def _sources(configuration, store, day, end, *, now, monotonic, evidence=None):
+def _sources_for_bindings(bindings, configuration, store, day, end, *, now, monotonic, evidence=None):
     def remember(binding, source, status, payload=None):
         if evidence is None:
             return
@@ -292,7 +355,7 @@ def _sources(configuration, store, day, end, *, now, monotonic, evidence=None):
 
     rows, outcomes, stale_observations = [], [], []
     budget_end = monotonic() + min(120, max(0, (end - now()).total_seconds()))
-    for binding in configuration.expected:
+    for binding in bindings:
         timeout = min(20, budget_end - monotonic(), (end - now()).total_seconds())
         outcome, raw = 'read_failed', None
         if timeout <= 0 and binding.get('snapshot_only'):
@@ -359,7 +422,7 @@ def _sources(configuration, store, day, end, *, now, monotonic, evidence=None):
         elif not binding.get('snapshot_only') or binding.get('receipt_candidate'):
             remember(binding, 'candidate', outcome)
         outcomes.append(outcome)
-    for binding in configuration.expected:
+    for binding in bindings:
         if binding['platform_id'] != 'ibkr':
             continue
         timeout = min(20, budget_end - monotonic(), (end - now()).total_seconds())
@@ -378,6 +441,102 @@ def _sources(configuration, store, day, end, *, now, monotonic, evidence=None):
         except (ValueError, TypeError, KeyError, AttributeError):
             remember(binding, 'settled_cash', 'invalid', cash)
     return rows, outcomes, stale_observations
+
+
+def _sources(configuration, store, day, end, *, now, monotonic, evidence=None):
+    return _sources_for_bindings(configuration.expected, configuration, store, day, end,
+                                now=now, monotonic=monotonic, evidence=evidence)
+
+
+def _legacy_facts_to_observations(roster, rows, day, clock):
+    """Project verified non-simulated legacy account_daily_facts into typed observations."""
+    bindings = roster.run_bindings()
+    if not bindings or not rows:
+        return []
+    facts_by_account = collect_account_facts(rows, bindings, day)
+    clock_iso = clock.astimezone(UTC).isoformat(timespec='seconds').replace('+00:00', 'Z')
+    derived = []
+    for group in roster.groups:
+        if not group.observation_bindings:
+            continue
+        uids = {b['opaque_account_uid'] for b in group.legacy_run_bindings}
+        obs_binding = group.observation_bindings[0]
+        account_fact = None
+        for uid in uids:
+            candidate = facts_by_account.get((obs_binding['platform'], uid))
+            if candidate:
+                account_fact = candidate
+                break
+        if not account_fact:
+            continue
+        domain_facts = {}
+        if account_fact.get('orders') or account_fact.get('fills'):
+            domain_facts['activity'] = {
+                'orders': account_fact.get('orders', []),
+                'fills': account_fact.get('fills', []),
+            }
+        snaps = account_fact.get('snapshots') or []
+        if snaps:
+            domain_facts['snapshots'] = snaps
+            if any(s.get('holdings') or s.get('holdings_complete') or s.get('no_stocks') or s.get('no_spot_earn')
+                   for s in snaps):
+                domain_facts['holdings'] = [s.get('holdings', []) for s in snaps]
+        if domain_facts:
+            derived.append({
+                'type': 'account_observation',
+                **{k: obs_binding[k] for k in ('binding_id', 'platform', 'legacy_key',
+                                               'opaque_account_uid', 'broker_environment', 'account_scope')},
+                'business_day': day,
+                'observed_at': clock_iso,
+                'facts': domain_facts,
+            })
+    return derived
+
+
+def _sources_mapping(roster, configuration, store, day, end, *, now, monotonic, evidence=None,
+                     raw_observations=()):
+    """Acquire legacy run candidates and typed account observations for one GenerationRoster."""
+    if not isinstance(roster, GenerationRoster):
+        raise ValueError('generation_roster_required')
+    run_bindings = roster.run_bindings()
+    rows, outcomes, stale = _sources_for_bindings(
+        run_bindings, configuration, store, day, end, now=now, monotonic=monotonic, evidence=evidence,
+    )
+    typed_observations = list(raw_observations)
+    budget_end = monotonic() + min(120, max(0, (end - now()).total_seconds()))
+    for group in roster.groups:
+        for binding in group.observation_bindings:
+            timeout = min(20, budget_end - monotonic(), (end - now()).total_seconds())
+            if timeout <= 0:
+                continue
+            try:
+                raw = None
+                if hasattr(store, 'observation'):
+                    raw = store.observation(binding, day, timeout)
+                else:
+                    raw = store.candidate(f"observations/{binding['platform']}/{day}/{binding['binding_id']}.json",
+                                          timeout)
+            except StoreUnavailable:
+                raw = None
+            if isinstance(raw, dict):
+                if isinstance(raw.get('observations'), list):
+                    typed_observations.extend(raw['observations'])
+                elif raw.get('type') == 'account_observation':
+                    typed_observations.append(raw)
+            elif isinstance(raw, list):
+                typed_observations.extend(raw)
+    clock = now().astimezone(UTC)
+    non_sim_rows = [r for r in rows if str(r.get('execution_mode') or '').strip().lower() not in SIMULATION_MODES]
+    typed_observations.extend(_legacy_facts_to_observations(roster, non_sim_rows, day, clock))
+    admitted = admit_observations(roster, typed_observations, day, clock)
+    return {
+        'rows': rows,
+        'outcomes': outcomes,
+        'stale': stale,
+        'admitted': admitted,
+        'typed_observations': typed_observations,
+        'evidence': list(evidence) if evidence is not None else None,
+    }
 
 
 @dataclass(frozen=True)
@@ -419,9 +578,105 @@ def _digest_eligible_platforms(config, expected):
     return eligible
 
 
+def _admitted_facts_by_group(admitted):
+    """Decode admitted canonical typed observations keyed by group deployments."""
+    per_group = {}
+    for deployments, entries in admitted.facts.items():
+        merged = {'orders': [], 'fills': [], 'snapshots': []}
+        for domain, raw_json in entries:
+            data = json.loads(raw_json)
+            if domain == 'activity' and isinstance(data, dict):
+                merged['orders'].extend(data.get('orders') or [])
+                merged['fills'].extend(data.get('fills') or [])
+            elif domain == 'snapshots' and isinstance(data, list):
+                merged['snapshots'].extend(data)
+            elif domain == 'snapshots' and isinstance(data, dict):
+                merged['snapshots'].append(data)
+            elif domain == 'holdings' and isinstance(data, list):
+                for item in data:
+                    if isinstance(item, dict) and 'holdings' in item:
+                        merged['snapshots'].append(item)
+                    elif isinstance(item, dict) and 'symbol' in item:
+                        merged['snapshots'].append({'holdings': [item], 'holdings_complete': False})
+                    elif isinstance(item, list):
+                        merged['snapshots'].append({'holdings': item, 'holdings_complete': False})
+        per_group[deployments] = merged
+    return per_group
+
+
 def _report(configuration, rows, outcomes, day, platform_config, *, stale_observations=(),
-            include_telegram_account_ids=False):
+            include_telegram_account_ids=False, roster_outcome=None, admitted_observations=None,
+            quantities=None):
     config = deepcopy(platform_config or aggregator.load_platform_config())
+    outcome = roster_outcome if roster_outcome is not None else configuration.roster_outcome
+    if configuration.is_mapping_mode or outcome is not None:
+        if outcome is None:
+            outcome = GenerationOutcome(ROSTER_UNAVAILABLE, None, failure_code='management_read_unavailable',
+                                        failure_kind='unavailable')
+        envelope_doc = build_roster_envelope(outcome)
+        with tempfile.TemporaryDirectory(prefix='qsl-digest-') as directory:
+            path = Path(directory) / 'candidates.json'
+            path.write_text(json.dumps({'runs': rows}), encoding='utf-8')
+            payload, _, _ = aggregator.build_digest_payload(
+                business_day=day, locale=configuration.locale, candidates_path=path,
+                include_github=False, config=config, candidate_failures=(), render_text=False,
+                roster_context=outcome,
+            )
+        platforms = _digest_eligible_platforms(config, [])
+        if outcome.status == CURRENT and outcome.context is not None:
+            roster = outcome.context.roster
+            admitted = admitted_observations or admit_observations(roster, (), day, outcome.context.decided_at)
+            runs_by_scope = reduce_runs(roster, rows)
+            computed_quantities = quantities or roster_quantities(roster, admitted, runs_by_scope,
+                                                                  domains=ACCOUNT_FACT_DOMAINS)
+            non_sim_rows = [r for r in rows
+                            if str(r.get('execution_mode') or '').strip().lower() not in SIMULATION_MODES]
+            facts = collect_account_facts(
+                [*non_sim_rows, *(row for row in stale_observations if isinstance(row, dict))],
+                roster.run_bindings(), day,
+            )
+            for observation in stale_observations:
+                if isinstance(observation, _BinanceWalletObservation):
+                    facts['binance', observation.account_uid]['wallet_valuation'] = {
+                        'as_of': observation.as_of, 'amount': observation.amount,
+                    }
+                elif isinstance(observation, _SettledCashObservation):
+                    facts['ibkr', observation.account_uid]['settled_cash'] = {
+                        'amount': observation.amount, 'statement_date': observation.statement_date,
+                    }
+            group_facts = _admitted_facts_by_group(admitted)
+            for deployments, g_data in group_facts.items():
+                facts[deployments] = g_data
+            telegram_ibkr = (
+                generation_recipient_accounts(roster, configuration.telegram_ibkr_raw, configuration.telegram_recipient)
+                if include_telegram_account_ids else {}
+            )
+            covered_outcomes = sum(value in {'present', 'not_run', 'scheduled_idle', 'market_closed', 'snapshot_only'}
+                                   for value in outcomes)
+            if not outcomes:
+                coverage = 'complete' if computed_quantities['live_totals_available'] else 'partial'
+            elif covered_outcomes == len(outcomes) and computed_quantities['live_totals_available']:
+                coverage = 'complete'
+            elif covered_outcomes or any(admitted.covered.values()):
+                coverage = 'partial'
+            else:
+                coverage = 'unavailable'
+        elif outcome.status == FALLBACK:
+            computed_quantities = quantities or unavailable_quantities(len(outcome.snapshot.headers))
+            facts, telegram_ibkr, coverage = {}, {}, 'unavailable'
+            admitted = None
+        else:
+            computed_quantities = quantities or unavailable_quantities(None)
+            facts, telegram_ibkr, coverage = {}, {}, 'unavailable'
+            admitted = None
+        text = render_account_daily(
+            payload, [], outcomes, facts=facts, known_platforms=platforms,
+            telegram_ibkr_accounts=telegram_ibkr,
+            roster_envelope=envelope_doc, quantities=computed_quantities,
+            admitted_observations=admitted, management_expectations=configuration.management_expectations,
+        )
+        return text, coverage
+
     config['notifications']['quant_sentinel']['daily_digest'].setdefault('aggregator', {})['expected_targets'] = configuration.expected
     failure_reasons = {'read_failed': 'candidate_store_read_failed',
                        'invalid': 'candidate_input_unavailable_or_invalid'}
@@ -460,7 +715,8 @@ def _report(configuration, rows, outcomes, day, platform_config, *, stale_observ
 
 
 def execute(headers, configuration, store, send, *, preview=False, now=utc_now,
-            monotonic=clock.monotonic, platform_config=None):
+            monotonic=clock.monotonic, platform_config=None, roster_runner=None,
+            roster_outcome=None, raw_observations=()):
     try:
         report_date, day, scheduled_at, check = report_slot(headers, configuration, now())
     except (ValueError, KeyError, TypeError, AttributeError) as error:
@@ -473,7 +729,9 @@ def execute(headers, configuration, store, send, *, preview=False, now=utc_now,
         return 400, {'delivery': 'invalid_slot', 'reason_code': reason}
     return execute_slot(report_date, day, check, {'scheduled_at': scheduled_at.isoformat()},
                         configuration, store, send, preview=preview, now=now,
-                        monotonic=monotonic, platform_config=platform_config)
+                        monotonic=monotonic, platform_config=platform_config,
+                        roster_runner=roster_runner, roster_outcome=roster_outcome,
+                        raw_observations=raw_observations)
 
 
 def _maybe_send_deadline_alert(report_date, day, schedule_record, configuration, store, send, *, now=utc_now):
@@ -514,8 +772,17 @@ def _maybe_send_deadline_alert(report_date, day, schedule_record, configuration,
         return
 
 
+class _UnavailableEnrollmentSource:
+    def read_selection(self):
+        return SourceRead('', False, b'')
+
+    def read_artifact(self, selection):
+        return SourceRead('', False, b'')
+
+
 def execute_slot(report_date, day, check, schedule_record, configuration, store, send, *,
-                 preview=False, now=utc_now, monotonic=clock.monotonic, platform_config=None):
+                 preview=False, now=utc_now, monotonic=clock.monotonic, platform_config=None,
+                 roster_runner=None, roster_outcome=None, raw_observations=()):
     """Run the unchanged business logic after the calling platform validates its trigger."""
     safe = {'report_date': report_date.isoformat(), 'business_day': day, 'delivery': 'not_attempted'}
     if not preview and now().astimezone(SGT).date() != report_date:
@@ -546,6 +813,53 @@ def execute_slot(report_date, day, check, schedule_record, configuration, store,
     evidence = None if preview else []
     if late and not preview:
         text, coverage = '', 'unavailable'
+    elif configuration.is_mapping_mode or roster_outcome is not None or roster_runner is not None:
+        read_end = now() + timedelta(seconds=120) if preview else stop
+        outcome = roster_outcome if roster_outcome is not None else configuration.roster_outcome
+        collected = None
+        if outcome is None:
+            runner = roster_runner
+            if runner is None:
+                runner = GenerationRunner(
+                    configuration.roster_boot, AcquisitionClient(configuration.roster_boot),
+                    _UnavailableEnrollmentSource(), now, recipient_scope=configuration.recipient_scope,
+                )
+
+            def collect_for_roster(roster):
+                attempt_evidence = [] if evidence is not None else None
+                return _sources_mapping(
+                    roster, configuration, store, day, read_end,
+                    now=now, monotonic=monotonic, evidence=attempt_evidence,
+                    raw_observations=raw_observations,
+                )
+
+            outcome = runner.run(collect_for_roster, deadline=read_end.astimezone(UTC))
+            collected = outcome.collected
+        elif outcome.status == CURRENT and outcome.context is not None:
+            collected = outcome.collected
+            if collected is None:
+                attempt_evidence = [] if evidence is not None else None
+                collected = _sources_mapping(
+                    outcome.context.roster, configuration, store, day, read_end,
+                    now=now, monotonic=monotonic, evidence=attempt_evidence,
+                    raw_observations=raw_observations,
+                )
+        if outcome.status == CURRENT and isinstance(collected, dict):
+            rows = collected['rows']
+            outcomes = collected['outcomes']
+            stale = collected['stale']
+            admitted = collected['admitted']
+            if evidence is not None and collected.get('evidence'):
+                evidence.extend(collected['evidence'])
+        else:
+            rows, outcomes, stale, admitted = [], [], [], None
+        include_ibkr = (not preview and schedule_record.get('trigger_provenance') == 'azure_logic_sliding_window'
+                        and outcome.status == CURRENT)
+        text, coverage = _report(
+            configuration, rows, outcomes, day, platform_config,
+            stale_observations=stale, include_telegram_account_ids=include_ibkr,
+            roster_outcome=outcome, admitted_observations=admitted,
+        )
     else:
         read_end = now() + timedelta(seconds=120) if preview else stop
         rows, outcomes, stale = _sources(
@@ -556,7 +870,7 @@ def execute_slot(report_date, day, check, schedule_record, configuration, store,
     # Recheck after intake/rendering: wall-clock expiry cannot be extended by retries.
     late = late or now() + timedelta(seconds=30) >= deadline_at
     if late and not preview:
-        text = render_account_daily_unavailable(day, configuration.locale)
+        text = render_account_daily_unavailable(day, configuration.locale, roster_mode=configuration.is_mapping_mode)
     safe.update(coverage=coverage, late=late)
     if preview:
         return 200, {**safe, 'delivery': 'preview'}
