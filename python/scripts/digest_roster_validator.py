@@ -42,6 +42,10 @@ RUN_BINDING_FIELDS = (*BINDING_FIELDS, 'strategy_profile')
 OBSERVATION_BINDING_FIELDS = (
     'binding_id', 'platform', 'legacy_key', 'opaque_account_uid', 'broker_environment', 'account_scope',
 )
+PRIVATE_LOCATOR_FIELDS = (
+    'opaque_account_uid', 'target_id', 'candidate_slot', 'account_hint', 'binding_id',
+    *CONFIG_IDENTITY_FIELDS,
+)
 EFFECTIVE_FIELDS = ('platform', 'legacy_key', 'management_enabled', 'revision', 'effective_at')
 RUNTIME_TARGET_FIELDS = ('platform_id', 'opaque_account_uid', 'target_id', 'strategy_profile')
 
@@ -260,6 +264,107 @@ def private_identities(group_bindings):
     return values
 
 
+@dataclass(frozen=True)
+class PrepInputs:
+    """Parsed preparation inputs separating retained raw identifier strings from indexed identity resolution."""
+    raw_links: tuple
+    raw_roster: tuple
+    raw_observations: tuple
+    indexed_roster: dict
+    roster_counts: Counter
+    raw_identifiers_by_platform: dict
+    raw_identifiers: frozenset
+
+
+def extract_raw_prep_inputs(enrollment_links, legacy_roster, observation_bindings, instances=()):
+    """Retain identifier-valid raw private locator strings from every parsed row,
+    including rows whose identity fields are invalid, separately from the indexed resolution.
+    """
+    if (not isinstance(enrollment_links, (list, tuple))
+            or not isinstance(legacy_roster, (list, tuple))
+            or not isinstance(observation_bindings, (list, tuple))
+            or not isinstance(instances, (list, tuple))):
+        _fail('enrollment_artifact_invalid')
+
+    by_platform = {}
+    all_raw = set()
+
+    def record(platform_value, value):
+        if is_identifier(value):
+            plat = platform_value if is_identifier(platform_value) else None
+            by_platform.setdefault(plat, set()).add(value)
+            all_raw.add(value)
+
+    def scan_row(row):
+        if not isinstance(row, dict):
+            return
+        platform_value = row.get('platform_id') if 'platform_id' in row else row.get('platform')
+        for field_name in PRIVATE_LOCATOR_FIELDS:
+            record(platform_value, row.get(field_name))
+        for nested_name in ('config_identity', 'config'):
+            nested = row.get(nested_name)
+            if isinstance(nested, dict):
+                for field_name in CONFIG_IDENTITY_FIELDS:
+                    record(platform_value, nested.get(field_name))
+
+    for row in enrollment_links:
+        scan_row(row)
+    for row in legacy_roster:
+        scan_row(row)
+    for row in observation_bindings:
+        scan_row(row)
+    for row in instances:
+        scan_row(row)
+
+    indexed_roster = {}
+    roster_counts = Counter()
+    for row in legacy_roster:
+        if not isinstance(row, dict):
+            continue
+        identity = tuple(row.get(name) for name in BINDING_FIELDS)
+        if all(is_identifier(value) for value in identity):
+            roster_counts[identity] += 1
+            if roster_counts[identity] == 1:
+                indexed_roster[identity] = row
+            else:
+                indexed_roster.pop(identity, None)
+
+    frozen_by_platform = {plat: frozenset(values) for plat, values in by_platform.items()}
+    return PrepInputs(
+        raw_links=tuple(enrollment_links),
+        raw_roster=tuple(legacy_roster),
+        raw_observations=tuple(observation_bindings),
+        indexed_roster=indexed_roster,
+        roster_counts=roster_counts,
+        raw_identifiers_by_platform=frozen_by_platform,
+        raw_identifiers=frozenset(all_raw),
+    )
+
+
+def certified_group_deployments(deployments):
+    """Validate exact deployment pairs without normalization, reject duplicates,
+    and return them sorted lexicographically by UTF-8 bytes of (platform, key).
+    """
+    if not isinstance(deployments, (list, tuple)) or not deployments:
+        _fail('roster_group_invalid')
+    pairs = []
+    for item in deployments:
+        if isinstance(item, dict):
+            if frozenset(item) != frozenset({'platform', 'legacy_key'}):
+                _fail('roster_group_invalid')
+            pair = (item['platform'], item['legacy_key'])
+        elif isinstance(item, (list, tuple)) and len(item) == 2:
+            pair = (item[0], item[1])
+        else:
+            _fail('roster_group_invalid')
+        if not is_identifier(pair[0]) or not is_identifier(pair[1]):
+            _fail('roster_group_invalid')
+        pairs.append(pair)
+    if len(set(pairs)) != len(pairs):
+        _fail('duplicate_group_deployment', CONFLICT)
+    return tuple(sorted(pairs, key=lambda pair: (pair[0].encode('utf-8'), pair[1].encode('utf-8'))))
+
+
 def expected_status(management_class, evidence, applied):
     if evidence != 'known':
         return 'unknown'
@@ -288,24 +393,8 @@ def certify_group_identity(deployments):
     before keying, ordered lexicographically by UTF-8 bytes of (platform, key),
     and encoded as length-prefixed components with unambiguous pair boundaries.
     """
-    if not isinstance(deployments, (list, tuple)) or not deployments:
-        _fail('roster_group_invalid')
-    pairs = []
-    for item in deployments:
-        if isinstance(item, dict):
-            if frozenset(item) != frozenset({'platform', 'legacy_key'}):
-                _fail('roster_group_invalid')
-            pair = (item['platform'], item['legacy_key'])
-        elif isinstance(item, (list, tuple)) and len(item) == 2:
-            pair = (item[0], item[1])
-        else:
-            _fail('roster_group_invalid')
-        if not is_identifier(pair[0]) or not is_identifier(pair[1]):
-            _fail('roster_group_invalid')
-        pairs.append(pair)
-    if len(set(pairs)) != len(pairs):
-        _fail('duplicate_group_deployment', CONFLICT)
-    encoded_pairs = sorted((p.encode('utf-8'), k.encode('utf-8')) for p, k in pairs)
+    ordered_pairs = certified_group_deployments(deployments)
+    encoded_pairs = [(p.encode('utf-8'), k.encode('utf-8')) for p, k in ordered_pairs]
     buf = bytearray(b'qsl.group.v1\x00')
     buf.extend(struct.pack('>I', len(encoded_pairs)))
     for p_bytes, k_bytes in encoded_pairs:
@@ -533,8 +622,9 @@ def validate_readback(document):
         if (status != raw['management_status'] or raw['processing_eligible'] is not processing
                 or raw['processing_denial'] != expected_denial(processing, status, raw['reasons'])):
             _fail('readback_status_inconsistent', CONFLICT)
+        ordered = tuple(sorted(pairs, key=lambda pair: (pair[0].encode('utf-8'), pair[1].encode('utf-8'))))
         groups.append(LiveGroup(
-            tuple(sorted(pairs)), raw['management_class'], raw['management_status'],
+            ordered, raw['management_class'], raw['management_status'],
             raw['evidence_state'], raw['scope'], tuple(raw['reasons']), processing,
             raw['processing_denial'], applied,
         ))
@@ -1074,6 +1164,103 @@ def validate_roster_envelope(document):
     return document
 
 
+def validate_ownership_contract(roster_document, live_observation):
+    """Canonical ownership-validation contract owned by the preparer (RESCOPE §3.1 item 4).
+
+    Verifies that for an authoritative roster:
+    1) every roster account exists in the source observation;
+    2) platform + key identify the exact same physical account;
+    3) management class, status, evidence, scope, eligibility, reasons and applied match source;
+    4) no physical account appears twice;
+    5) no account is silently omitted from the complete snapshot;
+    6) the roster names the exact source revision it was validated against.
+    """
+    doc = validate_roster_envelope(roster_document)
+    if doc['format'] != ROSTER_FORMAT or doc['status'] != STATUS_AVAILABLE:
+        _fail('roster_not_authoritative')
+    if not isinstance(live_observation, LiveObservation):
+        _fail('observation_not_acquired')
+    expected_rev = {
+        'instance_revision': live_observation.instance_revision,
+        'policy_revision': live_observation.policy_revision,
+    }
+    if doc['source_revision'] != expected_rev:
+        _fail('ownership_revision_mismatch', CONFLICT)
+    if doc['physical_grouping_complete'] is not True:
+        _fail('physical_grouping_incomplete')
+    expected_uncovered = tuple(sorted(
+        ((u['platform'], u['key']) for u in doc['uncovered_deployments']),
+        key=lambda pair: (pair[0].encode('utf-8'), pair[1].encode('utf-8')),
+    ))
+    live_uncovered = tuple(sorted(
+        live_observation.uncovered,
+        key=lambda pair: (pair[0].encode('utf-8'), pair[1].encode('utf-8')),
+    ))
+    if expected_uncovered != live_uncovered:
+        _fail('ownership_uncovered_mismatch', CONFLICT)
+    if doc['account_count'] != len(live_observation.groups) or len(doc['accounts']) != len(live_observation.groups):
+        _fail('ownership_omission_detected', CONFLICT)
+
+    live_by_gid = {certify_group_identity(group.deployments): group for group in live_observation.groups}
+    if len(live_by_gid) != len(live_observation.groups):
+        _fail('duplicate_physical_account', CONFLICT)
+    seen_gids = set()
+    seen_pairs = set()
+    for account in doc['accounts']:
+        pairs = certified_group_deployments(account['deployments'])
+        gid = certify_group_identity(pairs)
+        if account['group_id'] != gid:
+            _fail('roster_group_identity_mismatch', CONFLICT)
+        if gid in seen_gids:
+            _fail('duplicate_physical_account', CONFLICT)
+        live_group = live_by_gid.get(gid)
+        if live_group is None or pairs != live_group.deployments:
+            _fail('ownership_account_mismatch', CONFLICT)
+        seen_gids.add(gid)
+        if seen_pairs & set(pairs):
+            _fail('deployment_claimed_by_multiple_accounts', CONFLICT)
+        seen_pairs.update(pairs)
+        expected_applied = (
+            {
+                'management_enabled': live_group.applied[0],
+                'revision': live_group.applied[1],
+                'effective_at': live_group.applied[2],
+            }
+            if live_group.applied is not None else None
+        )
+        if (account['management_class'] != live_group.management_class
+                or account['management_status'] != live_group.management_status
+                or account['evidence_state'] != live_group.evidence_state
+                or account['scope'] != live_group.scope
+                or account['processing_eligible'] is not live_group.processing_eligible
+                or account['processing_denial'] != live_group.processing_denial
+                or tuple(account['reasons']) != live_group.reasons
+                or account['applied'] != expected_applied):
+            _fail('ownership_status_mismatch', CONFLICT)
+    if seen_gids != set(live_by_gid):
+        _fail('ownership_omission_detected', CONFLICT)
+    return doc
+
+
+def validate_consumer_provenance(roster_document, *, clock, expected_run_id=None, expected_run_scope=None,
+                                 expected_selection=None):
+    """Consumer-side integrity, provenance, run-binding, and freshness check only.
+
+    Never re-derives ownership or reads live source records.
+    """
+    doc = validate_roster_envelope(roster_document)
+    if doc['format'] != ROSTER_FORMAT or doc['status'] != STATUS_AVAILABLE:
+        _fail('roster_not_authoritative')
+    check_envelope_freshness(doc, clock)
+    if expected_run_id is not None and doc['run_id'] != expected_run_id:
+        _fail('roster_scope_invalid')
+    if expected_run_scope is not None and doc['run_scope'] != expected_run_scope:
+        _fail('roster_scope_invalid')
+    if expected_selection is not None and doc['selection'] != expected_selection:
+        _fail('enrollment_selection_invalid')
+    return doc
+
+
 __all__ = [
     'ACQUISITION_KEYS', 'ARTIFACT_FORMAT', 'ARTIFACT_GROUP_KEYS', 'ARTIFACT_KEYS', 'AuthorityError',
     'BINDING_FIELDS', 'CODE', 'CONFIG_IDENTITY_FIELDS', 'CONFLICT', 'COUNT_KEYS', 'DENIAL_CODES',
@@ -1081,16 +1268,17 @@ __all__ = [
     'GENERATION_WINDOW_KEYS', 'GROUP_ID', 'GROUP_REASON_CODES', 'INSTANT', 'LEGACY_MODE', 'MANAGEMENT_CLASSES',
     'MANAGEMENT_ROUTE', 'MANAGEMENT_STATUSES', 'MAPPING_MODE', 'MAX_FUTURE_SKEW', 'MAX_OBSERVATION_AGE',
     'MAX_READ_TIMEOUT', 'MAX_RESPONSE_BYTES', 'OBSERVATION_BINDING_FIELDS', 'ORIGIN', 'POLICY_DENIALS',
-    'PROJECTION_FORMAT', 'READBACK_FORMAT', 'READBACK_GROUP_KEYS', 'READBACK_KEYS', 'ROSTER_FORMAT',
-    'ROSTER_GROUP_KEYS', 'ROSTER_KEYS', 'ROSTER_STATUSES', 'RUN_BINDING_FIELDS', 'RUN_BINDING_OPTIONS',
-    'RUN_SCOPE_KEYS', 'RUNTIME_TARGET_FIELDS', 'RosterBootConfig', 'SCHEMA_FILES', 'SCOPES', 'SELECTION_FORMAT',
-    'SELECTION_KEYS', 'SHA256', 'SOURCE_REVISION_KEYS', 'STALE', 'STATUS_AVAILABLE', 'STATUS_FALLBACK',
-    'STATUS_UNAVAILABLE', 'ServiceAuthPolicy', 'UNAVAILABLE', 'UNCOVERED_KEYS', 'UNCOVERED_REASON_CODES',
-    'VERSION', 'canonical_envelope_payload', 'certify_group_identity', 'check_envelope_freshness',
-    'compute_content_hash', 'exact_keys', 'expected_denial', 'expected_status', 'format_utc', 'is_codes',
-    'is_identifier', 'is_member', 'is_strict_revision', 'load_roster_schema', 'observation_age',
-    'parse_instant', 'private_identities', 'run_binding_ok', 'strict_json', 'trusted_clock',
-    'validate_artifact', 'validate_effective_records', 'validate_projection_revisions', 'validate_readback',
-    'validate_roster_envelope', 'validate_selection_document', 'verify_content_hash', 'verify_packaged_schemas',
-    'within_window',
+    'PRIVATE_LOCATOR_FIELDS', 'PROJECTION_FORMAT', 'PrepInputs', 'READBACK_FORMAT', 'READBACK_GROUP_KEYS',
+    'READBACK_KEYS', 'ROSTER_FORMAT', 'ROSTER_GROUP_KEYS', 'ROSTER_KEYS', 'ROSTER_STATUSES', 'RUN_BINDING_FIELDS',
+    'RUN_BINDING_OPTIONS', 'RUN_SCOPE_KEYS', 'RUNTIME_TARGET_FIELDS', 'RosterBootConfig', 'SCHEMA_FILES', 'SCOPES',
+    'SELECTION_FORMAT', 'SELECTION_KEYS', 'SHA256', 'SOURCE_REVISION_KEYS', 'STALE', 'STATUS_AVAILABLE',
+    'STATUS_FALLBACK', 'STATUS_UNAVAILABLE', 'ServiceAuthPolicy', 'UNAVAILABLE', 'UNCOVERED_KEYS',
+    'UNCOVERED_REASON_CODES', 'VERSION', 'canonical_envelope_payload', 'certified_group_deployments',
+    'certify_group_identity', 'check_envelope_freshness', 'compute_content_hash', 'exact_keys',
+    'expected_denial', 'expected_status', 'extract_raw_prep_inputs', 'format_utc', 'is_codes', 'is_identifier',
+    'is_member', 'is_strict_revision', 'load_roster_schema', 'observation_age', 'parse_instant',
+    'private_identities', 'run_binding_ok', 'strict_json', 'trusted_clock', 'validate_artifact',
+    'validate_consumer_provenance', 'validate_effective_records', 'validate_ownership_contract',
+    'validate_projection_revisions', 'validate_readback', 'validate_roster_envelope', 'validate_selection_document',
+    'verify_content_hash', 'verify_packaged_schemas', 'within_window',
 ]
