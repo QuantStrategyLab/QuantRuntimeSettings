@@ -638,6 +638,8 @@ def validate_readback(document):
                 or not is_member(raw['processing_denial'], DENIAL_CODES)):
             _fail('readback_uncovered_invalid')
         uncovered.append((raw['platform'], raw['key']))
+    if uncovered:
+        _fail('physical_grouping_incomplete')
     claims.update(uncovered)
     if any(count > 1 for count in claims.values()):
         _fail('deployment_claimed_by_multiple_accounts', CONFLICT)
@@ -1242,6 +1244,55 @@ def validate_ownership_contract(roster_document, live_observation):
     return doc
 
 
+def verify_inventory_authority(authority_input, expected_instance_revision, expected_policy_revision):
+    """Verify the #1173 inventory authority completeness summary (RESCOPE §3.1 item 2)."""
+    if not isinstance(authority_input, dict):
+        _fail('inventory_incomplete', CONFLICT)
+    if authority_input.get('format') != 'qsl_account_mapping_authority_input.v1':
+        _fail('inventory_incomplete', CONFLICT)
+    if (authority_input.get('authoritative') is not True
+            or authority_input.get('reasons') != []
+            or authority_input.get('policy_error') is not None):
+        _fail('inventory_incomplete', CONFLICT)
+    inst_rev = authority_input.get('instance_revision')
+    pol_rev = authority_input.get('policy_revision')
+    if not is_strict_revision(inst_rev) or not is_strict_revision(pol_rev):
+        _fail('inventory_incomplete', CONFLICT)
+    if inst_rev != expected_instance_revision or pol_rev != expected_policy_revision:
+        _fail('inventory_revision_mismatch', CONFLICT)
+    return authority_input
+
+
+def verify_completeness_contract(live_observation, artifact_document):
+    """Verify readback completeness: B2 indicator at declared scope + validated structural inventory."""
+    if not isinstance(live_observation, LiveObservation):
+        _fail('observation_not_acquired')
+    if live_observation.uncovered:
+        _fail('physical_grouping_incomplete')
+    if not isinstance(artifact_document, dict):
+        _fail('enrollment_artifact_invalid')
+    if (artifact_document.get('instance_revision') != live_observation.instance_revision
+            or artifact_document.get('policy_revision') != live_observation.policy_revision):
+        _fail('structural_revision_mismatch', CONFLICT)
+    structural = artifact_document.get('groups')
+    if not isinstance(structural, list):
+        _fail('enrollment_artifact_invalid')
+    structure = {}
+    for group in structural:
+        pairs = certified_group_deployments(group['deployments'])
+        gid = certify_group_identity(pairs)
+        if gid in structure:
+            _fail('grouping_mismatch', CONFLICT)
+        structure[gid] = (pairs, group)
+    live_gids = {certify_group_identity(live.deployments): live for live in live_observation.groups}
+    if len(live_gids) != len(live_observation.groups) or set(structure) != set(live_gids):
+        _fail('grouping_mismatch', CONFLICT)
+    for gid, live in live_gids.items():
+        if structure[gid][0] != live.deployments:
+            _fail('grouping_mismatch', CONFLICT)
+    return structure
+
+
 def validate_consumer_provenance(roster_document, *, clock, expected_run_id=None, expected_run_scope=None,
                                  expected_selection=None):
     """Consumer-side integrity, provenance, run-binding, and freshness check only.
@@ -1280,5 +1331,6 @@ __all__ = [
     'private_identities', 'run_binding_ok', 'strict_json', 'trusted_clock', 'validate_artifact',
     'validate_consumer_provenance', 'validate_effective_records', 'validate_ownership_contract',
     'validate_projection_revisions', 'validate_readback', 'validate_roster_envelope', 'validate_selection_document',
-    'verify_content_hash', 'verify_packaged_schemas', 'within_window',
+    'verify_completeness_contract', 'verify_content_hash', 'verify_inventory_authority', 'verify_packaged_schemas',
+    'within_window',
 ]

@@ -124,6 +124,7 @@ def prepare_mapping_enrollment_bundle(*, js_bundle, legacy_roster, observation_b
         source=source,
         versions=versions,
         prepared_at=prepared_at,
+        authority_input=js_bundle.get('authority'),
     )
     selection = {
         'format': SELECTION_FORMAT,

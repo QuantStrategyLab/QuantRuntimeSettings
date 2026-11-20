@@ -17,6 +17,7 @@ const {
   exportAppliedRecords,
   managementReadCapability,
 } = await import(new URL("application/runtime_instances/account_management_readback.js", CONSOLE));
+const { deriveMappingAuthority } = await import(new URL("application/account_mapping/inventory_adapter.js", CONSOLE));
 const { projectAccountManagement } = await import(new URL("application/runtime_instances/mapping_projection.js", CONSOLE));
 
 const INSTANCE_STATE_DDL = [
@@ -86,6 +87,29 @@ export async function composeEnrollmentInputs(observation) {
     const appliedRows = db.prepare("SELECT * FROM account_management_applied ORDER BY platform, account_key").all();
     const effective = exportAppliedRecords(appliedRows);
     const state = { initialized: true, revision: observation.instance_revision, instances: observation.instances };
+    let authority;
+    try {
+      const derived = deriveMappingAuthority(observation.inventory, observation.policy, observation.collection);
+      authority = {
+        format: derived.format,
+        authoritative: derived.authoritative,
+        reasons: derived.reasons,
+        instance_revision: derived.instance_revision,
+        policy_revision: derived.policy_revision,
+        policy_error: derived.policy_error,
+        counts: derived.counts,
+      };
+    } catch (error) {
+      authority = {
+        format: "qsl_account_mapping_authority_input.v1",
+        authoritative: false,
+        reasons: [error?.code || "invalid_inventory_result"],
+        instance_revision: null,
+        policy_revision: null,
+        policy_error: null,
+        counts: null,
+      };
+    }
     const projection = projectAccountManagement({
       state,
       inventory: observation.inventory,
@@ -99,6 +123,7 @@ export async function composeEnrollmentInputs(observation) {
       enrollment_links: observation.enrollment_links || [],
       readback,
       effective_export: effective,
+      authority,
       projection,
     };
   } finally {

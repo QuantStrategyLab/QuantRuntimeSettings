@@ -10,6 +10,7 @@ Never imports cloud_run_daily_digest or any generation-only consumer module.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import ssl
 import urllib.request
@@ -26,6 +27,7 @@ from digest_roster_validator import (
     EVIDENCE_SCOPE,
     LEGACY_MODE,
     MANAGEMENT_ROUTE,
+    MANAGEMENT_STATUSES,
     MAPPING_MODE,
     MAX_FUTURE_SKEW,
     MAX_OBSERVATION_AGE,
@@ -35,6 +37,7 @@ from digest_roster_validator import (
     PRIVATE_LOCATOR_FIELDS,
     PROJECTION_FORMAT,
     READBACK_FORMAT,
+    ROSTER_FORMAT,
     RUN_BINDING_FIELDS,
     RUN_BINDING_OPTIONS,
     RUNTIME_TARGET_FIELDS,
@@ -42,6 +45,9 @@ from digest_roster_validator import (
     SELECTION_KEYS,
     SHA256,
     STALE,
+    STATUS_AVAILABLE,
+    STATUS_FALLBACK,
+    STATUS_UNAVAILABLE,
     UNAVAILABLE,
     VERSION,
     AuthorityError,
@@ -52,8 +58,10 @@ from digest_roster_validator import (
     ServiceAuthPolicy,
     certified_group_deployments,
     certify_group_identity,
+    compute_content_hash,
     exact_keys,
     extract_raw_prep_inputs,
+    format_utc,
     is_identifier,
     is_member,
     observation_age,
@@ -67,7 +75,10 @@ from digest_roster_validator import (
     validate_ownership_contract,
     validate_projection_revisions,
     validate_readback,
+    validate_roster_envelope,
     validate_selection_document,
+    verify_completeness_contract,
+    verify_inventory_authority,
     within_window,
 )
 from display_names import safe_display_text
@@ -369,9 +380,12 @@ def _configured_label(pair, config, prep_inputs):
 
 
 def prepare_enrollment_bundle(*, readback, effective_records, projection, instances, enrollment_links,
-                              legacy_roster, observation_bindings, source, versions, prepared_at):
+                              legacy_roster, observation_bindings, source, versions, prepared_at,
+                              authority_input=None):
     """Build the enrollment artifact and retained raw PrepInputs from one coherent observation."""
     live = validate_readback(readback)
+    if authority_input is not None:
+        verify_inventory_authority(authority_input, live.instance_revision, live.policy_revision)
     records = validate_effective_records(effective_records)
     if sorted(records) != list(live.effective_records):
         _fail('effective_export_mismatch', CONFLICT)
@@ -593,20 +607,7 @@ def compose_generation(observation, artifact):
         _fail('observation_not_acquired')
     if not isinstance(artifact, EnrollmentArtifact) or artifact._origin is not _SELECTED:
         _fail('enrollment_artifact_unselected')
-    if (artifact.instance_revision != observation.instance_revision
-            or artifact.policy_revision != observation.policy_revision):
-        _fail('structural_revision_mismatch', CONFLICT)
-    structural = artifact.document['groups']
-    structure = {}
-    for group in structural:
-        pairs = certified_group_deployments(group['deployments'])
-        gid = certify_group_identity(pairs)
-        if gid in structure:
-            _fail('grouping_mismatch', CONFLICT)
-        structure[gid] = (pairs, group)
-    live_gids = {certify_group_identity(live.deployments): live for live in observation.groups}
-    if set(structure) != set(live_gids):
-        _fail('grouping_mismatch', CONFLICT)
+    structure = verify_completeness_contract(observation, artifact.document)
 
     groups = []
     for live in observation.groups:
@@ -639,8 +640,422 @@ def compose_generation(observation, artifact):
     )
 
 
+# --- Envelope builders and preparer acceptance (completeness + B3-08) ---------
+
+_generation_sequence = itertools.count(1)
+
+
+def canonical_json_bytes(document):
+    return json.dumps(document, ensure_ascii=False, sort_keys=True, separators=(',', ':'),
+                      allow_nan=False).encode('utf-8')
+
+
+def make_run_scope(boot, *, recipient_scope, report_date, original_slot, preview=False):
+    if not isinstance(boot, RosterBootConfig) or boot.mode != MAPPING_MODE:
+        raise ValueError('digest_roster_mode_invalid')
+    namespace = (
+        f"{'preview' if preview else 'prod'}:{boot.origin}:{boot.enrollment_source}"
+        f":{boot.config_context}:{recipient_scope}"
+    )
+    return {
+        'namespace': namespace,
+        'enrollment_source': boot.enrollment_source,
+        'config_context': boot.config_context,
+        'recipient_scope': recipient_scope,
+        'report_date': report_date,
+        'original_slot': original_slot,
+        'preview': bool(preview),
+    }
+
+
+def _run_id_for_scope(run_scope):
+    return f"{run_scope['report_date']}/{run_scope['original_slot']}"
+
+
+@dataclass(frozen=True)
+class DisplayHeader:
+    """Retained display metadata for Q5 warm fallback; carries no class or management status."""
+    group_id: str
+    platform: str
+    account_key: str
+    deployments: tuple
+    labels: tuple
+    scope: str
+
+
+def headers_from_roster(roster):
+    if not isinstance(roster, GenerationRoster):
+        _fail('roster_shape_invalid')
+    return tuple(
+        DisplayHeader(
+            group_id=group.group_id,
+            platform=group.platform,
+            account_key=group.account_key,
+            deployments=group.deployments,
+            labels=group.labels,
+            scope=group.live.scope,
+        )
+        for group in roster.groups
+    )
+
+
+def build_available_roster_envelope(
+    roster,
+    *,
+    confirmation,
+    run_scope,
+    generation_id,
+    generated_at,
+    generation_window,
+    initial_read_at,
+    confirming_read_at,
+):
+    """Build, ownership-validate, and hash one authoritative qsl_digest_account_roster.v1 envelope."""
+    if not isinstance(roster, GenerationRoster):
+        _fail('roster_shape_invalid')
+    if not isinstance(confirmation, LiveObservation) or confirmation._origin is not _ACQUIRED:
+        _fail('observation_not_acquired')
+    accepted_at = parse_instant(generated_at) if isinstance(generated_at, str) else trusted_clock(generated_at)
+    if accepted_at is None:
+        _fail('roster_time_invalid', STALE)
+    generated_iso = format_utc(accepted_at)
+    accounts = []
+    status_counts = Counter()
+    for group in roster.groups:
+        live = group.live
+        status_counts[live.management_status] += 1
+        applied = (
+            {'management_enabled': live.applied[0], 'revision': live.applied[1], 'effective_at': live.applied[2]}
+            if live.applied is not None else None
+        )
+        accounts.append({
+            'group_id': group.group_id,
+            'platform': group.platform,
+            'account_key': group.account_key,
+            'deployments': [{'platform': p, 'legacy_key': k} for p, k in group.deployments],
+            'labels': [{'platform': p, 'legacy_key': k, 'label': lbl} for p, k, lbl in group.labels],
+            'scope': live.scope,
+            'management_class': live.management_class,
+            'management_status': live.management_status,
+            'evidence_state': live.evidence_state,
+            'processing_eligible': live.processing_eligible,
+            'processing_denial': live.processing_denial,
+            'reasons': list(live.reasons),
+            'applied': applied,
+            'legacy_run_bindings': [dict(item) for item in group.legacy_run_bindings],
+            'observation_bindings': [dict(item) for item in group.observation_bindings],
+        })
+    uncovered = [
+        {
+            'platform': p,
+            'key': k,
+            'management_status': 'unknown',
+            'evidence_state': 'unknown',
+            'reasons': ['deployment_uncovered'],
+            'processing_eligible': False,
+            'processing_denial': 'management_status_unknown',
+        }
+        for p, k in confirmation.uncovered
+    ]
+    age_seconds = round(observation_age(confirmation.observed, accepted_at).total_seconds(), 6)
+    document = {
+        'format': ROSTER_FORMAT,
+        'schema_version': ROSTER_FORMAT,
+        'status': STATUS_AVAILABLE,
+        'run_id': _run_id_for_scope(run_scope),
+        'run_scope': dict(run_scope),
+        'generation_id': generation_id,
+        'source_revision': {
+            'instance_revision': confirmation.instance_revision,
+            'policy_revision': confirmation.policy_revision,
+        },
+        'source_snapshot_at': confirmation.observed_at,
+        'generated_at': generated_iso,
+        'generation_window': dict(generation_window),
+        'observation_age_seconds': age_seconds,
+        'live_source': MANAGEMENT_ROUTE,
+        'evidence_scope': EVIDENCE_SCOPE,
+        'acquisition': {
+            'live_source': MANAGEMENT_ROUTE,
+            'evidence_scope': EVIDENCE_SCOPE,
+            'initial_read_at': format_utc(initial_read_at) if not isinstance(initial_read_at, str) else initial_read_at,
+            'confirming_read_at': (
+                format_utc(confirming_read_at) if not isinstance(confirming_read_at, str) else confirming_read_at
+            ),
+            'initial_snapshot_at': roster.observation.observed_at,
+            'confirming_snapshot_at': confirmation.observed_at,
+            'confirmation_outcome': 'confirmed',
+        },
+        'selection': roster.selection.as_dict(),
+        'prepared_at': roster.prepared_at,
+        'enrollment_observed_at': roster.enrollment_observed_at,
+        'physical_grouping_complete': True,
+        'failure_code': None,
+        'failure_kind': None,
+        'account_count': len(accounts),
+        'counts': {
+            'physical_accounts': len(accounts),
+            'display_groups': len(accounts),
+            'display_deployments': sum(len(a['deployments']) for a in accounts) + len(uncovered),
+            'uncovered_deployments': len(uncovered),
+            **{status: status_counts.get(status, 0) for status in MANAGEMENT_STATUSES},
+        },
+        'accounts': accounts,
+        'uncovered_deployments': uncovered,
+        'rejected': dict(roster.rejected),
+    }
+    document['content_hash'] = compute_content_hash(document)
+    validate_roster_envelope(document)
+    validate_ownership_contract(document, confirmation)
+    return document, canonical_json_bytes(document)
+
+
+def build_fallback_roster_envelope(
+    *,
+    run_scope,
+    source_snapshot_at,
+    observation_age_seconds,
+    generation_window,
+    headers,
+    failure_code,
+    failure_kind=UNAVAILABLE,
+):
+    """Build and hash one non-authoritative fallback qsl_digest_account_roster.v1 envelope."""
+    if not headers:
+        _fail('roster_shape_invalid')
+    accounts = [
+        {
+            'group_id': header.group_id,
+            'platform': header.platform,
+            'account_key': header.account_key,
+            'deployments': [{'platform': p, 'legacy_key': k} for p, k in header.deployments],
+            'labels': [{'platform': p, 'legacy_key': k, 'label': lbl} for p, k, lbl in header.labels],
+            'scope': header.scope,
+            'management_class': None,
+            'management_status': 'unknown',
+            'evidence_state': 'unknown',
+            'processing_eligible': False,
+            'processing_denial': 'management_status_unknown',
+            'reasons': [failure_code],
+            'applied': None,
+            'legacy_run_bindings': [],
+            'observation_bindings': [],
+        }
+        for header in headers
+    ]
+    document = {
+        'format': ROSTER_FORMAT,
+        'schema_version': ROSTER_FORMAT,
+        'status': STATUS_FALLBACK,
+        'run_id': _run_id_for_scope(run_scope),
+        'run_scope': dict(run_scope),
+        'generation_id': None,
+        'source_revision': None,
+        'source_snapshot_at': source_snapshot_at,
+        'generated_at': None,
+        'generation_window': dict(generation_window) if generation_window is not None else None,
+        'observation_age_seconds': (
+            round(float(observation_age_seconds), 6) if observation_age_seconds is not None else None
+        ),
+        'live_source': MANAGEMENT_ROUTE,
+        'evidence_scope': EVIDENCE_SCOPE,
+        'acquisition': None,
+        'selection': None,
+        'prepared_at': None,
+        'enrollment_observed_at': None,
+        'physical_grouping_complete': False,
+        'failure_code': failure_code,
+        'failure_kind': failure_kind,
+        'account_count': len(accounts),
+        'counts': {
+            'physical_accounts': None,
+            'display_groups': len(accounts),
+            'display_deployments': sum(len(a['deployments']) for a in accounts),
+            'uncovered_deployments': 0,
+            **{status: None for status in MANAGEMENT_STATUSES},
+        },
+        'accounts': accounts,
+        'uncovered_deployments': [],
+        'rejected': {},
+    }
+    document['content_hash'] = compute_content_hash(document)
+    validate_roster_envelope(document)
+    return document, canonical_json_bytes(document)
+
+
+def build_unavailable_roster_envelope(
+    *,
+    run_scope,
+    generation_window,
+    failure_code,
+    failure_kind=UNAVAILABLE,
+):
+    """Build and hash one non-authoritative unavailable qsl_digest_account_roster.v1 envelope."""
+    document = {
+        'format': ROSTER_FORMAT,
+        'schema_version': ROSTER_FORMAT,
+        'status': STATUS_UNAVAILABLE,
+        'run_id': _run_id_for_scope(run_scope) if run_scope is not None else None,
+        'run_scope': dict(run_scope) if run_scope is not None else None,
+        'generation_id': None,
+        'source_revision': None,
+        'source_snapshot_at': None,
+        'generated_at': None,
+        'generation_window': dict(generation_window) if generation_window is not None else None,
+        'observation_age_seconds': None,
+        'live_source': MANAGEMENT_ROUTE,
+        'evidence_scope': EVIDENCE_SCOPE,
+        'acquisition': None,
+        'selection': None,
+        'prepared_at': None,
+        'enrollment_observed_at': None,
+        'physical_grouping_complete': False,
+        'failure_code': failure_code,
+        'failure_kind': failure_kind,
+        'account_count': 0,
+        'counts': {
+            'physical_accounts': None,
+            'display_groups': 0,
+            'display_deployments': 0,
+            'uncovered_deployments': 0,
+            **{status: None for status in MANAGEMENT_STATUSES},
+        },
+        'accounts': [],
+        'uncovered_deployments': [],
+        'rejected': {},
+    }
+    document['content_hash'] = compute_content_hash(document)
+    validate_roster_envelope(document)
+    return document, canonical_json_bytes(document)
+
+
+@dataclass(frozen=True)
+class AcceptedRoster:
+    """Result of successful preparer acceptance (two-read coherence + B3-08 source freshness)."""
+    envelope: dict = field(repr=False)
+    envelope_bytes: bytes = field(repr=False)
+    roster: GenerationRoster
+    confirmation: LiveObservation = field(repr=False)
+    collected: object = field(default=None, repr=False)
+    accepted_at: datetime = field(default=None)
+    attempts: int = 1
+
+
+def acquire_and_validate_roster(
+    *,
+    boot,
+    client,
+    enrollment_source,
+    clock,
+    deadline,
+    run_scope,
+    generation_window,
+    generation_id=None,
+    collect=None,
+):
+    """Acquire initial + confirming B2 reads, validate completeness + ownership, and
+    enforce amended B3-08 freshness on source snapshot times at preparer acceptance G.
+
+    Retries the whole acquisition/build at most once on retryable STALE/CONFLICT errors
+    when the generation deadline permits; provisional reads are discarded on failure.
+    """
+    if not isinstance(boot, RosterBootConfig) or boot.mode != MAPPING_MODE:
+        raise ValueError('digest_roster_mode_invalid')
+    if not isinstance(client, AcquisitionClient):
+        raise ValueError('digest_roster_mode_invalid')
+    deadline = trusted_clock(deadline)
+
+    def _select():
+        try:
+            return read_selection(enrollment_source.read_selection(), boot.enrollment_source)
+        except AuthorityError:
+            raise
+        except Exception:
+            _fail('enrollment_selection_unavailable')
+
+    def _load(selection):
+        try:
+            read = enrollment_source.read_artifact(selection)
+        except AuthorityError:
+            raise
+        except Exception:
+            _fail('enrollment_artifact_unavailable')
+        return load_artifact(selection, read)
+
+    artifact_cache = {}
+    attempts = 0
+    last_error = None
+    while attempts < 2:
+        attempts += 1
+        try:
+            now = trusted_clock(clock())
+            remaining = (deadline - now).total_seconds()
+            if remaining <= 0:
+                _fail('generation_deadline_exhausted')
+            selection = _select()
+            artifact = artifact_cache.get(selection)
+            if artifact is None:
+                artifact = _load(selection)
+                artifact_cache = {selection: artifact}
+            t1_read = trusted_clock(clock())
+            first = client.acquire(t1_read, timeout=remaining)
+            if t1_read - first.observed > MAX_OBSERVATION_AGE:
+                _fail('observation_stale', STALE)
+            roster = compose_generation(first, artifact)
+            collected = collect(roster) if collect is not None else None
+            t2_read = trusted_clock(clock())
+            rem2 = (deadline - t2_read).total_seconds()
+            if rem2 <= 0:
+                _fail('generation_deadline_exhausted')
+            confirmation = client.acquire(t2_read, timeout=rem2)
+            final_selection = _select()
+            # Acceptance clock G at the roster acceptance decision.
+            accepted_at = trusted_clock(clock())
+            if confirmation.vector() != first.vector():
+                _fail('revision_race', CONFLICT)
+            if final_selection != selection:
+                _fail('enrollment_selection_changed', CONFLICT)
+            # Amended B3-08: check BOTH source snapshot timestamps against G;
+            # never substitute generated_at or fetch completion times (t1_read/t2_read).
+            if not (within_window(first.observed, accepted_at)
+                    and within_window(confirmation.observed, accepted_at)):
+                _fail('observation_stale', STALE)
+            if accepted_at > deadline:
+                _fail('generation_deadline_exhausted')
+            gen_id = generation_id or f"gen-{next(_generation_sequence):06d}"
+            envelope, envelope_bytes = build_available_roster_envelope(
+                roster,
+                confirmation=confirmation,
+                run_scope=run_scope,
+                generation_id=gen_id,
+                generated_at=accepted_at,
+                generation_window=generation_window,
+                initial_read_at=t1_read,
+                confirming_read_at=t2_read,
+            )
+            return AcceptedRoster(
+                envelope=envelope,
+                envelope_bytes=envelope_bytes,
+                roster=roster,
+                confirmation=confirmation,
+                collected=collected,
+                accepted_at=accepted_at,
+                attempts=attempts,
+            )
+        except AuthorityError as error:
+            last_error = error
+            if error.kind in {STALE, CONFLICT} and attempts < 2:
+                now_after = trusted_clock(clock())
+                if (deadline - now_after).total_seconds() > 0:
+                    continue
+            raise
+    raise last_error
+
+
 __all__ = [
+    'AcceptedRoster',
     'AcquisitionClient',
+    'DisplayHeader',
     'DormantServiceAuth',
     'EnrollmentArtifact',
     'EnrollmentSelection',
@@ -651,8 +1066,15 @@ __all__ = [
     'ServiceAssertion',
     'SourceRead',
     'TransportResponse',
+    'acquire_and_validate_roster',
+    'build_available_roster_envelope',
+    'build_fallback_roster_envelope',
+    'build_unavailable_roster_envelope',
+    'canonical_json_bytes',
     'compose_generation',
+    'headers_from_roster',
     'load_artifact',
+    'make_run_scope',
     'prepare_enrollment_artifact',
     'prepare_enrollment_bundle',
     'read_selection',
