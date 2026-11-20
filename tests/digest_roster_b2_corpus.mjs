@@ -16,7 +16,11 @@ import { readFile, writeFile } from "node:fs/promises";
 // Pinned clock: every argument-free Date reads a deterministic, advancing
 // instant, so applied effective times and journal stamps are reproducible.
 const RealDate = Date;
-let tick = RealDate.parse("2026-11-19T20:00:00.000Z");
+const EPOCH = RealDate.parse("2026-11-19T20:00:00.000Z");
+let tick = EPOCH;
+// Every synthetic store starts from the same instant, so one authority
+// lineage carries one applied tuple per revision across scenarios.
+const restartClock = () => { tick = EPOCH; };
 globalThis.Date = class extends RealDate {
   constructor(...args) { if (args.length) super(...args); else { super(tick); tick += 1000; } }
   static now() { tick += 1000; return tick - 1000; }
@@ -53,6 +57,7 @@ async function routeAgrees(store) {
 }
 
 async function withStore(build) {
+  restartClock();
   const store = await baselineStore();
   try { await build(store); await routeAgrees(store); return read(store); } finally { store.close(); }
 }
@@ -127,6 +132,7 @@ scenarios.instance_bumped = await withStore(async store => { run(store, "UPDATE 
 // Preparation: the full projection at the same revisions as the baseline
 // readback, over a real inventory collection, with B2's adapter rows.
 async function preparation(build = async () => {}, { collect = {}, effective: transform = rows => rows } = {}) {
+  restartClock();
   const store = await baselineStore();
   try {
     await build(store);
