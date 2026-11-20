@@ -18,7 +18,18 @@ COPY python/scripts/cloud_run_daily_digest.py \
      python/scripts/notification_candidate_adapter.py \
      python/scripts/notification_approved_gates.py \
      python/scripts/notification_mode.py \
+     python/scripts/digest_roster_validator.py \
+     python/scripts/digest_roster_recipient.py \
+     python/scripts/digest_roster_compatibility.py \
+     python/scripts/digest_roster_authority.py \
+     python/scripts/digest_roster_provider.py \
+     python/scripts/digest_roster_publication.py \
+     python/scripts/digest_package_preflight.py \
+     python/scripts/digest_package_manifest.json \
      python/scripts/unified_daily_digest.py /app/python/scripts/
 COPY python/scripts/notification_snapshot /app/python/scripts/notification_snapshot/
+COPY schemas/qsl-digest-account-roster.v1.schema.json \
+     schemas/qsl-digest-enrollment-artifact.v1.schema.json \
+     schemas/qsl-digest-enrollment-selection.v1.schema.json /app/schemas/
 USER 65532:65532
 CMD ["python", "python/scripts/cloud_run_daily_digest.py"]
