@@ -738,6 +738,16 @@ def partition_candidates_by_business_day(
     return fresh, stale
 
 
+RUNTIME_TARGET_FIELDS = ("platform_id", "opaque_account_uid", "target_id", "strategy_profile")
+
+
+def _runtime_target(row: Any) -> tuple[Any, ...] | None:
+    if not isinstance(row, Mapping):
+        return None
+    target = tuple(row.get(name) for name in RUNTIME_TARGET_FIELDS)
+    return target if all(isinstance(value, str) and value for value in target) else None
+
+
 def _resolve_explicit_roster_context(roster_context: Any) -> tuple[bool, list[dict[str, Any]], str | None]:
     """Extract (available, run_bindings, failure_code) from an explicit v1 generation context."""
     from digest_roster_authority import GenerationRoster
@@ -808,6 +818,14 @@ def collect_digest_runs(
     candidates_configured = candidates_configured or bool(
         (os.environ.get("DIGEST_CANDIDATES_GCS_URI") or "").strip()
     )
+    allowed_targets = None
+    if explicit_expected is not None:
+        # The explicit roster is authoritative at candidate admission in
+        # either aggregation mode: only rows matching one of its exact
+        # four-axis runtime targets reach bookkeeping, enrichment or merge.
+        # A current empty roster admits nothing.
+        allowed_targets = {_runtime_target(row) for row in explicit_expected}
+        loaded_rows = [row for row in loaded_rows if _runtime_target(row) in allowed_targets]
     partition_stats: dict[str, int] = {}
     if consolidation_enabled():
         import notification_candidate_adapter as adapter
@@ -856,11 +874,14 @@ def collect_digest_runs(
         github_result = collect_from_github_workflows(
             business_day=business_day, config=config
         )
+    github_rows = list(github_result.rows)
+    if allowed_targets is not None:
+        github_rows = [row for row in github_rows if _runtime_target(row) in allowed_targets]
     notification_summary = None
     if consolidation_enabled():
         merged, notification_summary = adapter.aggregate(file_rows, expected)
     else:
-        merged = merge_candidates(file_rows, github_result.rows)
+        merged = merge_candidates(file_rows, github_rows)
     enriched = enrich_candidate_labels(merged, config, locale=locale)
     # Approved private bindings may supply the broker identity independently of
     # producer rows. Match all binding axes; never borrow another target's label.
@@ -963,6 +984,22 @@ def build_digest_payload(
     contract = digest_contract(config)
     day = resolve_business_day(explicit=business_day)
     loc = resolve_locale(locale)
+    if render_text:
+        # Standalone presentation support is decided before any legacy
+        # intake: a mapped request for standalone text is refused without
+        # reading the legacy environment roster or candidates.
+        from unified_daily_digest import UnsupportedConsolidatedPresentation, _mapping_mode_requested, enabled
+        if (_mapping_mode_requested(roster_mode=roster_mode, roster_context=roster_context) if enabled()
+                else roster_context is not None or roster_mode == "mapping_v1"):
+            coverage = digest.EvidenceCoverage(candidates_configured=False, candidates_loaded=False,
+                                               candidates_count=0, github_enabled=include_github)
+            payload = digest.DailyDigestInput(
+                business_day=day, window_label=window_label_for(contract), locale=loc, runs=(),
+                evidence_coverage=coverage, evidence_status="evidence_unknown", layout=resolve_layout(layout),
+                window=digest_window_for(day),
+            )
+            return payload, UnsupportedConsolidatedPresentation(), CollectResult(
+                runs=[], coverage=coverage, merged_rows=[], notification_summary=None)
     collected = collect_digest_runs(
         business_day=day,
         config=config,
@@ -990,7 +1027,7 @@ def build_digest_payload(
     )
     if not render_text:
         return payload, "", collected
-    from unified_daily_digest import UnsupportedConsolidatedPresentation, enabled, render
+    from unified_daily_digest import enabled, render
     if enabled():
         text = render(
             payload,
@@ -998,8 +1035,6 @@ def build_digest_payload(
             roster_mode=roster_mode,
             roster_context=roster_context,
         )
-    elif roster_context is not None or roster_mode == "mapping_v1":
-        text = UnsupportedConsolidatedPresentation()
     else:
         text = digest.render_daily_digest(payload)
     return payload, text, collected

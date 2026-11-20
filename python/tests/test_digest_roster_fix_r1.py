@@ -21,6 +21,8 @@ from digest_roster_support import (
 )
 
 import cloud_run_daily_digest as app  # noqa: E402
+import daily_digest_aggregator as aggregator  # noqa: E402
+import unified_daily_digest as unified  # noqa: E402
 import digest_roster_envelope as envelope  # noqa: E402
 import digest_roster_generation as generation  # noqa: E402
 import test_digest_roster_gen_e2e as e2e  # noqa: E402
@@ -604,6 +606,129 @@ class Group3Facts(Base):
                     self.assertEqual((len(headers), len(set(headers))), (10, 10))
                     self.assertEqual(sum('quant management' in line.lower() or '量化管理' in line
                                          for line in text.splitlines()), 10)
+
+
+class Group4ExplicitRoster(Base):
+    """F17, F19: the explicit roster at shared aggregation, and standalone
+    support decided before legacy intake."""
+
+    def outcomes(self):
+        empty, _ = prepare(links=[], roster=[])
+        result = {}
+        for name, data, responses in (('current', self.data, [ok(scenario('all_on'))] * 2),
+                                      ('empty', empty, [ok(scenario('all_on'))] * 2),
+                                      ('unavailable', self.data, [(403, {}, b'')])):
+            transport = SyntheticTransport(*responses)
+            client = authority.AcquisitionClient(BOOT, SyntheticAuth(), transport)
+            runner = generation.GenerationRunner(BOOT, client, SyntheticEnrollmentSource(data), self.clock,
+                                                 generation.DisplaySnapshotStore(), 'synthetic_recipient')
+            result[name] = runner.run(deadline=self.clock() + timedelta(seconds=60))
+        return result
+
+    @staticmethod
+    def row(binding, run_id):
+        return e2e._run_row(binding, run_id=run_id)
+
+    def candidates(self, rows):
+        import tempfile
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = os.path.join(directory.name, 'candidates.json')
+        with open(path, 'w', encoding='utf-8') as handle:
+            json.dump({'runs': rows}, handle)
+        from pathlib import Path
+        return Path(path)
+
+    def collect(self, context, rows, consolidation, github=()):
+        env = {'DIGEST_EXPECTED_TARGETS_JSON': json.dumps([{
+            'platform_id': 'binance', 'candidate_slot': 'foreign-slot', 'opaque_account_uid': 'foreign-uid',
+            'target_id': 'foreign-target', 'strategy_profile': 'foreign_profile'}])}
+        if consolidation:
+            env['QRS_UNIFIED_NOTIFICATION_ENABLED'] = 'true'
+        github_result = aggregator.GithubEvidenceResult(rows=list(github))
+        with patch.dict(os.environ, env, clear=True), \
+                patch.object(aggregator, 'collect_from_github_workflows', return_value=github_result):
+            return aggregator.collect_digest_runs(business_day=e2e.DAY, config=e2e.ux_config([]),
+                                                  candidates_path=self.candidates(rows),
+                                                  include_github=bool(github), roster_context=context)
+
+    def test_f17_explicit_roster_is_the_allowlist_in_either_mode(self):
+        outcomes = self.outcomes()
+        foreign = {'platform_id': 'binance', 'candidate_slot': 'foreign-slot', 'opaque_account_uid': 'foreign-uid',
+                   'target_id': 'foreign-target', 'strategy_profile': 'foreign_profile'}
+        bound = outcomes['current'].context.roster.run_bindings()[0]
+        for consolidation in (False, True):
+            with self.subTest(consolidation=consolidation):
+                empty = self.collect(outcomes['empty'], [self.row(foreign, 'run-f')], consolidation,
+                                     github=[self.row(foreign, 'run-g')])
+                self.assertEqual((len(empty.runs), len(empty.merged_rows)), (0, 0))
+                self.assertEqual(empty.coverage.missing_targets, ())
+                current = self.collect(outcomes['current'], [self.row(foreign, 'run-f'), self.row(bound, 'run-b')],
+                                       consolidation, github=[self.row(foreign, 'run-g')])
+                self.assertEqual({run.target_id for run in current.runs}, {bound['target_id']})
+                unavailable = self.collect(outcomes['unavailable'], [self.row(bound, 'run-b')], consolidation)
+                self.assertEqual(unavailable.runs, [])
+                self.assertIn('management_roster', {item['source_kind']
+                                                    for item in unavailable.coverage.candidate_failures})
+        # Legacy-only control: no explicit roster keeps the environment roster.
+        with patch.dict(os.environ, {'DIGEST_EXPECTED_TARGETS_JSON': json.dumps([foreign])}, clear=True):
+            legacy = aggregator.collect_digest_runs(business_day=e2e.DAY, config=e2e.ux_config([]),
+                                                    candidates_path=self.candidates([self.row(foreign, 'run-f')]),
+                                                    include_github=False)
+        self.assertEqual({run.target_id for run in legacy.runs}, {'foreign-target'})
+
+    def test_f17_cloud_shared_collection_admits_its_bound_inputs(self):
+        outcome = self.outcomes()['current']
+        bound = outcome.context.roster.run_bindings()[0]
+        with patch.dict(os.environ, {'QRS_UNIFIED_NOTIFICATION_ENABLED': 'true', 'DIGEST_ROSTER_MODE': 'mapping_v1'},
+                        clear=True):
+            payload, text, collected = aggregator.build_digest_payload(
+                business_day=e2e.DAY, config=e2e.ux_config([]), include_github=False,
+                candidates_path=self.candidates([self.row(bound, 'run-b')]), render_text=False,
+                roster_context=outcome)
+        self.assertEqual((text, len(collected.runs)), ('', 1))
+
+    def test_f19_standalone_mapped_presentation_refuses_before_legacy_intake(self):
+        valid = json.dumps([{'platform_id': 'schwab', 'candidate_slot': 'syn-slot', 'opaque_account_uid': 'uid-1',
+                             'target_id': 'target-1', 'strategy_profile': 'synthetic_core'}])
+        for legacy in (valid, '{not-json'):
+            for request in ({'DIGEST_ROSTER_MODE': 'mapping_v1'},
+                            {'DIGEST_ROSTER_BOOT_JSON': json.dumps({'mode': 'mapping_v1'})}):
+                with self.subTest(legacy=legacy[:2], request=sorted(request)), patch.dict(os.environ, {
+                        'QRS_UNIFIED_NOTIFICATION_ENABLED': 'true', 'DIGEST_EXPECTED_TARGETS_JSON': legacy,
+                        **request}, clear=True), patch.object(aggregator, 'collect_digest_runs',
+                                                              side_effect=AssertionError('legacy intake')):
+                    payload, text, collected = aggregator.build_digest_payload(
+                        business_day=e2e.DAY, config=e2e.ux_config([]), include_github=False)
+                    self.assertIsInstance(text, unified.UnsupportedConsolidatedPresentation)
+                    self.assertEqual((payload.runs, collected.runs), ((), []))
+        # Explicit context or mode is refused before intake as well.
+        with patch.dict(os.environ, {'DIGEST_EXPECTED_TARGETS_JSON': '{not-json'}, clear=True), \
+                patch.object(aggregator, 'collect_digest_runs', side_effect=AssertionError('legacy intake')):
+            _, text, _ = aggregator.build_digest_payload(business_day=e2e.DAY, config=e2e.ux_config([]),
+                                                         include_github=False, roster_mode='mapping_v1')
+            self.assertIsInstance(text, unified.UnsupportedConsolidatedPresentation)
+
+    def test_f19_legacy_only_controls_and_the_q6_deferral(self):
+        valid = json.dumps([{'platform_id': 'schwab', 'candidate_slot': 'syn-slot', 'opaque_account_uid': 'uid-1',
+                             'target_id': 'target-1', 'strategy_profile': 'synthetic_core'}])
+        with patch.dict(os.environ, {'QRS_UNIFIED_NOTIFICATION_ENABLED': 'true',
+                                     'DIGEST_EXPECTED_TARGETS_JSON': valid}, clear=True):
+            _, text, _ = aggregator.build_digest_payload(business_day=e2e.DAY, config=e2e.ux_config([]),
+                                                         include_github=False)
+        self.assertIsInstance(text, str)
+        with patch.dict(os.environ, {'QRS_UNIFIED_NOTIFICATION_ENABLED': 'true',
+                                     'DIGEST_EXPECTED_TARGETS_JSON': '{not-json'}, clear=True):
+            with self.assertRaises(ValueError):
+                aggregator.build_digest_payload(business_day=e2e.DAY, config=e2e.ux_config([]),
+                                                include_github=False)
+        # Consolidation off: an environment-only mapping request keeps the
+        # ordinary non-consolidated text (standalone presentation deferred).
+        with patch.dict(os.environ, {'DIGEST_ROSTER_MODE': 'mapping_v1', 'DIGEST_EXPECTED_TARGETS_JSON': valid},
+                        clear=True):
+            _, text, _ = aggregator.build_digest_payload(business_day=e2e.DAY, config=e2e.ux_config([]),
+                                                         include_github=False)
+        self.assertIsInstance(text, str)
 
 
 if __name__ == '__main__':
