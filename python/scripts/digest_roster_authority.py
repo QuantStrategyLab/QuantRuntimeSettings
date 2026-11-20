@@ -81,6 +81,13 @@ from digest_roster_validator import (
     verify_inventory_authority,
     within_window,
 )
+from digest_roster_compatibility import (
+    HistoricalExceptionEntry,
+    HistoricalExceptionRegister,
+    HistoricalPresentation,
+    accept_current_enrollment_artifact,
+    accept_current_roster,
+)
 from display_names import safe_display_text
 
 
@@ -1060,12 +1067,17 @@ __all__ = [
     'EnrollmentArtifact',
     'EnrollmentSelection',
     'GenerationRoster',
+    'HistoricalExceptionEntry',
+    'HistoricalExceptionRegister',
+    'HistoricalPresentation',
     'HttpsTransport',
     'PreparedEnrollment',
     'RosterGroup',
     'ServiceAssertion',
     'SourceRead',
     'TransportResponse',
+    'accept_current_enrollment_artifact',
+    'accept_current_roster',
     'acquire_and_validate_roster',
     'build_available_roster_envelope',
     'build_fallback_roster_envelope',
