@@ -54,7 +54,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out release adapter
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -68,21 +68,21 @@ jobs:
           [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
           [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
       - name: Check out fixed frontend snapshot
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: 0b5d9527313d719547ef844797b47158c83dea53
           path: candidate-snapshot
           persist-credentials: false
       - name: Check out fixed recovery snapshot
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: 85504dd6ee201fd358f6ea3489742ea5c47afcf8
           path: recovery-snapshot
           persist-credentials: false
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '22'
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
       - name: Test release adapter
@@ -126,7 +126,7 @@ jobs:
         run: node --test tests/console_named_export_surface.test.mjs
       - name: Preserve verified public bundles for the manual job
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: console-fixed-complete-bundles
           path: |
@@ -142,14 +142,14 @@ jobs:
     environment: runtime-strategy-switch
     steps:
       - name: Check out release adapter
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '22'
       - name: Download verified public bundles
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: console-fixed-complete-bundles
           path: ${{ runner.temp }}/console-fixed-bundles

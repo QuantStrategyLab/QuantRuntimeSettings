@@ -23,11 +23,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '22'
       - name: Check reviewed control commit and prepare fixed module
@@ -44,7 +44,7 @@ jobs:
           npx --yes wrangler@4.106.0 --version
           bash scripts/console_m09_offline_bundle.sh "$RUNNER_TEMP/qrs-backend-candidate" "$source"
           node scripts/console_m09_release.mjs verify-inputs "$RUNNER_TEMP/qrs-backend-candidate/worker.js"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: console-fixed-backend-module
           path: ${{ runner.temp }}/qrs-backend-candidate/worker.js
@@ -56,11 +56,11 @@ jobs:
     timeout-minutes: 5
     environment: runtime-strategy-switch
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '22'
       - name: Read fixed Worker state
@@ -80,11 +80,11 @@ jobs:
     timeout-minutes: 10
     environment: runtime-strategy-switch
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '22'
       - name: Build the fixed candidate and check parser availability
@@ -118,14 +118,14 @@ jobs:
     timeout-minutes: 10
     environment: runtime-strategy-switch
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '22'
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: console-fixed-backend-module
           path: ${{ runner.temp }}/qrs-backend-candidate

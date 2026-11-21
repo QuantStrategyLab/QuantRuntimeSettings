@@ -111,11 +111,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout fixed backend release source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - name: Setup Node.js for backend release
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
       - name: Build fixed backend release baseline
@@ -170,11 +170,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout reviewed preflight source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
       - name: Inspect active Worker module without writing
@@ -238,7 +238,7 @@ jobs:
       EXTERNAL_FLOW_ENABLE: ${{ inputs.external_flow_enable }}
     steps:
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
 
@@ -695,7 +695,7 @@ jobs:
       BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: ${{ secrets.BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON || '[]' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
 
@@ -1286,13 +1286,13 @@ jobs:
           printf 'Reviewed console source: %s tree: %s\n' "$RELEASE_SOURCE_SHA" "$expected_tree"
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
 
       - name: Setup Node.js
         if: ${{ !inputs.render_and_compare_only }}
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
 
@@ -2572,7 +2572,7 @@ jobs:
       RELEASE_FRONTEND_ASSETS: ${{ inputs.release_frontend_assets }}
     steps:
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
 
