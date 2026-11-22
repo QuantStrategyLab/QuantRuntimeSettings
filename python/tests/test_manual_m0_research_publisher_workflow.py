@@ -59,7 +59,7 @@ class M0ResearchPublisherWorkflowTest(unittest.TestCase):
     def test_workflow_uses_only_scoped_app_reader_and_publish_credentials(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
-        self.assertIn("uses: actions/create-github-app-token@v3", workflow)
+        self.assertIn("uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc", workflow)
         self.assertIn("id: qar-artifact-reader", workflow)
         self.assertIn("app-id: ${{ vars.QAR_ARTIFACT_READER_APP_ID }}", workflow)
         self.assertIn("private-key: ${{ secrets.QAR_ARTIFACT_READER_APP_PRIVATE_KEY }}", workflow)
