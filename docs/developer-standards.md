@@ -22,7 +22,7 @@ QuantRuntimeSettings (配置 + 控制台)
 └── CryptoStrategies         → crypto_equity_combo
 
 执行平台（独立）
-├── QmtPlatform              → cn_equity
+├── QmtPlatform              → cn_equity (archived)
 ├── BinancePlatform          → crypto
 ├── IB/Charles Schwab/FT/LB → us_equity, hk_equity
 ```

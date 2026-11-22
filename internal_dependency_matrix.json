@@ -282,34 +282,6 @@
       "ref": "1d087fa424972d5d5ab02c4650ce9f039cb6711f"
     },
     {
-      "consumer_repo": "QmtPlatform",
-      "path": "pyproject.toml",
-      "package": "cn-equity-strategies",
-      "source_repo": "CnEquityStrategies",
-      "ref": "29b6cb74464ddb01874a9b3390dd56d19d5860af"
-    },
-    {
-      "consumer_repo": "QmtPlatform",
-      "path": "pyproject.toml",
-      "package": "quant-platform-kit",
-      "source_repo": "QuantPlatformKit",
-      "ref": "f6f2079f6b53d3cbb3b72bdcc5c2476ed8f170f1"
-    },
-    {
-      "consumer_repo": "QmtPlatform",
-      "path": "uv.lock",
-      "package": "cn-equity-strategies",
-      "source_repo": "CnEquityStrategies",
-      "ref": "29b6cb74464ddb01874a9b3390dd56d19d5860af"
-    },
-    {
-      "consumer_repo": "QmtPlatform",
-      "path": "uv.lock",
-      "package": "quant-platform-kit",
-      "source_repo": "QuantPlatformKit",
-      "ref": "f6f2079f6b53d3cbb3b72bdcc5c2476ed8f170f1"
-    },
-    {
       "consumer_repo": "QuantStrategyPlugins",
       "path": "pyproject.toml",
       "package": "ai-gateway-client",
