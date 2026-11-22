@@ -171,7 +171,7 @@ test('workflow keeps PR validation offline and shares the manual deployment lock
  assert.doesNotMatch(validation,/secrets\.CLOUDFLARE/);
  assert.match(release,/if: github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main'/);
  assert.match(release,/environment: runtime-strategy-switch/);
- assert.match(release,/uses: actions\/setup-node@v6\n        with:\n          node-version: '22'/);
+ assert.match(release,/uses: actions\/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6\n        with:\n          node-version: '22'/);
  assert.match(release,/secrets\.CLOUDFLARE_ACCOUNT_ID \|\| vars\.CLOUDFLARE_ACCOUNT_ID/);
  assert.equal((yaml.match(/git ls-remote origin refs\/heads\/main/g)||[]).length,3);
  assert.match(release,/Guard control revision before provider access[\s\S]*Read active state and optionally release[\s\S]*Guard control revision after provider access\n        if: always\(\)/);
