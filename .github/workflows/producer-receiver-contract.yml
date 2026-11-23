@@ -13,11 +13,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
       - name: Checkout exact IBKR projection source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: QuantStrategyLab/InteractiveBrokersPlatform
           ref: bd5c1a12d9cd0df8dbd88c1eb8b058b7b849990f
@@ -26,7 +26,7 @@ jobs:
           sparse-checkout: scripts/publish_account_facts_from_report.py
           sparse-checkout-cone-mode: false
       - name: Checkout exact Schwab projection source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: QuantStrategyLab/CharlesSchwabPlatform
           ref: 5b563ad3609eefd9cf431ead82d0f30c586645db
@@ -34,10 +34,10 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts/publish_account_facts_from_reports.py
           sparse-checkout-cone-mode: false
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
       - name: Install existing receiver test runtime

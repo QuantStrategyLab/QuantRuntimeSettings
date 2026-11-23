@@ -509,7 +509,7 @@ assert.throws(() => checkOfflineScopes(workflow.replace('CLOUDFLARE_CF_FETCH_ENA
 const originalActivePreflight = workflowJob(workflow, 'preflight_active_module');
 const mutateActivePreflight = (before, after) => workflow.replace(originalActivePreflight, originalActivePreflight.replace(before, after));
 assert.throws(() => checkReadOnlyCredentials(mutateActivePreflight('QRS946_QUIET: "true"', 'QRS946_QUIET: "true"\n          LEAK: ${{ secrets.CLOUDFLARE_API_TOKEN }}')));
-assert.throws(() => checkReadOnlyCredentials(mutateActivePreflight('uses: actions/checkout@v4', 'uses: actions/checkout@v4\n        env:\n          LEAK: ${{ secrets.CLOUDFLARE_API_TOKEN }}')));
+assert.throws(() => checkReadOnlyCredentials(mutateActivePreflight('uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4', 'uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4\n        env:\n          LEAK: ${{ secrets.CLOUDFLARE_API_TOKEN }}')));
 // The candidate runtime helper lives in scripts/, outside the historical
 // tests/*.mjs scan below. Its host metadata switch and Worker egress blocker
 // must remain explicit in the shared CI and read-only paths.
@@ -531,6 +531,6 @@ for (const name of readdirSync(new URL(".", import.meta.url)).filter(name => nam
 }
 assert.ok(miniflareTestFiles > 0, "the offline contract covers the existing Miniflare suites");
 assert.equal(createHash("sha256").update(manualWorkflow).digest("hex"),
-  "53831dd8b58be667a244f046aeba7a758961ed812d31494e4ad4468e11045981",
+  "df47b51bf251442dbf59bd13ef9bfd2d4e4af8d342d6315a41c99806b5e1b438",
   "manual diagnostic workflow stays byte-for-byte unchanged");
 console.log("Binance receiver deployment acceptance: retained single POST/manual GET, exact bounded stability and workflow gates PASS");

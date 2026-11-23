@@ -56,7 +56,7 @@ class MaintenanceReadCheckTests(unittest.TestCase):
         # Freeze the independent maintenance job without changing its authority.
         self.assertNotIn('      actions: read', digest)
         self.assertEqual(hashlib.sha256(check.encode()).hexdigest(),
-                         '768c7a6e975c9ad3f7c24d29d6835733d4288f9da4096c5de40605f87432cd8c')
+                         '5428cb38231ab989264297f9d9a16ac3584c7243c12b50bbb2202a39e7ed5915')
         self.assertIn("    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.maintenance_read_check == true }}\n", check)
         self.assertIn('    permissions:\n      contents: read\n    runs-on:', check)
         self.assertIn('    environment: runtime-strategy-switch\n', check)
@@ -69,10 +69,10 @@ class MaintenanceReadCheckTests(unittest.TestCase):
       GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN || github.token }}
       DIGEST_GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN || github.token }}
 ''')
-        self.assertEqual(steps, '''      - uses: actions/checkout@v6
+        self.assertEqual(steps, '''      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
       - name: Read once and print fixed public status
