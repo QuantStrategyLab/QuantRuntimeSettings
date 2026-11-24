@@ -119,6 +119,9 @@ export function applyNativeDailyReturns(blocks, input) {
   // Native daily returns already have a starting capital boundary. Rebasing the
   // first close to zero would silently remove the first day's actual return.
   const comparisons = nativeBenchmarks(index, input, gaps);
+  const retainedReturnPerCurrency = Array.isArray(blocks.returns.per_currency)
+    ? blocks.returns.per_currency.filter(row => row.currency !== currency)
+    : [];
   Object.assign(blocks.returns, { status, unavailable_reason: reason, currency, value_kind: "pnl",
     return_kind: "twr", cashflow_method: undefined, approximate: undefined,
     sizing_eligible: undefined, breaker_eligible: undefined, verdict_eligible: undefined, method_version: undefined,
@@ -126,7 +129,7 @@ export function applyNativeDailyReturns(blocks, input) {
     points: gaps ? daily.map((row, i) => ({ date: row.date, value: row.value * 100,
       daily_return_percent: row.value * 100, breakBefore: i > 0 && hasGap(daily[i - 1], row) }))
       : index.map((row, i) => ({ date: row.date, value: (row.value - 1) * 100, daily_return_percent: daily[i].value * 100 })),
-    ...comparisons, per_currency: [] });
+    ...comparisons, per_currency: retainedReturnPerCurrency });
   let peak = 1, peakDate = daily[0].date, worst = 0, lossPeakDate = peakDate, troughDate = peakDate;
   for (const point of index) {
     const loss = peak > 0 ? (1 - point.value / peak) * 100 : 0;
@@ -155,10 +158,19 @@ export function applyNativeDailyReturns(blocks, input) {
   for (const key of ["cashflow_method", "approximate", "sizing_eligible", "breaker_eligible", "verdict_eligible", "method_version"]) {
     delete blocks.returns[key];
     delete blocks.summary[key];
-    for (const row of blocks.summary.per_currency) delete row[key];
+    for (const row of blocks.summary.per_currency) {
+      if (row.currency === currency) delete row[key];
+    }
   }
-  delete blocks.summary.cashflow_per_currency;
-  delete blocks.returns.cashflow_per_currency;
+  for (const holder of [blocks.summary, blocks.returns]) {
+    if (Array.isArray(holder.cashflow_per_currency)) {
+      const remaining = holder.cashflow_per_currency.filter(item => item.currency !== currency);
+      if (remaining.length) holder.cashflow_per_currency = remaining;
+      else delete holder.cashflow_per_currency;
+    } else {
+      delete holder.cashflow_per_currency;
+    }
+  }
   // A native percentage alone never supplies money P/L. The optional, separately
   // qualified NAV reconciliation can fill only the exact native days it covers.
   const byDate = new Map(daily.map(row => [row.date, row]));

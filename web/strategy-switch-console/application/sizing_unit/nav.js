@@ -30,7 +30,8 @@ const PRIVATE_KEYS = new Set([
   "raw_path",
 ]);
 const PRIVATE_VALUE_RE = new RegExp(
-  "(?:kv://|do://|gs://|/" + "Users/|/" + "home/" + "|[A-Za-z]:\\\\)",
+  "(?:https?://|kv://|do://|gs://|s3://|r2://|file://|/" + "Users/|/" + "home/|[A-Za-z]:\\\\|[?&](?:X-Goog-|Signature|Expires|AWSAccessKeyId|token|sig|auth)=)",
+  "i",
 );
 
 export function parseInstantMs(value) {
@@ -214,11 +215,22 @@ export function stripPrivateLocators(value) {
   return value;
 }
 
-function safePriceRef(ref) {
-  if (typeof ref !== "string" || !ref.length || ref.length > 128 || PRIVATE_VALUE_RE.test(ref)) {
-    return null;
+function safePublicText(ref, fallback = null) {
+  if (
+    typeof ref !== "string"
+    || !ref.length
+    || ref.length > 128
+    || ref.includes("://")
+    || ref.includes("?")
+    || PRIVATE_VALUE_RE.test(ref)
+  ) {
+    return fallback;
   }
   return ref;
+}
+
+function safePriceRef(ref) {
+  return safePublicText(ref, null);
 }
 
 // ------------------------------------------------------------ C-SA-15 freshness wiring
@@ -227,7 +239,7 @@ function runFreshnessCheck(account, options = {}) {
   const evaluatedAt = options.evaluated_at ?? account.evaluated_at ?? new Date().toISOString();
   const payload = {
     observed_at: account.observed_at ?? account.observed_finished_at ?? null,
-    fetched_at: account.fetched_at ?? account.observed_at ?? account.observed_finished_at ?? null,
+    fetched_at: account.fetched_at ?? null,
     evaluated_at: evaluatedAt,
     last_observed_value: account.nav_usd ?? account.balances?.[0]?.net_assets ?? null,
   };
@@ -300,32 +312,39 @@ export function classifyAccountEligibility(account, { require_live_cohort = true
   };
 }
 
+function collectCurrenciesFromBucket(bucket, found) {
+  if (!bucket) return;
+  if (Array.isArray(bucket)) {
+    for (const row of bucket) {
+      if (typeof row?.currency === "string" && CURRENCY_RE.test(row.currency)) {
+        found.add(row.currency);
+      }
+    }
+    return;
+  }
+  if (typeof bucket === "object") {
+    if (typeof bucket.currency === "string" && CURRENCY_RE.test(bucket.currency)) {
+      found.add(bucket.currency);
+    }
+    for (const [k, v] of Object.entries(bucket)) {
+      if (CURRENCY_RE.test(k)) found.add(k);
+      if (typeof v?.currency === "string" && CURRENCY_RE.test(v.currency)) {
+        found.add(v.currency);
+      }
+    }
+  }
+}
+
 function collectAccountCurrencies(account) {
   const found = new Set();
   if (typeof account?.currency === "string" && CURRENCY_RE.test(account.currency)) {
     found.add(account.currency);
   }
-  if (Array.isArray(account?.balances)) {
-    for (const row of account.balances) {
-      if (typeof row?.currency === "string" && CURRENCY_RE.test(row.currency)) {
-        found.add(row.currency);
-      }
-    }
-  }
-  if (Array.isArray(account?.cash)) {
-    for (const row of account.cash) {
-      if (typeof row?.currency === "string" && CURRENCY_RE.test(row.currency)) {
-        found.add(row.currency);
-      }
-    }
-  }
-  if (Array.isArray(account?.positions)) {
-    for (const pos of account.positions) {
-      if (typeof pos?.currency === "string" && CURRENCY_RE.test(pos.currency)) {
-        found.add(pos.currency);
-      }
-    }
-  }
+  collectCurrenciesFromBucket(account?.balances, found);
+  collectCurrenciesFromBucket(account?.broker_reported_balances, found);
+  collectCurrenciesFromBucket(account?.account_balances, found);
+  collectCurrenciesFromBucket(account?.cash, found);
+  collectCurrenciesFromBucket(account?.positions, found);
   return [...found].sort();
 }
 
@@ -396,8 +415,7 @@ function failClosedResult({
     coverage_window: fresh.observed_at
       ? { start_utc: fresh.observed_at, end_utc: fresh.observed_at }
       : null,
-    evidence_ref: typeof account?.evidence_ref === "string" && account.evidence_ref.length
-      ? account.evidence_ref : "sa1:sizing_unit:unavailable",
+    evidence_ref: safePublicText(account?.evidence_ref, "sa1:sizing_unit:unavailable"),
   });
 }
 
@@ -549,8 +567,7 @@ export function evaluateSizingUnitNav(input, options = {}) {
     source_class: account.source_class || "synthetic",
     native_precision: { exact_decimal: true, money_scale_max: 8 },
     coverage_window: { start_utc: fresh.observed_at, end_utc: fresh.observed_at },
-    evidence_ref: typeof account.evidence_ref === "string" && account.evidence_ref.length
-      ? account.evidence_ref : `sa1:sizing_unit:${account.account_id}`,
+    evidence_ref: safePublicText(account.evidence_ref, `sa1:sizing_unit:${account.account_id}`),
   });
 }
 
@@ -563,6 +580,7 @@ export function evaluateSizingUnitCohort(accounts, options = {}) {
   const observations = [];
   const eligibleAccounts = [];
   const excludedAccounts = [];
+  const excludedRecords = [];
 
   for (const acct of list) {
     const fresh = runFreshnessCheck(acct, { ...options, evaluated_at: evaluatedAt });
@@ -571,14 +589,16 @@ export function evaluateSizingUnitCohort(accounts, options = {}) {
     if (elig.processing_eligible) {
       eligibleAccounts.push({ acct, elig, fresh });
     } else {
-      excludedAccounts.push({
+      const excl = {
         account_id: typeof acct?.account_id === "string" ? acct.account_id : null,
         platform: typeof acct?.platform === "string" ? acct.platform : null,
         broker_environment: acct?.broker_environment ?? null,
         management_status: elig.management_status,
         disposition: elig.disposition,
         reason: elig.reason,
-      });
+      };
+      excludedAccounts.push(excl);
+      excludedRecords.push({ acct, excl });
     }
   }
 
@@ -616,15 +636,35 @@ export function evaluateSizingUnitCohort(accounts, options = {}) {
     });
   }
 
-  const designatedId = options.designated_account_id ?? null;
+  const designatedId = options.designated_account_id ?? options.designated_account_key ?? null;
+  const designatedPlatform = typeof options.designated_platform === "string" && options.designated_platform.length
+    ? options.designated_platform
+    : null;
+  const matchesDesignated = (acctOrExcl) => {
+    if (designatedPlatform !== null && acctOrExcl?.platform !== designatedPlatform) return false;
+    return acctOrExcl?.account_id === designatedId || acctOrExcl?.account_key === designatedId;
+  };
   let targetEntry = null;
   if (designatedId !== null) {
-    targetEntry = eligibleAccounts.find(({ acct }) => acct.account_id === designatedId) || null;
+    const eligibleMatches = eligibleAccounts.filter(({ acct }) => matchesDesignated(acct));
+    const excludedMatches = excludedRecords.filter(({ acct }) => matchesDesignated(acct));
+    if (eligibleMatches.length > 1 || (designatedPlatform === null && eligibleMatches.length + excludedMatches.length > 1)) {
+      return failClosedResult({
+        account: { account_id: designatedId, platform: designatedPlatform },
+        eligibility: { processing_eligible: false, management_status: MANAGEMENT_STATUS.UNKNOWN },
+        fresh: runFreshnessCheck({}, { ...options, evaluated_at: evaluatedAt }),
+        reason: "ambiguous_sizing_unit",
+        currencies: eligibleCurrencies,
+        observations,
+        cohort: { ...cohortSummary, included_count: 0 },
+      });
+    }
+    targetEntry = eligibleMatches[0] || null;
     if (!targetEntry) {
-      const excluded = excludedAccounts.find((e) => e.account_id === designatedId);
+      const excluded = excludedMatches[0]?.excl;
       const fallbackFresh = runFreshnessCheck({}, { ...options, evaluated_at: evaluatedAt });
       return failClosedResult({
-        account: { account_id: designatedId },
+        account: { account_id: designatedId, platform: designatedPlatform },
         eligibility: {
           processing_eligible: false,
           management_status: excluded?.management_status || MANAGEMENT_STATUS.UNKNOWN,

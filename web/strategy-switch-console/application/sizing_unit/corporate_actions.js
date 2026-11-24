@@ -185,6 +185,7 @@ export function createCorporateActionLedger(initial = {}) {
     broker_environment: initial.broker_environment === "paper" ? "paper" : "live",
     settled_cash_usd: String(initial.settled_cash_usd ?? "0"),
     dividend_receivable_usd: String(initial.dividend_receivable_usd ?? "0"),
+    receivables_by_instrument: structuredClone(initial.receivables_by_instrument || {}),
     positions,
     loss_memory: structuredClone(initial.loss_memory || {
       dd_b: "0",
@@ -199,6 +200,7 @@ export function createCorporateActionLedger(initial = {}) {
       state: "CLEAR",
       auto_cleared: false,
       human_rearm_required: false,
+      halted_instruments: [],
       triggers: [],
     }),
     v3: structuredClone(initial.v3 || {
@@ -261,6 +263,9 @@ export function applyCorporateAction(ledgerState, event) {
   if (!pos) {
     return rejectAction(ledgerState, "unknown_instrument_id");
   }
+  if (pos.symbol !== event.symbol) {
+    return rejectAction(ledgerState, "instrument_symbol_mismatch");
+  }
 
   const preUnits = ratFromText(event.pre_units);
   const postUnits = ratFromText(event.post_units);
@@ -286,6 +291,9 @@ export function applyCorporateAction(ledgerState, event) {
   const preNotional = ratMul(preUnits, preRef);
   const postNotional = ratMul(postUnits, postRef);
   const nextLedger = structuredClone(ledgerState);
+  if (!nextLedger.receivables_by_instrument || typeof nextLedger.receivables_by_instrument !== "object") {
+    nextLedger.receivables_by_instrument = {};
+  }
   const settledBefore = ratFromText(nextLedger.settled_cash_usd);
   const recBefore = ratFromText(nextLedger.dividend_receivable_usd);
   let nextSettled = settledBefore;
@@ -294,6 +302,63 @@ export function applyCorporateAction(ledgerState, event) {
   if (event.action_type === "forward_split" || event.action_type === "reverse_split") {
     if (divRecLeg.applicable || payLeg.applicable) {
       return rejectAction(ledgerState, "unexpected_dividend_leg_on_split");
+    }
+    const isHaltSentinel = Boolean(event.v2_control?.announced_within_two_sessions) && ratCmp(ratio, ONE) === 0;
+    if (!isHaltSentinel) {
+      if (ratio.n <= 0n) {
+        return rejectAction(ledgerState, "invalid_split_ratio");
+      }
+      if (event.action_type === "forward_split" && ratCmp(ratio, ONE) <= 0) {
+        return rejectAction(ledgerState, "forward_split_requires_ratio_gt_1");
+      }
+      if (event.action_type === "reverse_split" && ratCmp(ratio, ONE) >= 0) {
+        return rejectAction(ledgerState, "reverse_split_requires_ratio_lt_1");
+      }
+      const expectedPostRef = ratDiv(preRef, ratio);
+      const rawPostUnits = ratMul(preUnits, ratio);
+      if (ratCmp(postRef, expectedPostRef) !== 0) {
+        return {
+          ...rejectAction(ledgerState, "split_ratio_not_applied"),
+          v2: {
+            ...structuredClone(ledgerState.v2),
+            halted: true,
+            state: "HALT",
+            auto_cleared: false,
+            human_rearm_required: true,
+          },
+        };
+      }
+      if (cilLeg.applicable) {
+        const remainder = ratSub(rawPostUnits, postUnits);
+        if (
+          postUnits.d !== 1n
+          || remainder.n < 0n
+          || ratCmp(remainder, ONE) >= 0
+          || ratCmp(ratMul(remainder, postRef), cilLeg.rat) !== 0
+        ) {
+          return {
+            ...rejectAction(ledgerState, "split_cil_mismatch"),
+            v2: {
+              ...structuredClone(ledgerState.v2),
+              halted: true,
+              state: "HALT",
+              auto_cleared: false,
+              human_rearm_required: true,
+            },
+          };
+        }
+      } else if (ratCmp(postUnits, rawPostUnits) !== 0) {
+        return {
+          ...rejectAction(ledgerState, "split_ratio_not_applied"),
+          v2: {
+            ...structuredClone(ledgerState.v2),
+            halted: true,
+            state: "HALT",
+            auto_cleared: false,
+            human_rearm_required: true,
+          },
+        };
+      }
     }
     const lhs = preNotional;
     const rhs = ratAdd(postNotional, cilLeg.rat);
@@ -313,6 +378,15 @@ export function applyCorporateAction(ledgerState, event) {
     if (ratCmp(preNotional, ratAdd(postNotional, divRecLeg.rat)) !== 0) {
       return rejectAction(ledgerState, "conservation_equation_violated");
     }
+    const curInst = nextLedger.receivables_by_instrument[event.instrument_id];
+    const curAmt = curInst ? ratFromText(curInst.amount_usd) : ZERO;
+    const nextInstAmt = ratAdd(curAmt, divRecLeg.rat);
+    nextLedger.receivables_by_instrument[event.instrument_id] = {
+      instrument_id: event.instrument_id,
+      symbol: event.symbol,
+      currency: event.currency || "USD",
+      amount_usd: formatUsdAmount(nextInstAmt),
+    };
     nextRec = ratAdd(recBefore, divRecLeg.rat);
   } else if (event.action_type === "dividend_payment") {
     if (cilLeg.applicable || divRecLeg.applicable || !payLeg.applicable) {
@@ -321,9 +395,23 @@ export function applyCorporateAction(ledgerState, event) {
     if (ratCmp(preNotional, postNotional) !== 0) {
       return rejectAction(ledgerState, "unexpected_position_change_on_payment");
     }
-    if (ratCmp(recBefore, payLeg.rat) < 0) {
-      return rejectAction(ledgerState, "insufficient_dividend_receivable");
+    const instRec = nextLedger.receivables_by_instrument[event.instrument_id];
+    const instAmt = instRec ? ratFromText(instRec.amount_usd) : null;
+    if (
+      !instRec
+      || instRec.symbol !== event.symbol
+      || (event.currency && instRec.currency && event.currency !== instRec.currency)
+      || !instAmt
+      || ratCmp(instAmt, payLeg.rat) < 0
+      || ratCmp(recBefore, payLeg.rat) < 0
+    ) {
+      return rejectAction(ledgerState, "cross_symbol_or_missing_dividend_receivable");
     }
+    const remInstAmt = ratSub(instAmt, payLeg.rat);
+    nextLedger.receivables_by_instrument[event.instrument_id] = {
+      ...instRec,
+      amount_usd: formatUsdAmount(remInstAmt),
+    };
     nextRec = ratSub(recBefore, payLeg.rat);
     nextSettled = ratAdd(settledBefore, payLeg.rat);
   } else if (event.action_type === "ticker_change") {
@@ -365,16 +453,24 @@ export function applyCorporateAction(ledgerState, event) {
     event.v2_control?.announced_within_two_sessions || event.v2_control?.price_anomaly_detected,
   );
   if (v2Triggered) {
+    const existingHalted = Array.isArray(nextLedger.v2?.halted_instruments)
+      ? [...nextLedger.v2.halted_instruments]
+      : [];
+    if (!existingHalted.some((h) => h.instrument_id === event.instrument_id)) {
+      existingHalted.push({ instrument_id: event.instrument_id, symbol: pos.symbol });
+    }
     nextLedger.v2 = {
       halted: true,
       state: "HALT",
       auto_cleared: false,
       human_rearm_required: true,
+      halted_instruments: existingHalted,
       triggers: [
         ...(nextLedger.v2?.triggers || []),
         {
           event_id: event.event_id,
           instrument_id: event.instrument_id,
+          symbol: pos.symbol,
           announced_within_two_sessions: Boolean(event.v2_control.announced_within_two_sessions),
           price_anomaly_detected: Boolean(event.v2_control.price_anomaly_detected),
         },
@@ -422,15 +518,33 @@ export function reconcileV2Broker(ledgerState, instrumentId, reconcilePayload = 
   const nextLedger = structuredClone(ledgerState);
   const pos = nextLedger.positions?.[instrumentId];
   const broker = reconcilePayload?.broker_ledger;
-  if (!pos || !broker || reconcilePayload?.broker_reconciled !== "exact_match") {
+  const rawHalted = Array.isArray(nextLedger.v2?.halted_instruments) && nextLedger.v2.halted_instruments.length > 0
+    ? nextLedger.v2.halted_instruments
+    : (nextLedger.v2?.halted && Array.isArray(nextLedger.v2?.triggers)
+      ? nextLedger.v2.triggers.map((t) => ({
+        instrument_id: t.instrument_id,
+        symbol: t.symbol || nextLedger.positions?.[t.instrument_id]?.symbol || null,
+      }))
+      : []);
+  const haltedMatchesTarget = rawHalted.length === 0
+    || rawHalted.some((h) => h.instrument_id === instrumentId && (!reconcilePayload?.symbol || h.symbol === reconcilePayload.symbol));
+  const payloadSymbolValid = !reconcilePayload?.symbol || reconcilePayload.symbol === pos?.symbol;
+
+  if (!pos || !broker || reconcilePayload?.broker_reconciled !== "exact_match" || !haltedMatchesTarget || !payloadSymbolValid) {
     nextLedger.v2 = {
       ...nextLedger.v2,
       halted: true,
       state: "HALT",
       auto_cleared: false,
       human_rearm_required: true,
+      halted_instruments: rawHalted,
     };
-    return { ok: false, v2: structuredClone(nextLedger.v2), ledger: nextLedger };
+    return {
+      ok: false,
+      reason: !haltedMatchesTarget || !payloadSymbolValid ? "halted_instrument_mismatch" : "v2_reconcile_failed",
+      v2: structuredClone(nextLedger.v2),
+      ledger: nextLedger,
+    };
   }
 
   const brokerEq = ratFromText(broker.adjusted_equity_usd);
@@ -448,14 +562,17 @@ export function reconcileV2Broker(ledgerState, instrumentId, reconcilePayload = 
   );
 
   if (exactMatch) {
+    const remainingHalted = rawHalted.filter((h) => h.instrument_id !== instrumentId);
+    const clearedAll = remainingHalted.length === 0;
     nextLedger.v2 = {
       ...nextLedger.v2,
-      halted: false,
-      state: "CLEAR",
-      auto_cleared: true,
-      human_rearm_required: false,
+      halted: !clearedAll,
+      state: clearedAll ? "CLEAR" : "HALT",
+      auto_cleared: clearedAll,
+      human_rearm_required: !clearedAll,
+      halted_instruments: remainingHalted,
     };
-    return { ok: true, v2: structuredClone(nextLedger.v2), ledger: nextLedger };
+    return { ok: clearedAll, v2: structuredClone(nextLedger.v2), ledger: nextLedger };
   }
 
   nextLedger.v2 = {
@@ -464,8 +581,9 @@ export function reconcileV2Broker(ledgerState, instrumentId, reconcilePayload = 
     state: "HALT",
     auto_cleared: false,
     human_rearm_required: true,
+    halted_instruments: rawHalted,
   };
-  return { ok: false, v2: structuredClone(nextLedger.v2), ledger: nextLedger };
+  return { ok: false, reason: "v2_ledger_mismatch", v2: structuredClone(nextLedger.v2), ledger: nextLedger };
 }
 
 /**

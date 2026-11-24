@@ -7,6 +7,7 @@
  * interpolates missing prices, and never converts empty/reported flows to zero.
  */
 
+import { countXnysSessionCloses } from "./freshness.js";
 import {
   parseDecimal,
   parseInstantMs,
@@ -161,7 +162,7 @@ export function evaluatePeriod7aReturn(input = {}) {
     return failPeriod("unavailable", "invalid_equity_or_reserve");
   }
 
-  const flowCheck = validateAndNormalizeFlows(input.flows ?? [], input.flow_window_meta, startMs, endMs);
+  const flowCheck = validateAndNormalizeFlows(input.flows, input.flow_window_meta, startMs, endMs);
   if (!flowCheck.ok) {
     return failPeriod(flowCheck.status, flowCheck.reason);
   }
@@ -345,10 +346,12 @@ function buildSessionsFromValuations(valuations, allFlows) {
     const curr = ordered[i];
     const prevMs = parseInstantMs(prev.observed_at);
     const currMs = parseInstantMs(curr.observed_at);
-    const sessionFlows = (allFlows || []).filter((f) => {
-      const fMs = parseInstantMs(f.effective_at);
-      return fMs === null || (fMs > prevMs && fMs <= currMs);
-    });
+    const sessionFlows = Array.isArray(allFlows)
+      ? allFlows.filter((f) => {
+        const fMs = parseInstantMs(f.effective_at);
+        return fMs === null || (fMs > prevMs && fMs <= currMs);
+      })
+      : undefined;
     sessions.push({
       period_start_utc: prev.observed_at,
       period_end_utc: curr.observed_at,
@@ -365,7 +368,7 @@ function buildSessionsFromValuations(valuations, allFlows) {
  * Evaluates a multi-session TWR + bankroll risk-memory ledger (`E*`, `W*`,
  * `W^{ref}`, `L`, `W`, `dd^B`, `c_t`). Never emits Dietz returns as sizing-eligible.
  */
-export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flows } = {}) {
+export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flows, calendarProvider } = {}) {
   let effectiveSessions = Array.isArray(sessions) ? sessions : null;
   let inferredOpening = null;
   if (!effectiveSessions && Array.isArray(valuations)) {
@@ -412,18 +415,91 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
     };
   }
 
+  if (!Array.isArray(effectiveSessions) || effectiveSessions.length === 0) {
+    return {
+      labels: DESK_7A_LABELS,
+      status: "unavailable",
+      return_pct: null,
+      interpolated: false,
+      empty_as_zero: false,
+      sizing_eligible: false,
+      breaker_eligible: false,
+      verdict_eligible: false,
+      method_version: null,
+      unavailable_reason: "no_valuation_periods",
+      sessions: [],
+    };
+  }
+
   const outSessions = [];
   let compoundedGrowth = ONE;
-  for (const session of effectiveSessions || []) {
+  let anyApproximate = false;
+  let prevPeriodEndMs = null;
+
+  for (const session of effectiveSessions) {
+    const sStartMs = parseInstantMs(session?.period_start_utc);
+    const sEndMs = parseInstantMs(session?.period_end_utc);
+    if (prevPeriodEndMs !== null && (sStartMs === null || sStartMs !== prevPeriodEndMs)) {
+      return {
+        labels: DESK_7A_LABELS,
+        status: "partial",
+        return_pct: null,
+        interpolated: false,
+        empty_as_zero: false,
+        sizing_eligible: false,
+        breaker_eligible: false,
+        verdict_eligible: false,
+        method_version: null,
+        unavailable_reason: "session_continuity_gap",
+        sessions: outSessions,
+      };
+    }
+    if (session?.opening_equity_usd != null) {
+      const explicitOpen = ratFromText(String(session.opening_equity_usd));
+      if (!explicitOpen || ratCmp(explicitOpen, ePrev) !== 0) {
+        return {
+          labels: DESK_7A_LABELS,
+          status: "partial",
+          return_pct: null,
+          interpolated: false,
+          empty_as_zero: false,
+          sizing_eligible: false,
+          breaker_eligible: false,
+          verdict_eligible: false,
+          method_version: null,
+          unavailable_reason: "opening_equity_discontinuity",
+          sessions: outSessions,
+        };
+      }
+    }
+    if (calendarProvider && sStartMs !== null && sEndMs !== null) {
+      const span = countXnysSessionCloses(sStartMs, sEndMs, calendarProvider);
+      if (!span.covered || span.age_sessions > 1) {
+        return {
+          labels: DESK_7A_LABELS,
+          status: "partial",
+          return_pct: null,
+          interpolated: false,
+          empty_as_zero: false,
+          sizing_eligible: false,
+          breaker_eligible: false,
+          verdict_eligible: false,
+          method_version: null,
+          unavailable_reason: !span.covered ? span.reason : "missing_intermediate_trading_sessions",
+          sessions: outSessions,
+        };
+      }
+    }
+
     const period = evaluatePeriod7aReturn({
       ...session,
       opening_equity_usd: session.opening_equity_usd ?? ratToDecimalText(ePrev, { minScale: 2 }),
       h_usd: session.h_usd ?? ratToDecimalText(h, { minScale: 2 }),
     });
-    if (period.status !== "ok" || !period.sizing_eligible) {
+    if (period.status !== "ok") {
       return {
         labels: DESK_7A_LABELS,
-        status: period.status === "ok" ? "partial" : period.status,
+        status: period.status,
         return_pct: null,
         interpolated: false,
         empty_as_zero: false,
@@ -442,18 +518,24 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
     const hadDeposit = _internal.depositsRat.n > 0n;
     const hadWithdrawal = _internal.withdrawalsRat.n > 0n;
 
-    iB = ratMul(iB, ratAdd(ONE, _internal.twrBankroll));
-    iBStar = ratMax(iBStar, iB);
+    if (period.approximate || !period.sizing_eligible) {
+      anyApproximate = true;
+    } else {
+      iB = ratMul(iB, ratAdd(ONE, _internal.twrBankroll));
+      iBStar = ratMax(iBStar, iB);
+    }
     compoundedGrowth = ratMul(compoundedGrowth, ratAdd(ONE, _internal.twrEq));
 
     const ddB = ratSub(ONE, ratDiv(iB, iBStar));
     const oneMinusDd = ratSub(ONE, ddB);
     const eEnd = ratFromText(String(session.ending_equity_usd));
-    let nextEStar = eStar;
-    for (const obs of [ePrev, _internal.ePreEndRat, ..._internal.observedSubvals, eEnd]) {
-      nextEStar = ratMax(nextEStar, obs);
+    if (!period.approximate && period.sizing_eligible) {
+      let nextEStar = eStar;
+      for (const obs of [ePrev, _internal.ePreEndRat, ..._internal.observedSubvals, eEnd]) {
+        nextEStar = ratMax(nextEStar, obs);
+      }
+      eStar = nextEStar;
     }
-    eStar = nextEStar;
 
     const w = ratAdd(eEnd, h);
     const wStar = ratAdd(eStar, h);
@@ -461,7 +543,7 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
     const lUsd = ratCmp(wRef, w) >= 0 ? ratSub(wRef, w) : ZERO;
     const cT = ratCmp(ddB, d) >= 0 ? ZERO : ratDiv(ratSub(d, ddB), oneMinusDd);
 
-    const midDrawdownDepositFlag = hadDeposit
+    const midDrawdownDepositFlag = !anyApproximate && hadDeposit
       && ratCmp(prevDdB, ZERO) > 0
       && ratCmp(eStar, prevEStar) > 0;
 
@@ -477,7 +559,10 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
       : [];
 
     // Pure withdrawal never causes a drawdown increase when market return is >= 0.
-    const falseLossTrip = hadWithdrawal && _internal.twrBankroll.n >= 0n && ratCmp(ddB, prevDdB) > 0;
+    const falseLossTrip = hadWithdrawal
+      && _internal.twrBankroll !== null
+      && _internal.twrBankroll.n >= 0n
+      && ratCmp(ddB, prevDdB) > 0;
 
     outSessions.push({
       period_start_utc: session.period_start_utc,
@@ -505,26 +590,34 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
       method_version: null,
     });
     ePrev = eEnd;
+    prevPeriodEndMs = sEndMs;
   }
 
+  const eligible = !anyApproximate;
   return {
     labels: DESK_7A_LABELS,
     status: "ok",
-    return_pct: ratToDecimalText(ratMul(ratSub(compoundedGrowth, ONE), HUNDRED)),
+    return_method: anyApproximate ? "modified_dietz" : "daily_linked_twr",
+    approximate: anyApproximate,
+    return_pct: ratToDecimalText(
+      ratMul(ratSub(compoundedGrowth, ONE), HUNDRED),
+      anyApproximate ? { maxScale: 6 } : {},
+    ),
     interpolated: false,
     empty_as_zero: false,
-    sizing_eligible: true,
-    breaker_eligible: true,
-    verdict_eligible: true,
+    sizing_eligible: eligible,
+    breaker_eligible: eligible,
+    verdict_eligible: eligible,
     method_version: null,
     unavailable_reason: null,
     sessions: outSessions,
   };
 }
 
-export function buildCashflow7aSummary({ initialState, sessions } = {}) {
-  const res = evaluateTwrLedger({ initialState, sessions });
+export function buildCashflow7aSummary({ initialState, sessions, calendarProvider } = {}) {
+  const res = evaluateTwrLedger({ initialState, sessions, calendarProvider });
   const last = res.sessions.at(-1) || null;
+  const approx = Boolean(res.approximate || last?.approximate);
   return {
     ledger: res,
     last,
@@ -537,9 +630,9 @@ export function buildCashflow7aSummary({ initialState, sessions } = {}) {
         label: DESK_7A_LABELS.adjusted_combined,
         pnl_usd: last ? last.adjusted_pnl_usd : null,
         return_pct: res.return_pct,
-        return_method: last ? last.return_method : null,
-        approximate: last ? last.approximate : false,
-        sizing_eligible: res.sizing_eligible,
+        return_method: res.return_pct === null ? null : (last ? last.return_method : null),
+        approximate: approx,
+        sizing_eligible: Boolean(res.sizing_eligible),
         method_version: null,
       },
     },

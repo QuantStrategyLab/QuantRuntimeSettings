@@ -156,6 +156,49 @@ function classifySeriesIntervals({
   return { covered, rejected, gaps };
 }
 
+function extractBindingTransitions(coveredIntervals) {
+  const ordered = [...coveredIntervals].sort((a, b) => {
+    const aMs = parseInstantMs(a.start_utc);
+    const bMs = parseInstantMs(b.start_utc);
+    return aMs !== bMs ? aMs - bMs : parseInstantMs(a.end_utc) - parseInstantMs(b.end_utc);
+  });
+  const transitions = [];
+  for (let i = 1; i < ordered.length; i++) {
+    const prev = ordered[i - 1];
+    const curr = ordered[i];
+    if (prev.binding_id !== curr.binding_id) {
+      transitions.push({
+        at_ms: parseInstantMs(curr.start_utc),
+        at_utc: curr.start_utc,
+        from_binding: prev.binding_id,
+        to_binding: curr.binding_id,
+      });
+    }
+  }
+  return transitions;
+}
+
+function findTransitionMismatches(valCovered, flowCovered, evalEndIso) {
+  const valTransitions = extractBindingTransitions(valCovered);
+  const flowTransitions = extractBindingTransitions(flowCovered);
+  const valTimes = new Set(valTransitions.map((t) => t.at_ms));
+  const flowTimes = new Set(flowTransitions.map((t) => t.at_ms));
+  const unmatchedTimes = [...new Set([
+    ...valTransitions.filter((t) => !flowTimes.has(t.at_ms)).map((t) => t.at_ms),
+    ...flowTransitions.filter((t) => !valTimes.has(t.at_ms)).map((t) => t.at_ms),
+  ])].sort((a, b) => a - b);
+  if (unmatchedTimes.length === 0) return [];
+  const startMs = unmatchedTimes[0];
+  const endMs = unmatchedTimes.length > 1 ? unmatchedTimes[unmatchedTimes.length - 1] : parseInstantMs(evalEndIso);
+  return [{
+    start_utc: new Date(startMs).toISOString(),
+    end_utc: new Date(endMs > startMs ? endMs : parseInstantMs(evalEndIso)).toISOString(),
+    evidence_kind: "external_flow",
+    reason: "binding_transition_mismatch",
+    binding_id: null,
+  }];
+}
+
 /**
  * Evaluates C-SA-17 half-open UTC continuity across retention, Desk 6-month view,
  * account/environment isolation, and separate valuation vs external_flow bindings.
@@ -251,7 +294,10 @@ export function evaluateHistoryContinuity(input = {}) {
       binding_id: null,
     });
   }
-  gapIntervals.push(...valSeries.gaps, ...flowSeries.gaps);
+  const transitionMismatches = valSeries.gaps.length === 0 && flowSeries.gaps.length === 0
+    ? findTransitionMismatches(valSeries.covered, flowSeries.covered, reqEndIso)
+    : [];
+  gapIntervals.push(...valSeries.gaps, ...flowSeries.gaps, ...transitionMismatches);
 
   const rejectedIntervals = [...valSeries.rejected, ...flowSeries.rejected];
   const coveredIntervals = [...valSeries.covered, ...flowSeries.covered];
@@ -265,7 +311,7 @@ export function evaluateHistoryContinuity(input = {}) {
       return_pct: null,
       unavailable_reason: retentionTruncated ? "retention_366d_exceeded" : "desk_6m_window_exceeded",
     };
-  } else if (valSeries.gaps.length === 0 && flowSeries.gaps.length === 0) {
+  } else if (valSeries.gaps.length === 0 && flowSeries.gaps.length === 0 && transitionMismatches.length === 0) {
     continuityStatus = "continuous";
     result = {
       status: "eligible",
@@ -284,7 +330,7 @@ export function evaluateHistoryContinuity(input = {}) {
     result = {
       status: "insufficient_history",
       return_pct: null,
-      unavailable_reason: valSeries.gaps[0]?.reason || flowSeries.gaps[0]?.reason || "binding_gap",
+      unavailable_reason: valSeries.gaps[0]?.reason || flowSeries.gaps[0]?.reason || transitionMismatches[0]?.reason || "binding_gap",
     };
   }
 

@@ -1465,9 +1465,10 @@ export function projectSizingUnitAccountFacts(accountsOrReadModel, options = {})
   const normalized = rawList.map((entry) => stripPrivateLocators({
     ...entry,
     account_id: entry?.account_id ?? entry?.account_key ?? null,
+    account_key: entry?.account_key ?? entry?.account_id ?? null,
     broker_environment: entry?.broker_environment ?? (entry?.paper ? "paper" : entry?.environment ?? null),
-    observed_at: entry?.observed_at ?? entry?.observed_finished_at ?? entry?.fetched_at ?? null,
-    fetched_at: entry?.fetched_at ?? entry?.observed_finished_at ?? entry?.observed_at ?? null,
+    observed_at: entry?.observed_at ?? entry?.observed_finished_at ?? null,
+    fetched_at: entry?.fetched_at ?? null,
   }));
   return evaluateSizingUnitCohort(normalized, {
     require_live_cohort: options.require_live_cohort ?? true,

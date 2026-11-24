@@ -98,6 +98,23 @@ const handlers = {
     assert.equal(m.mid_drawdown_deposit_flag, e2.mid_drawdown_deposit_flag);
     assert.equal(m.flow_audit_events.length, 1);
     assert.equal(mid.method_version, null);
+
+    // P1 regression: omitted flows fails closed (never defaults to [] / +20% deposit profit)
+    const { flows: _omitted, ...sessionNoFlows } = spec.standard_deposit.session;
+    const missingFlows = evaluateTwrLedger({
+      initialState: spec.standard_deposit.initial_state,
+      sessions: [sessionNoFlows],
+    });
+    assert.equal(missingFlows.sizing_eligible, false);
+    assert.equal(missingFlows.return_pct, null);
+    // P1 regression: empty valuation periods never return 0% / sizing_eligible: true
+    const emptyPeriods = evaluateTwrLedger({
+      initialState: spec.standard_deposit.initial_state,
+      sessions: [],
+    });
+    assert.equal(emptyPeriods.status, "unavailable");
+    assert.equal(emptyPeriods.return_pct, null);
+    assert.equal(emptyPeriods.sizing_eligible, false);
   },
 
   async "SA-A02"() {
@@ -223,6 +240,58 @@ const handlers = {
     const rejected = applyCorporateAction(ledger, broken);
     assert.equal(rejected.ok, false);
     assert.equal(serializeCorporateActionLedger(ledger).ledger_digest, beforeDigest);
+
+    // P1 regression: unapplied 2:1 split (unchanged 100 units / 150.00 ref) must fail & halt
+    const unappliedSplit = structuredClone(spec.subcases[0].event);
+    unappliedSplit.event_id = "ca-a03-unapplied-split";
+    unappliedSplit.post_units = "100";
+    unappliedSplit.post_ref = "150.00";
+    const freshSplitLedger = createCorporateActionLedger(spec.initial_ledger);
+    const unappliedRes = applyCorporateAction(freshSplitLedger, unappliedSplit);
+    assert.equal(unappliedRes.ok, false);
+    assert.equal(unappliedRes.v2.halted, true);
+    assert.equal(unappliedRes.ledger.positions.inst_tqqq.units, "100");
+    assert.equal(unappliedRes.ledger.applied_events.length, 0);
+
+    // P1 regression: cross-symbol dividend settlement cannot clear inst_dist's receivable
+    const exDiv = applyCorporateAction(freshSplitLedger, spec.subcases[2].event);
+    assert.equal(exDiv.ok, true);
+    const crossPay = structuredClone(spec.subcases[3].event);
+    crossPay.event_id = "ca-a03-cross-pay";
+    crossPay.instrument_id = "inst_soxl";
+    crossPay.symbol = "SOXL";
+    crossPay.pre_units = "10";
+    crossPay.post_units = "10";
+    crossPay.pre_ref = "20.00";
+    crossPay.post_ref = "20.00";
+    const crossRes = applyCorporateAction(exDiv.ledger, crossPay);
+    assert.equal(crossRes.ok, false);
+    assert.equal(crossRes.ledger.dividend_receivable_usd, "100.00");
+
+    // P1 regression: reconciling wrong symbol (inst_soxl) never clears inst_tqqq V2 HALT
+    const haltedState = applyCorporateAction(
+      createCorporateActionLedger({
+        ...spec.initial_ledger,
+        positions: {
+          ...spec.initial_ledger.positions,
+          inst_tqqq: { instrument_id: "inst_tqqq", symbol: "TQQQ", units: "200", ref_price_usd: "75.00" },
+        },
+      }),
+      spec.subcases.find((s) => s.name === "v2_halt_and_reconcile").halt_event,
+    );
+    assert.equal(haltedState.v2.halted, true);
+    const wrongSymRec = reconcileV2Broker(haltedState.ledger, "inst_soxl", {
+      broker_reconciled: "exact_match",
+      broker_ledger: {
+        adjusted_equity_usd: "23500.00",
+        shares: "10",
+        hwm_usd: spec.initial_ledger.loss_memory.w_ref_usd,
+      },
+    });
+    assert.equal(wrongSymRec.ok, false);
+    assert.equal(wrongSymRec.v2.halted, true);
+    assert.equal(wrongSymRec.v2.state, "HALT");
+    assert.equal(wrongSymRec.v2.human_rearm_required, true);
   },
 
   async "SA-A06"() {
@@ -266,6 +335,60 @@ const handlers = {
     assert.equal(noCal.data_status, "unavailable");
     assert.equal(noCal.sizing_eligible, false);
     assert.equal(noCal.display.last_observed_value, "50000.00");
+
+    // P1 regression: sub-millisecond > 60s skew (60.000001s) must fail closed
+    const nanoSkew = evaluateFreshness(
+      {
+        observed_at: "2025-01-08T21:01:00.000001Z",
+        fetched_at: "2025-01-08T21:01:00.000001Z",
+        evaluated_at: "2025-01-08T21:00:00.000Z",
+        last_observed_value: "50000.00",
+      },
+      { calendarProvider: provider },
+    );
+    assert.equal(nanoSkew.data_status, "invalid_future_skew");
+    assert.equal(nanoSkew.sizing_eligible, false);
+    assert.equal(nanoSkew.o1_block_exposure_increase, true);
+
+    // P1 regression: unpinned or {} session calendar never turns stale fact fresh
+    const emptySessionProvider = {
+      calendar_version: "unknown",
+      exchange: "XNYS",
+      spec_digest: null,
+      coverage: () => ({ start_date: "2025-01-01", end_date: "2025-12-31" }),
+      getSession: () => ({}),
+    };
+    const unpinnedRes = evaluateFreshness(
+      {
+        observed_at: "2025-01-08T20:59:59.000Z",
+        fetched_at: "2025-01-08T21:00:00.000Z",
+        evaluated_at: "2025-01-08T21:00:00.000Z",
+        last_observed_value: "50000.00",
+      },
+      { calendarProvider: emptySessionProvider },
+    );
+    assert.equal(unpinnedRes.data_status, "unavailable");
+    assert.equal(unpinnedRes.sizing_eligible, false);
+    assert.equal(unpinnedRes.o1_block_exposure_increase, true);
+
+    const pinnedButEmptySessionProvider = {
+      calendar_version: "csa22-v1",
+      exchange: "XNYS",
+      spec_digest: pinnedCalendar.metadata.spec_digest,
+      coverage: () => ({ start_date: "2025-01-01", end_date: "2025-12-31" }),
+      getSession: () => ({}),
+    };
+    const emptySesRes = evaluateFreshness(
+      {
+        observed_at: "2025-01-08T20:59:59.000Z",
+        fetched_at: "2025-01-08T21:00:00.000Z",
+        evaluated_at: "2025-01-08T21:00:00.000Z",
+        last_observed_value: "50000.00",
+      },
+      { calendarProvider: pinnedButEmptySessionProvider },
+    );
+    assert.equal(emptySesRes.data_status, "unavailable");
+    assert.equal(emptySesRes.sizing_eligible, false);
   },
 
   async "SA-A07"() {
@@ -286,6 +409,30 @@ const handlers = {
       assert.equal(res.empty_as_zero, sub.expected.empty_as_zero, sub.name);
       assert.ok(typeof res.unavailable_reason === "string" && res.unavailable_reason.length > 0, sub.name);
     }
+
+    // P1 regression: 3 missing days between two +10% periods cannot compound +21%
+    const gappedRes = evaluateTwrLedger({
+      initialState: { e_prev_usd: "100.00", e_star_prev_usd: "100.00", h_usd: "0", tier_drawdown_limit_d: "0.30" },
+      sessions: [
+        {
+          period_start_utc: "2025-01-02T21:00:00.000Z",
+          period_end_utc: "2025-01-03T21:00:00.000Z",
+          ending_equity_usd: "110.00",
+          intraday_subvaluations: [],
+          flows: [],
+        },
+        {
+          period_start_utc: "2025-01-06T21:00:00.000Z",
+          period_end_utc: "2025-01-07T21:00:00.000Z",
+          ending_equity_usd: "121.00",
+          intraday_subvaluations: [],
+          flows: [],
+        },
+      ],
+    });
+    assert.equal(gappedRes.return_pct, null);
+    assert.equal(gappedRes.sizing_eligible, false);
+    assert.equal(gappedRes.unavailable_reason, "session_continuity_gap");
   },
 
   async "SA-A08"() {
@@ -319,6 +466,19 @@ const handlers = {
       cohort.observations.map((o) => o.observed_at),
       spec.cohort_multi_currency.map((a) => a.observed_at),
     );
+
+    // P1 regression: broker_reported_balances multi-currency fails closed
+    const withBrokerBalances = {
+      ...acceptanceFixture.cases["SA-A09"].accounts[0],
+      broker_reported_balances: [
+        { currency: "USD", net_assets: "50000.00" },
+        { currency: "EUR", net_assets: "1200.00" },
+      ],
+    };
+    const mixedBrokerRes = evaluateSizingUnitNav(withBrokerBalances, { calendarProvider: provider });
+    assert.equal(mixedBrokerRes.status, "unavailable");
+    assert.equal(mixedBrokerRes.reason, "mixed_currency");
+    assert.equal(mixedBrokerRes.nav_usd, null);
   },
 
   async "SA-A09"() {
@@ -354,6 +514,68 @@ const handlers = {
     });
     assert.equal(projected.nav_usd, spec.expected.nav_usd);
     assert.equal(PRIVATE_LOCATOR_RE.test(JSON.stringify(projected)), false);
+
+    // P1 regression: missing observed_at or fetched_at individually never cross-backfills
+    const { observed_at: _o, ...noObs } = spec.accounts[0];
+    const missingObsProj = projectSizingUnitAccountFacts([noObs], {
+      evaluated_at: spec.evaluated_at,
+      calendarProvider: provider,
+    });
+    assert.equal(missingObsProj.status, "unavailable");
+    assert.equal(missingObsProj.data_status, "missing");
+    assert.equal(missingObsProj.nav_usd, null);
+
+    const { fetched_at: _f, ...noFetch } = spec.accounts[0];
+    const missingFetchProj = projectSizingUnitAccountFacts([noFetch], {
+      evaluated_at: spec.evaluated_at,
+      calendarProvider: provider,
+    });
+    assert.equal(missingFetchProj.status, "unavailable");
+    assert.equal(missingFetchProj.data_status, "missing");
+    assert.equal(missingFetchProj.nav_usd, null);
+
+    // P1 regression: duplicate account_key across platforms is order-independent & disambiguated
+    const acctA = { ...spec.accounts[0], account_id: "shared-key-1", account_key: "shared-key-1", platform: "ibkr", nav_usd: "50000.00" };
+    const acctB = {
+      ...spec.accounts[0],
+      account_id: "shared-key-1",
+      account_key: "shared-key-1",
+      platform: "longbridge",
+      nav_usd: "51000.00",
+      settled_cash_usd: "19500.00",
+    };
+    const ambigForward = evaluateSizingUnitCohort([acctA, acctB], {
+      evaluated_at: spec.evaluated_at,
+      calendarProvider: provider,
+      designated_account_id: "shared-key-1",
+    });
+    const ambigReverse = evaluateSizingUnitCohort([acctB, acctA], {
+      evaluated_at: spec.evaluated_at,
+      calendarProvider: provider,
+      designated_account_id: "shared-key-1",
+    });
+    assert.equal(ambigForward.status, "unavailable");
+    assert.equal(ambigForward.reason, "ambiguous_sizing_unit");
+    assert.equal(ambigReverse.reason, "ambiguous_sizing_unit");
+    const disambigA = evaluateSizingUnitCohort([acctB, acctA], {
+      evaluated_at: spec.evaluated_at,
+      calendarProvider: provider,
+      designated_platform: "ibkr",
+      designated_account_id: "shared-key-1",
+    });
+    assert.equal(disambigA.status, "available");
+    assert.equal(disambigA.nav_usd, "50000.00");
+
+    // P1 regression: signed GCS HTTPS URL in positions[].price_ref must be stripped & rejected
+    const signedUrlAcct = structuredClone(spec.accounts[0]);
+    signedUrlAcct.positions[0].price_ref = "https://storage.googleapis.com/private-bucket/prices.json?X-Goog-Algorithm=GOOG4&X-Goog-Signature=deadbeef";
+    const signedProjected = projectSizingUnitAccountFacts([signedUrlAcct], {
+      evaluated_at: spec.evaluated_at,
+      calendarProvider: provider,
+    });
+    assert.equal(signedProjected.status, "unavailable");
+    assert.equal(signedProjected.nav_usd, null);
+    assert.equal(/storage\.googleapis\.com|X-Goog-Signature/.test(JSON.stringify(signedProjected)), false);
   },
 
   async "SA-A10"() {
@@ -472,6 +694,93 @@ const handlers = {
     if (overview7a.n1_envelope) {
       assert.ok(validateN1OverviewSchema(overview7a.n1_envelope), ajv.errorsText(validateN1OverviewSchema.errors));
     }
+
+    // P1 regression: Desk 7A propagates Dietz return_pct & approximate:true while keeping sizing_eligible:false
+    const deskDietzPerf = projectDesk7aPerformance({
+      initialState: { e_prev_usd: "100.00", e_star_prev_usd: "100.00", h_usd: "0", tier_drawdown_limit_d: "0.30" },
+      sessions: [
+        {
+          period_start_utc: spec.volatile_midmonth.period_start_utc,
+          period_end_utc: spec.volatile_midmonth.period_end_utc,
+          ending_equity_usd: spec.volatile_midmonth.ending_equity_usd,
+          intraday_subvaluations: [],
+          flows: spec.volatile_midmonth.flows,
+        },
+      ],
+    });
+    assert.equal(deskDietzPerf.cashflow_7a.adjusted_performance.return_method, "modified_dietz");
+    assert.equal(deskDietzPerf.cashflow_7a.adjusted_performance.approximate, true);
+    assert.equal(deskDietzPerf.cashflow_7a.adjusted_performance.sizing_eligible, false);
+    assert.ok(Number(deskDietzPerf.cashflow_7a.adjusted_performance.return_pct) > 16);
+
+    // P1 regression: multi-currency native replacement on USD leaves EUR Dietz approximate flags intact
+    const { applyNativeDailyReturns } = await import(
+      "../web/strategy-switch-console/application/console_api/native_daily_returns.js"
+    );
+    const multiCurrencyBlocks = {
+      returns: {
+        status: "ok",
+        cashflow_method: "modified_dietz",
+        approximate: true,
+        sizing_eligible: false,
+        per_currency: [
+          { currency: "USD", cashflow_method: "modified_dietz", approximate: true, sizing_eligible: false },
+          { currency: "EUR", twr_return_percent: 13.3333, cashflow_method: "modified_dietz", approximate: true, sizing_eligible: false },
+        ],
+      },
+      summary: {
+        status: "ok",
+        cashflow_method: "modified_dietz",
+        approximate: true,
+        sizing_eligible: false,
+        metric_reasons: {},
+        per_currency: [
+          { currency: "USD", twr_return_percent: 10, max_drawdown: { percent: 0 }, cashflow_method: "modified_dietz", approximate: true, sizing_eligible: false },
+          { currency: "EUR", twr_return_percent: 13.3333, max_drawdown: { percent: 1 }, cashflow_method: "modified_dietz", approximate: true, sizing_eligible: false },
+        ],
+      },
+      calendar: {
+        status: "ok",
+        cells: [
+          { date: "2025-01-02", status: "ok", return_method: "modified_dietz", cashflow_method: "modified_dietz", approximate: true },
+        ],
+      },
+    };
+    const nativeInput = {
+      range: "ALL",
+      today: "2025-01-02",
+      benchmarks: [],
+      accounts: [
+        {
+          platform: "ibkr",
+          account_key: "synth-usd",
+          broker_environment: "live",
+          return: {
+            daily: [
+              {
+                status: "available",
+                method: "native_ibkr_twr",
+                unit: "ratio",
+                source: "ChangeInNAV.twr",
+                currency: "USD",
+                period: { from: "2025-01-02", to: "2025-01-02" },
+                value: "0.02",
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const appliedMulti = applyNativeDailyReturns(multiCurrencyBlocks, nativeInput);
+    const eurSummaryRow = appliedMulti.summary.per_currency.find((r) => r.currency === "EUR");
+    assert.equal(eurSummaryRow.twr_return_percent, 13.3333);
+    assert.equal(eurSummaryRow.cashflow_method, "modified_dietz");
+    assert.equal(eurSummaryRow.approximate, true);
+    assert.equal(eurSummaryRow.sizing_eligible, false);
+    const usdSummaryRow = appliedMulti.summary.per_currency.find((r) => r.currency === "USD");
+    assert.equal(Object.hasOwn(usdSummaryRow, "cashflow_method"), false);
+    assert.equal(Object.hasOwn(usdSummaryRow, "approximate"), false);
+    assert.equal(Object.hasOwn(usdSummaryRow, "sizing_eligible"), false);
   },
 
   async "SA-A11"() {
@@ -497,6 +806,73 @@ const handlers = {
       if (sub.expected.return_pct === null) assert.equal(res.result.return_pct, null, sub.name);
       assert.equal(res.gap_intervals.length > 0, sub.expected.has_gaps, sub.name);
     }
+
+    // P1 regression: asynchronous valuation (Aug 1) vs flow (Aug 15) binding switch fails closed
+    const mismatchedSwitch = evaluateHistoryContinuity({
+      account_id: "synth-sizing-01",
+      broker_environment: "live",
+      requested_interval: {
+        start_utc: "2025-07-01T00:00:00.000Z",
+        end_utc: "2025-09-01T00:00:00.000Z",
+      },
+      desk_view: true,
+      current_valuation_binding_id: "b_val_curr",
+      history_source_binding_ids: ["b_val_prior"],
+      current_flow_binding_id: "b_flow_curr",
+      flow_history_source_binding_ids: ["b_flow_prior"],
+      valuation_intervals: [
+        {
+          start_utc: "2025-07-01T00:00:00.000Z",
+          end_utc: "2025-08-01T00:00:00.000Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_val_prior",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+        {
+          start_utc: "2025-08-01T00:00:00.000Z",
+          end_utc: "2025-09-01T00:00:00.000Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_val_curr",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+      ],
+      flow_intervals: [
+        {
+          start_utc: "2025-07-01T00:00:00.000Z",
+          end_utc: "2025-08-15T00:00:00.000Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_flow_prior",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+        {
+          start_utc: "2025-08-15T00:00:00.000Z",
+          end_utc: "2025-09-01T00:00:00.000Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_flow_curr",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+      ],
+      origin: "synthetic",
+      source_class: "synthetic",
+      evidence_ref: "sa1:a11:switch-mismatch",
+    });
+    assert.ok(validateContinuitySchema(mismatchedSwitch));
+    assert.equal(mismatchedSwitch.continuity_status, "binding_gap");
+    assert.equal(mismatchedSwitch.result.status, "insufficient_history");
+    assert.equal(mismatchedSwitch.result.return_pct, null);
+    assert.ok(mismatchedSwitch.gap_intervals.length > 0);
   },
 };
 

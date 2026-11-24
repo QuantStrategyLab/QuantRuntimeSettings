@@ -2,17 +2,20 @@
  * C-SA-15: Trading-session freshness, future-skew boundary, and O1 gate.
  *
  * Pure leaf module under application/sizing_unit/:
- * - Enforces inclusive unrounded 60_000 ms future-skew across (E, F, G).
+ * - Enforces inclusive unrounded 60_000_000_000 ns (60 s) future-skew across (E, F, G)
+ *   in exact BigInt nanoseconds (never truncating sub-millisecond fractional skew).
  * - Counts XNYS trading session closes over half-open (min(E, G), G].
- * - Requires an injected calendarProvider (e.g., pinned csa22-v1 until SA-3);
- *   never falls back to weekday heuristics or synthetic holiday tables.
+ * - Requires a valid pinned calendarProvider (e.g., pinned csa22-v1 until SA-3);
+ *   rejects unpinned providers or empty/malformed session records ({}).
  * - Preserves display values (last_observed_value, last_observed_at, age_seconds,
  *   age_sessions) when failing closed for sizing / Supply-B proof / O1.
  */
 
 export const FUTURE_SKEW_LIMIT_MS = 60_000;
+export const FUTURE_SKEW_LIMIT_NS = 60_000_000_000n;
 const ISO_INSTANT_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-](\d{2}):(\d{2}))$/;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const SHA256_HEX_RE = /^[a-f0-9]{64}$/;
 const NY_DATE_FORMAT = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/New_York",
   year: "numeric",
@@ -20,8 +23,10 @@ const NY_DATE_FORMAT = new Intl.DateTimeFormat("en-CA", {
   day: "2-digit",
 });
 
-function parseInstantMs(value) {
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+function parseInstantNs(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? BigInt(Math.round(value)) * 1_000_000n : null;
+  }
   if (typeof value !== "string") return null;
   const match = ISO_INSTANT_RE.exec(value);
   if (!match) return null;
@@ -32,23 +37,49 @@ function parseInstantMs(value) {
   const minute = Number(match[5]);
   const second = Number(match[6]);
   if (hour > 23 || minute > 59 || second > 59) return null;
-  if (match[8] !== "Z" && (Number(match[9]) > 23 || Number(match[10]) > 59)) return null;
-  const utc = new Date(Date.UTC(year, month - 1, day));
-  if (utc.getUTCFullYear() !== year || utc.getUTCMonth() !== month - 1 || utc.getUTCDate() !== day) return null;
-  const ms = Date.parse(value);
-  return Number.isFinite(ms) ? ms : null;
+
+  let offsetMinutes = 0;
+  if (match[8] !== "Z") {
+    const offH = Number(match[9]);
+    const offM = Number(match[10]);
+    if (offH > 23 || offM > 59) return null;
+    const sign = match[8].startsWith("-") ? -1 : 1;
+    offsetMinutes = sign * (offH * 60 + offM);
+  }
+
+  const utcCheck = new Date(Date.UTC(year, month - 1, day));
+  if (
+    utcCheck.getUTCFullYear() !== year
+    || utcCheck.getUTCMonth() !== month - 1
+    || utcCheck.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  const wholeMs = Date.UTC(year, month - 1, day, hour, minute, second) - offsetMinutes * 60_000;
+  const fracNs = BigInt((match[7] || "").padEnd(9, "0").slice(0, 9));
+  return BigInt(wholeMs) * 1_000_000n + fracNs;
 }
 
-function toUtcIso(ms) {
-  if (!Number.isFinite(ms)) return null;
-  return new Date(ms).toISOString();
+function toUtcIsoFromNs(ns) {
+  if (typeof ns !== "bigint") return null;
+  const ms = ns / 1_000_000n;
+  const subMsNs = ((ns % 1_000_000n) + 1_000_000n) % 1_000_000n;
+  const baseIso = new Date(Number(ms)).toISOString();
+  if (subMsNs === 0n) return baseIso;
+  const wholeSecMs = ms - (((ms % 1000n) + 1000n) % 1000n);
+  const secNs = ((ns - wholeSecMs * 1_000_000n) + 1_000_000_000n) % 1_000_000_000n;
+  const frac = secNs.toString().padStart(9, "0").replace(/0+$/, "");
+  return `${new Date(Number(wholeSecMs)).toISOString().slice(0, 19)}.${frac}Z`;
 }
 
-function toNyDate(ms) {
+function toNyDateFromNs(ns) {
+  const ms = Number(ns / 1_000_000n);
   return NY_DATE_FORMAT.format(new Date(ms));
 }
 
-function toUtcDate(ms) {
+function toUtcDateFromNs(ns) {
+  const ms = Number(ns / 1_000_000n);
   return new Date(ms).toISOString().slice(0, 10);
 }
 
@@ -56,6 +87,22 @@ function nextIsoDate(isoDate) {
   const [y, m, d] = isoDate.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d + 1));
   return dt.toISOString().slice(0, 10);
+}
+
+function isPinnedCalendarMetadata(meta) {
+  return Boolean(
+    meta
+    && typeof meta.calendar_version === "string"
+    && meta.calendar_version.length > 0
+    && meta.calendar_version !== "unknown"
+    && typeof meta.spec_digest === "string"
+    && SHA256_HEX_RE.test(meta.spec_digest)
+    && meta.exchange === "XNYS"
+    && typeof meta.coverage_start_date === "string"
+    && ISO_DATE_RE.test(meta.coverage_start_date)
+    && typeof meta.coverage_end_date === "string"
+    && ISO_DATE_RE.test(meta.coverage_end_date),
+  );
 }
 
 /**
@@ -69,18 +116,15 @@ export function createPinnedCalendarProvider(pinnedVectors) {
   const meta = pinnedVectors?.metadata && typeof pinnedVectors.metadata === "object"
     ? pinnedVectors.metadata
     : {};
-  const dates = sessions ? Object.keys(sessions).filter((k) => ISO_DATE_RE.test(k)).sort() : [];
-  const startDate = typeof meta.coverage_start_date === "string"
-    ? meta.coverage_start_date
-    : (dates[0] ?? null);
-  const endDate = typeof meta.coverage_end_date === "string"
-    ? meta.coverage_end_date
-    : (dates.at(-1) ?? null);
+  const pinned = isPinnedCalendarMetadata(meta);
+  const startDate = pinned ? meta.coverage_start_date : null;
+  const endDate = pinned ? meta.coverage_end_date : null;
 
   return {
-    calendar_version: meta.calendar_version ?? "unknown",
+    calendar_version: pinned ? meta.calendar_version : "unknown",
     exchange: meta.exchange ?? "XNYS",
-    spec_digest: meta.spec_digest ?? null,
+    spec_digest: pinned ? meta.spec_digest : null,
+    is_pinned: pinned,
     coverage() {
       return {
         start_date: startDate,
@@ -88,30 +132,65 @@ export function createPinnedCalendarProvider(pinnedVectors) {
       };
     },
     getSession(tradeDate) {
-      if (!sessions || typeof tradeDate !== "string") return null;
+      if (!pinned || !sessions || typeof tradeDate !== "string") return null;
       return Object.hasOwn(sessions, tradeDate) ? sessions[tradeDate] : null;
     },
   };
 }
 
 /**
- * Counts XNYS trading session closes in half-open interval (startExclusiveMs, endInclusiveMs].
- * Fails closed when calendarProvider or any date along the span is missing/uncovered.
+ * Counts XNYS trading session closes in half-open interval (startExclusive, endInclusive].
+ * Fails closed when calendarProvider is missing/unpinned, dates are uncovered,
+ * or any day returns an empty `{}` or malformed session object.
  */
-export function countXnysSessionCloses(startExclusiveMs, endInclusiveMs, calendarProvider) {
-  if (!calendarProvider || typeof calendarProvider.getSession !== "function") {
+export function countXnysSessionCloses(startExclusiveInput, endInclusiveInput, calendarProvider) {
+  if (
+    !calendarProvider
+    || typeof calendarProvider.getSession !== "function"
+    || typeof calendarProvider.coverage !== "function"
+    || calendarProvider.is_pinned === false
+  ) {
     return { covered: false, age_sessions: null, reason: "calendar_provider_unavailable" };
   }
-  const loMs = Math.min(startExclusiveMs, endInclusiveMs);
-  const hiMs = endInclusiveMs;
-  const startNy = toNyDate(loMs);
-  const endNy = toNyDate(hiMs);
-  const endUtc = toUtcDate(hiMs);
-  const cov = typeof calendarProvider.coverage === "function" ? calendarProvider.coverage() : null;
-  if (cov?.start_date && cov?.end_date) {
-    if (startNy < cov.start_date || endNy > cov.end_date || endUtc > cov.end_date) {
-      return { covered: false, age_sessions: null, reason: "calendar_coverage_out_of_range" };
-    }
+  if (
+    calendarProvider.exchange !== "XNYS"
+    || typeof calendarProvider.calendar_version !== "string"
+    || !calendarProvider.calendar_version.length
+    || calendarProvider.calendar_version === "unknown"
+    || typeof calendarProvider.spec_digest !== "string"
+    || !SHA256_HEX_RE.test(calendarProvider.spec_digest)
+  ) {
+    return { covered: false, age_sessions: null, reason: "calendar_unpinned" };
+  }
+
+  const cov = calendarProvider.coverage();
+  if (
+    !cov
+    || typeof cov.start_date !== "string"
+    || !ISO_DATE_RE.test(cov.start_date)
+    || typeof cov.end_date !== "string"
+    || !ISO_DATE_RE.test(cov.end_date)
+  ) {
+    return { covered: false, age_sessions: null, reason: "calendar_coverage_missing" };
+  }
+
+  const loRaw = typeof startExclusiveInput === "bigint"
+    ? startExclusiveInput
+    : parseInstantNs(startExclusiveInput);
+  const hiRaw = typeof endInclusiveInput === "bigint"
+    ? endInclusiveInput
+    : parseInstantNs(endInclusiveInput);
+  if (loRaw === null || hiRaw === null) {
+    return { covered: false, age_sessions: null, reason: "calendar_interval_invalid" };
+  }
+  const loNs = loRaw <= hiRaw ? loRaw : hiRaw;
+  const hiNs = hiRaw;
+  const startNy = toNyDateFromNs(loNs);
+  const endNy = toNyDateFromNs(hiNs);
+  const endUtc = toUtcDateFromNs(hiNs);
+
+  if (startNy < cov.start_date || endNy > cov.end_date || endUtc > cov.end_date) {
+    return { covered: false, age_sessions: null, reason: "calendar_coverage_out_of_range" };
   }
 
   let count = 0;
@@ -122,19 +201,25 @@ export function countXnysSessionCloses(startExclusiveMs, endInclusiveMs, calenda
       return { covered: false, age_sessions: null, reason: "calendar_span_exceeded" };
     }
     const session = calendarProvider.getSession(cursor);
-    if (!session || typeof session !== "object") {
-      return { covered: false, age_sessions: null, reason: "calendar_session_missing" };
-    }
-    if (session.exchange && session.exchange !== "XNYS") {
-      return { covered: false, age_sessions: null, reason: "calendar_exchange_mismatch" };
+    if (
+      !session
+      || typeof session !== "object"
+      || typeof session.is_trading_day !== "boolean"
+      || typeof session.blocks_eligibility !== "boolean"
+      || session.exchange !== "XNYS"
+      || session.calendar_version !== calendarProvider.calendar_version
+      || session.spec_digest !== calendarProvider.spec_digest
+      || (session.trade_date !== undefined && session.trade_date !== cursor)
+    ) {
+      return { covered: false, age_sessions: null, reason: "calendar_session_malformed_or_unpinned" };
     }
     const isTrading = session.is_trading_day === true && session.blocks_eligibility !== true;
     if (isTrading) {
-      const closeMs = parseInstantMs(session.close_utc);
-      if (closeMs === null) {
+      const closeNs = parseInstantNs(session.close_utc);
+      if (closeNs === null) {
         return { covered: false, age_sessions: null, reason: "calendar_close_utc_missing" };
       }
-      if (closeMs > loMs && closeMs <= hiMs) {
+      if (closeNs > loNs && closeNs <= hiNs) {
         count += 1;
       }
     }
@@ -184,15 +269,15 @@ export function evaluateFreshness(input = {}, options = {}) {
   const sourceAvailable = input.source_available !== false;
   const inputAvailable = input.input_available !== false;
   const lastObservedValue = input.last_observed_value ?? null;
-  const eMs = parseInstantMs(input.observed_at);
-  const fMs = parseInstantMs(input.fetched_at);
-  const gMs = parseInstantMs(input.evaluated_at ?? options.evaluated_at);
-  const eIso = toUtcIso(eMs);
-  const fIso = toUtcIso(fMs);
-  const gIso = toUtcIso(gMs);
-  const ageSeconds = eMs !== null && gMs !== null ? (gMs - eMs) / 1000 : null;
+  const eNs = parseInstantNs(input.observed_at);
+  const fNs = parseInstantNs(input.fetched_at);
+  const gNs = parseInstantNs(input.evaluated_at ?? options.evaluated_at);
+  const eIso = toUtcIsoFromNs(eNs);
+  const fIso = toUtcIsoFromNs(fNs);
+  const gIso = toUtcIsoFromNs(gNs);
+  const ageSeconds = eNs !== null && gNs !== null ? Number(gNs - eNs) / 1e9 : null;
 
-  if (!sourceAvailable || !inputAvailable || eMs === null || fMs === null || gMs === null) {
+  if (!sourceAvailable || !inputAvailable || eNs === null || fNs === null || gNs === null) {
     return buildResult({
       data_status: "missing",
       age_seconds: ageSeconds,
@@ -206,11 +291,11 @@ export function evaluateFreshness(input = {}, options = {}) {
     });
   }
 
-  // Inclusive unrounded 60_000 ms bound: F <= G + 60s, E <= F + 60s, E <= G + 60s.
+  // Inclusive unrounded 60 s bound in exact nanoseconds: F <= G+60s, E <= F+60s, E <= G+60s.
   if (
-    fMs - gMs > FUTURE_SKEW_LIMIT_MS
-    || eMs - fMs > FUTURE_SKEW_LIMIT_MS
-    || eMs - gMs > FUTURE_SKEW_LIMIT_MS
+    fNs - gNs > FUTURE_SKEW_LIMIT_NS
+    || eNs - fNs > FUTURE_SKEW_LIMIT_NS
+    || eNs - gNs > FUTURE_SKEW_LIMIT_NS
   ) {
     return buildResult({
       data_status: "invalid_future_skew",
@@ -225,7 +310,8 @@ export function evaluateFreshness(input = {}, options = {}) {
     });
   }
 
-  const sessionCount = countXnysSessionCloses(Math.min(eMs, gMs), gMs, options.calendarProvider ?? null);
+  const loNs = eNs <= gNs ? eNs : gNs;
+  const sessionCount = countXnysSessionCloses(loNs, gNs, options.calendarProvider ?? null);
   if (!sessionCount.covered) {
     return buildResult({
       data_status: "unavailable",
