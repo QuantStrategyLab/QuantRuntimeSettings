@@ -242,13 +242,16 @@ function evaluateXnysInterval(startExclusiveInput, endInclusiveInput, calendarPr
     }
     const isTrading = session.is_trading_day === true && session.blocks_eligibility !== true;
     if (isTrading) {
-      const closeNs = parseInstantNs(session.close_utc);
+      const closeNs = typeof session.close_utc === "string" ? parseInstantNs(session.close_utc) : null;
       if (closeNs === null) {
         return { covered: false, age_sessions: null, touched_sessions: null, reason: "calendar_close_utc_missing" };
       }
       const openNs = typeof session.open_utc === "string" ? parseInstantNs(session.open_utc) : null;
+      if (openNs === null || openNs >= closeNs) {
+        return { covered: false, age_sessions: null, touched_sessions: null, reason: "calendar_open_utc_missing" };
+      }
       const closedInInterval = closeNs > loNs && closeNs <= hiNs;
-      const openedInInterval = openNs !== null && openNs > loNs && openNs <= hiNs;
+      const openedInInterval = openNs > loNs && openNs <= hiNs;
       if (closedInInterval) {
         count += 1;
       }

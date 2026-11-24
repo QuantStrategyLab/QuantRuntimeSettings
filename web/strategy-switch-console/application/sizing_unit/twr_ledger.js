@@ -139,14 +139,56 @@ function validateAndNormalizeFlows(flows, flowWindowMeta, startMs, endMs) {
   return { ok: true, flows: normalized };
 }
 
+function validateSessionContinuitySpan(startMs, endMs, intradaySubvaluations, calendarProvider) {
+  if (startMs === null || endMs === null) {
+    return { ok: false, status: "unavailable", reason: "invalid_period_boundaries" };
+  }
+  const subMs = Array.isArray(intradaySubvaluations)
+    ? intradaySubvaluations
+      .map((sv) => parseInstantMs(sv?.effective_at))
+      .filter((ms) => ms !== null && ms > startMs && ms < endMs)
+      .sort((a, b) => a - b)
+    : [];
+  const pointsMs = [startMs, ...subMs, endMs];
+  const MAX_UNVERIFIED_CALENDAR_SPAN_MS = 3 * 86_400_000;
+  for (let idx = 1; idx < pointsMs.length; idx++) {
+    const segStart = pointsMs[idx - 1];
+    const segEnd = pointsMs[idx];
+    if (calendarProvider) {
+      const span = countXnysTouchedSessions(segStart, segEnd, calendarProvider);
+      if (!span.covered || span.touched_sessions > 1) {
+        return {
+          ok: false,
+          status: "partial",
+          reason: !span.covered ? span.reason : "missing_intermediate_trading_sessions",
+        };
+      }
+    } else {
+      const weekdayCount = countWeekdayTouchedSessions(segStart, segEnd);
+      if (
+        segEnd - segStart > MAX_UNVERIFIED_CALENDAR_SPAN_MS
+        || weekdayCount === null
+        || weekdayCount > 1
+      ) {
+        return {
+          ok: false,
+          status: "partial",
+          reason: "calendar_provider_required_for_multiday_span",
+        };
+      }
+    }
+  }
+  return { ok: true, status: "ok", reason: null };
+}
+
 /**
  * Evaluates a single Desk 7A / C-SA-16 period. Uses exact daily-linked TWR when
  * pre-flow valuations isolate every intraday flow, falls back strictly to
  * Modified Dietz (approximate: true, sizing_eligible: false) only when exact
  * complete-coverage flows lack intraday sub-valuations, and fails closed on
- * date-only, incomplete, reported-empty, or missing snapshot inputs.
+ * date-only, incomplete, reported-empty, missing-trading-day, or missing snapshot inputs.
  */
-export function evaluatePeriod7aReturn(input = {}) {
+export function evaluatePeriod7aReturn(input = {}, options = {}) {
   if (input.missing === true || input.opening_equity_usd == null || input.ending_equity_usd == null) {
     return failPeriod("unavailable", "missing_valuation_snapshot");
   }
@@ -214,13 +256,26 @@ export function evaluatePeriod7aReturn(input = {}) {
     }
   }
 
-  const interiorTimes = [...groupedInterior.keys()].sort((a, b) => a - b);
-  const allInteriorHaveSubvals = interiorTimes.every((ms) => (subValsByMs.get(ms)?.length ?? 0) > 0);
+  const flowInteriorTimes = [...groupedInterior.keys()];
+  const allInteriorHaveSubvals = flowInteriorTimes.every((ms) => (subValsByMs.get(ms)?.length ?? 0) > 0);
+  const calendarProvider = options?.calendarProvider ?? input?.calendarProvider ?? null;
+  const spanCheck = validateSessionContinuitySpan(
+    startMs,
+    endMs,
+    input.intraday_subvaluations,
+    calendarProvider,
+  );
+  if (!spanCheck.ok) {
+    return failPeriod(spanCheck.status, spanCheck.reason);
+  }
+  const interiorSubvalTimes = [...subValsByMs.keys()].filter((ms) => ms < endMs);
+  const interiorTimes = [...new Set([...flowInteriorTimes, ...interiorSubvalTimes])].sort((a, b) => a - b);
   const ePreEndRat = ratSub(endingRat, endBoundaryFlow);
 
   if (allInteriorHaveSubvals) {
     // Exact daily-linked TWR (no Dietz approximation).
     const observedSubvals = [];
+    const bankrollSubsteps = [];
     let equityGrowth = ONE;
     let bankrollGrowth = ONE;
     let prevPostEq = ratAdd(openingRat, startBoundaryFlow);
@@ -229,12 +284,14 @@ export function evaluatePeriod7aReturn(input = {}) {
     for (const ms of interiorTimes) {
       const preList = subValsByMs.get(ms);
       const preEq = preList[preList.length - 1];
-      const flowAtT = groupedInterior.get(ms);
+      const flowAtT = groupedInterior.get(ms) || ZERO;
       if (prevPostEq.n <= 0n || ratAdd(prevPostEq, hRat).n <= 0n) {
         return failPeriod("unavailable", "nonpositive_subperiod_base");
       }
+      const stepBankroll = ratDiv(ratAdd(preEq, hRat), ratAdd(prevPostEq, hRat));
       equityGrowth = ratMul(equityGrowth, ratDiv(preEq, prevPostEq));
-      bankrollGrowth = ratMul(bankrollGrowth, ratDiv(ratAdd(preEq, hRat), ratAdd(prevPostEq, hRat)));
+      bankrollGrowth = ratMul(bankrollGrowth, stepBankroll);
+      bankrollSubsteps.push(stepBankroll);
       const postEq = ratAdd(preEq, flowAtT);
       observedSubvals.push(preEq, postEq);
       prevPostEq = postEq;
@@ -243,11 +300,10 @@ export function evaluatePeriod7aReturn(input = {}) {
     if (prevPostEq.n <= 0n || ratAdd(prevPostEq, hRat).n <= 0n) {
       return failPeriod("unavailable", "nonpositive_terminal_base");
     }
+    const termBankroll = ratDiv(ratAdd(ePreEndRat, hRat), ratAdd(prevPostEq, hRat));
     equityGrowth = ratMul(equityGrowth, ratDiv(ePreEndRat, prevPostEq));
-    bankrollGrowth = ratMul(
-      bankrollGrowth,
-      ratDiv(ratAdd(ePreEndRat, hRat), ratAdd(prevPostEq, hRat)),
-    );
+    bankrollGrowth = ratMul(bankrollGrowth, termBankroll);
+    bankrollSubsteps.push(termBankroll);
     observedSubvals.push(ePreEndRat, endingRat);
 
     const twrEq = ratSub(equityGrowth, ONE);
@@ -277,6 +333,7 @@ export function evaluatePeriod7aReturn(input = {}) {
         withdrawalsRat,
         twrEq,
         twrBankroll,
+        bankrollSubsteps,
         ePreEndRat,
         observedSubvals,
       },
@@ -475,65 +532,11 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
         };
       }
     }
-    if (sStartMs !== null && sEndMs !== null) {
-      const subMs = Array.isArray(session?.intraday_subvaluations)
-        ? session.intraday_subvaluations
-          .map((sv) => parseInstantMs(sv?.effective_at))
-          .filter((ms) => ms !== null && ms > sStartMs && ms < sEndMs)
-          .sort((a, b) => a - b)
-        : [];
-      const pointsMs = [sStartMs, ...subMs, sEndMs];
-      const MAX_UNVERIFIED_CALENDAR_SPAN_MS = 3 * 86_400_000;
-      for (let idx = 1; idx < pointsMs.length; idx++) {
-        const segStart = pointsMs[idx - 1];
-        const segEnd = pointsMs[idx];
-        if (calendarProvider) {
-          const span = countXnysTouchedSessions(segStart, segEnd, calendarProvider);
-          if (!span.covered || span.touched_sessions > 1) {
-            return {
-              labels: DESK_7A_LABELS,
-              status: "partial",
-              return_pct: null,
-              interpolated: false,
-              empty_as_zero: false,
-              sizing_eligible: false,
-              breaker_eligible: false,
-              verdict_eligible: false,
-              method_version: null,
-              unavailable_reason: !span.covered ? span.reason : "missing_intermediate_trading_sessions",
-              sessions: outSessions,
-            };
-          }
-        } else {
-          const weekdayCount = countWeekdayTouchedSessions(segStart, segEnd);
-          if (
-            segEnd - segStart > MAX_UNVERIFIED_CALENDAR_SPAN_MS
-            || weekdayCount === null
-            || weekdayCount > 1
-          ) {
-            return {
-              labels: DESK_7A_LABELS,
-              status: "partial",
-              return_pct: null,
-              interpolated: false,
-              empty_as_zero: false,
-              sizing_eligible: false,
-              breaker_eligible: false,
-              verdict_eligible: false,
-              method_version: null,
-              unavailable_reason: "calendar_provider_required_for_multiday_span",
-              sessions: outSessions,
-            };
-          }
-        }
-      }
-    }
-
     const period = evaluatePeriod7aReturn({
       ...session,
       opening_equity_usd: session.opening_equity_usd ?? ratToDecimalText(ePrev, { minScale: 2 }),
       h_usd: session.h_usd ?? ratToDecimalText(h, { minScale: 2 }),
-    });
+    }, { calendarProvider });
     if (period.status !== "ok") {
       return {
         labels: DESK_7A_LABELS,
@@ -559,8 +562,13 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
     if (period.approximate || !period.sizing_eligible) {
       anyApproximate = true;
     } else if (!anyApproximate) {
-      iB = ratMul(iB, ratAdd(ONE, _internal.twrBankroll));
-      iBStar = ratMax(iBStar, iB);
+      const substeps = Array.isArray(_internal.bankrollSubsteps) && _internal.bankrollSubsteps.length > 0
+        ? _internal.bankrollSubsteps
+        : [ratAdd(ONE, _internal.twrBankroll)];
+      for (const stepFactor of substeps) {
+        iB = ratMul(iB, stepFactor);
+        iBStar = ratMax(iBStar, iB);
+      }
     }
     compoundedGrowth = ratMul(compoundedGrowth, ratAdd(ONE, _internal.twrEq));
 

@@ -179,6 +179,7 @@ export function externalFlowContinuityIntervals(flow, context = {}) {
       account_id: accountId,
       broker_environment: brokerEnv,
       binding_id: w.binding_id ?? bindingId,
+      currency: typeof w.currency === "string" && w.currency.length > 0 ? w.currency : null,
       coverage: w.coverage || "incomplete",
       precision: w.time_precision === "date" ? "date" : "exact",
       source_class: w.source_class || sourceClass,

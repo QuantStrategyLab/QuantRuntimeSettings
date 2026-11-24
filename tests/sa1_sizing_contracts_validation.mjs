@@ -388,6 +388,33 @@ const handlers = {
     // P1 regression: cross-symbol dividend settlement cannot clear inst_dist's receivable
     const exDiv = applyCorporateAction(freshSplitLedger, spec.subcases[2].event);
     assert.equal(exDiv.ok, true);
+
+    // R4-4: dividend_payment cannot rewrite share count or ref price via equal notional (100*49 -> 200*24.50)
+    const shareRewritePay = structuredClone(spec.subcases[3].event);
+    shareRewritePay.event_id = "ca-a03-r4-share-rewrite";
+    shareRewritePay.post_units = "200";
+    shareRewritePay.post_ref = "24.50";
+    const shareRewriteRes = applyCorporateAction(exDiv.ledger, shareRewritePay);
+    assert.equal(shareRewriteRes.ok, false);
+    assert.equal(shareRewriteRes.reason, "unexpected_position_change_on_payment");
+    assert.equal(shareRewriteRes.ledger.positions.inst_dist.units, "100");
+    assert.equal(shareRewriteRes.ledger.positions.inst_dist.ref_price_usd, "49.00");
+    assert.equal(shareRewriteRes.ledger.dividend_receivable_usd, "100.00");
+
+    // R4-3 / S8-b: dividend_payment with altered post_ref triggers V2 HALT under announced_within_two_sessions or price_anomaly_detected
+    for (const flagKey of ["announced_within_two_sessions", "price_anomaly_detected"]) {
+      const payHaltEvt = structuredClone(spec.subcases[3].event);
+      payHaltEvt.event_id = `ca-a03-r4-pay-halt-${flagKey}`;
+      payHaltEvt.post_ref = "48.00";
+      payHaltEvt.v2_control[flagKey] = true;
+      const payHaltRes = applyCorporateAction(exDiv.ledger, payHaltEvt);
+      assert.equal(payHaltRes.ok, false);
+      assert.equal(payHaltRes.reason, "unexpected_position_change_on_payment");
+      assert.equal(payHaltRes.v2.state, "HALT", flagKey);
+      assert.equal(payHaltRes.ledger.v2.state, "HALT", flagKey);
+      assert.equal(payHaltRes.ledger.v2.halted_instruments.some((h) => h.instrument_id === "inst_dist"), true, flagKey);
+    }
+
     const crossPay = structuredClone(spec.subcases[3].event);
     crossPay.event_id = "ca-a03-cross-pay";
     crossPay.instrument_id = "inst_soxl";
@@ -789,6 +816,28 @@ const handlers = {
     assert.equal(emptyPosEtfProjected.status, "unavailable");
     assert.equal(emptyPosEtfProjected.reason, "positions_etf_mismatch");
     assert.equal(emptyPosEtfProjected.nav_usd, null);
+
+    // R4-6: contradictory live/paper flags and missing/null broker_environment fail closed in require_live_cohort=true
+    const { evaluateSizingUnitNav: evalNavDirect } = await import(
+      "../web/strategy-switch-console/application/sizing_unit/nav.js"
+    );
+    const conflictPaperLive = { ...structuredClone(spec.accounts[0]), paper: true, broker_environment: "live" };
+    const conflictIsPaperLive = { ...structuredClone(spec.accounts[0]), is_paper: true, broker_environment: "live" };
+    const nullEnvAcct = { ...structuredClone(spec.accounts[0]), broker_environment: null };
+    for (const suspectAcct of [conflictPaperLive, conflictIsPaperLive, nullEnvAcct]) {
+      const singleRes = evalNavDirect(suspectAcct, { evaluated_at: spec.evaluated_at, calendarProvider: provider, require_live_cohort: true });
+      assert.equal(singleRes.status, "unavailable");
+      assert.equal(singleRes.processing_eligible, false);
+      assert.equal(singleRes.nav_usd, null);
+      const projRes = projectSizingUnitAccountFacts([suspectAcct], {
+        evaluated_at: spec.evaluated_at,
+        calendarProvider: provider,
+        require_live_cohort: true,
+      });
+      assert.equal(projRes.status, "unavailable");
+      assert.equal(projRes.processing_eligible, false);
+      assert.equal(projRes.nav_usd, null);
+    }
   },
 
   async "SA-A10"() {
@@ -1120,6 +1169,79 @@ const handlers = {
       assert.equal(oGap.cashflow_7a.adjusted_performance.sizing_eligible, false);
     }
 
+    // R4-1 / S5: direct evaluatePeriod7aReturn rejects missing Tuesday with or without calendarProvider
+    const skippedPeriod = {
+      period_start_utc: "2025-01-06T21:00:00.000Z",
+      period_end_utc: "2025-01-08T20:59:00.000Z",
+      opening_equity_usd: "100.00",
+      ending_equity_usd: "120.00",
+      intraday_subvaluations: [],
+      flows: [],
+    };
+    for (const calArg of [undefined, calProv]) {
+      const directGap = evaluatePeriod7aReturn(skippedPeriod, { calendarProvider: calArg });
+      assert.equal(directGap.status, "partial");
+      assert.equal(directGap.return_pct, null);
+      assert.equal(directGap.sizing_eligible, false);
+      assert.equal(directGap.breaker_eligible, false);
+      assert.equal(directGap.verdict_eligible, false);
+    }
+
+    // R4-2 / S5: trading session missing open_utc fails closed (never silently skips opened session check)
+    const noOpenCal = structuredClone(pinnedCalendar);
+    delete noOpenCal.sessions["2025-01-08"].open_utc;
+    const noOpenProv = createPinnedCalendarProvider(noOpenCal);
+    const ledgerNoOpen = evaluateTwrLedger({
+      initialState: { e_prev_usd: "100.00", e_star_prev_usd: "100.00", h_usd: "0", tier_drawdown_limit_d: "0.30" },
+      valuations: jan6to8PreClose,
+      flows: [],
+      calendarProvider: noOpenProv,
+    });
+    assert.equal(ledgerNoOpen.status, "partial");
+    assert.equal(ledgerNoOpen.return_pct, null);
+    assert.equal(ledgerNoOpen.sizing_eligible, false);
+    assert.equal(ledgerNoOpen.unavailable_reason, "calendar_open_utc_missing");
+    const periodNoOpen = evaluatePeriod7aReturn(skippedPeriod, { calendarProvider: noOpenProv });
+    assert.equal(periodNoOpen.status, "partial");
+    assert.equal(periodNoOpen.sizing_eligible, false);
+    assert.equal(periodNoOpen.unavailable_reason, "calendar_open_utc_missing");
+
+    // R4-5: zero-flow intermediate subvaluation 100 -> 200 -> 120 updates bankroll HWM / dd_b=0.4 / c_t=0 identically to 3 valuations
+    const subvalPeakLedger = evaluateTwrLedger({
+      initialState: { e_prev_usd: "100.00", e_star_prev_usd: "100.00", h_usd: "0", tier_drawdown_limit_d: "0.30" },
+      sessions: [
+        {
+          period_start_utc: "2025-01-06T21:00:00.000Z",
+          period_end_utc: "2025-01-08T21:00:00.000Z",
+          ending_equity_usd: "120.00",
+          intraday_subvaluations: [
+            { effective_at: "2025-01-07T21:00:00.000Z", pre_flow_equity_usd: "200.00" },
+          ],
+          flows: [],
+        },
+      ],
+      calendarProvider: calProv,
+    });
+    const threeValPeakLedger = evaluateTwrLedger({
+      initialState: { e_prev_usd: "100.00", e_star_prev_usd: "100.00", h_usd: "0", tier_drawdown_limit_d: "0.30" },
+      valuations: [
+        { observed_at: "2025-01-06T21:00:00.000Z", equity_usd: "100.00" },
+        { observed_at: "2025-01-07T21:00:00.000Z", equity_usd: "200.00" },
+        { observed_at: "2025-01-08T21:00:00.000Z", equity_usd: "120.00" },
+      ],
+      flows: [],
+      calendarProvider: calProv,
+    });
+    assert.equal(subvalPeakLedger.return_pct, "20");
+    assert.equal(subvalPeakLedger.sizing_eligible, true);
+    assert.equal(threeValPeakLedger.sizing_eligible, true);
+    assert.equal(subvalPeakLedger.sessions.at(-1).dd_b, "0.4");
+    assert.equal(subvalPeakLedger.sessions.at(-1).c_t, "0");
+    assert.equal(subvalPeakLedger.sessions.at(-1).w_ref_usd, "200.00");
+    assert.equal(subvalPeakLedger.sessions.at(-1).dd_b, threeValPeakLedger.sessions.at(-1).dd_b);
+    assert.equal(subvalPeakLedger.sessions.at(-1).c_t, threeValPeakLedger.sessions.at(-1).c_t);
+    assert.equal(subvalPeakLedger.sessions.at(-1).w_ref_usd, threeValPeakLedger.sessions.at(-1).w_ref_usd);
+
     // S6: Dietz -64% period followed by exact 0% period never regains eligibility or dd_b="0"
     const dietzThenExactSessions = [
       {
@@ -1301,6 +1423,96 @@ const handlers = {
     });
     assert.ok(validateContinuitySchema(signedContinuity));
     assert.equal(/storage\.example\.invalid|sig=secret123|https:/.test(JSON.stringify(signedContinuity)), false);
+
+    // R4-7: complete EUR external_flow window cannot mask incomplete/missing USD window
+    const { normalizeExternalFlow } = await import(
+      "../web/strategy-switch-console/application/account_facts/external_flow.js"
+    );
+    const { buildAccountFactsContinuityReadModel } = await import(
+      "../web/strategy-switch-console/application/account_facts/read.js"
+    );
+    const buildFlowReadModel = (windows) => buildAccountFactsContinuityReadModel({
+      account_id: "synth-sizing-01",
+      broker_environment: "live",
+      requested_interval: { start_utc: "2025-01-02T00:00:00.000Z", end_utc: "2025-01-03T00:00:00.000Z" },
+      desk_view: false,
+      current_valuation_binding_id: "b_val_1",
+      history_source_binding_ids: [],
+      current_flow_binding_id: "b_flow_1",
+      flow_history_source_binding_ids: [],
+      valuation_intervals: [
+        {
+          start_utc: "2025-01-02T00:00:00.000Z",
+          end_utc: "2025-01-03T00:00:00.000Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_val_1",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+      ],
+      externalFlow: normalizeExternalFlow({ schema_version: "external_flow.v1", windows }),
+      candidate_return_pct: "20",
+      origin: "synthetic",
+      source_class: "synthetic",
+      evidence_ref: "sa1:a11:r4-currency",
+    });
+
+    const usdIncPlusEurComplete = buildFlowReadModel([
+      {
+        currency: "USD",
+        date: "2025-01-03",
+        period_start: "2025-01-02T00:00:00.000Z",
+        period_end: "2025-01-03T00:00:00.000Z",
+        coverage: "incomplete",
+        source: "ibkr_flex",
+        records: [],
+      },
+      {
+        currency: "EUR",
+        date: "2025-01-03",
+        period_start: "2025-01-02T00:00:00.000Z",
+        period_end: "2025-01-03T00:00:00.000Z",
+        coverage: "complete",
+        source: "ibkr_flex",
+        records: [],
+      },
+    ]);
+    assert.ok(validateContinuitySchema(usdIncPlusEurComplete));
+    assert.equal(usdIncPlusEurComplete.result.status, "insufficient_history");
+    assert.equal(usdIncPlusEurComplete.result.return_pct, null);
+
+    const eurOnlyComplete = buildFlowReadModel([
+      {
+        currency: "EUR",
+        date: "2025-01-03",
+        period_start: "2025-01-02T00:00:00.000Z",
+        period_end: "2025-01-03T00:00:00.000Z",
+        coverage: "complete",
+        source: "ibkr_flex",
+        records: [],
+      },
+    ]);
+    assert.ok(validateContinuitySchema(eurOnlyComplete));
+    assert.equal(eurOnlyComplete.result.status, "insufficient_history");
+    assert.equal(eurOnlyComplete.result.return_pct, null);
+
+    const usdComplete = buildFlowReadModel([
+      {
+        currency: "USD",
+        date: "2025-01-03",
+        period_start: "2025-01-02T00:00:00.000Z",
+        period_end: "2025-01-03T00:00:00.000Z",
+        coverage: "complete",
+        source: "ibkr_flex",
+        records: [],
+      },
+    ]);
+    assert.ok(validateContinuitySchema(usdComplete));
+    assert.equal(usdComplete.continuity_status, "continuous");
+    assert.equal(usdComplete.result.status, "eligible");
+    assert.equal(usdComplete.result.return_pct, "20");
   },
 };
 

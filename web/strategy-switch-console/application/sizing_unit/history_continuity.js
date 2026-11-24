@@ -60,7 +60,8 @@ function findUncoveredRanges(targetStartMs, targetEndMs, coveredIntervals, rejec
 
   const pushGap = (s, e) => {
     if (e <= s) return;
-    const overlappingRej = rejectedForKind.find((r) => r.startMs < e && r.endMs > s);
+    const overlappingRej = rejectedForKind.find((r) => r.startMs < e && r.endMs > s && r.reason !== "currency_mismatch")
+      || rejectedForKind.find((r) => r.startMs < e && r.endMs > s);
     gaps.push({
       start_utc: new Date(s).toISOString(),
       end_utc: new Date(e).toISOString(),
@@ -93,13 +94,18 @@ function classifySeriesIntervals({
   reqStartMs,
   reqEndMs,
   defaultSourceClass,
+  targetCurrency,
+  hasExplicitInputCurrency,
 }) {
   const covered = [];
   const coveredCoords = [];
   const rejected = [];
   const rejectedCoords = [];
+  const intervalsList = Array.isArray(rawIntervals) ? rawIntervals : [];
+  const requireCurrencyMatch = hasExplicitInputCurrency
+    || intervalsList.some((raw) => raw && Object.hasOwn(raw, "currency"));
 
-  for (const raw of Array.isArray(rawIntervals) ? rawIntervals : []) {
+  for (const raw of intervalsList) {
     const sMs = parseInstantMs(raw?.start_utc);
     const eMs = parseInstantMs(raw?.end_utc);
     if (sMs === null || eMs === null || eMs <= sMs) continue;
@@ -109,6 +115,8 @@ function classifySeriesIntervals({
       rejectReason = "account_identity_mismatch";
     } else if (raw.broker_environment !== brokerEnv) {
       rejectReason = "environment_mismatch";
+    } else if (requireCurrencyMatch && (targetCurrency === null || raw.currency !== targetCurrency)) {
+      rejectReason = "currency_mismatch";
     } else if (typeof raw.binding_id !== "string" || !allowedBindings.has(raw.binding_id)) {
       rejectReason = evidenceKind === "external_flow"
         ? "flow_binding_not_authorized"
@@ -259,6 +267,11 @@ export function evaluateHistoryContinuity(input = {}) {
       .filter((x) => typeof x === "string" && x.length > 0),
   );
 
+  const hasExplicitInputCurrency = Object.hasOwn(input, "currency");
+  const targetCurrency = hasExplicitInputCurrency
+    ? (typeof input.currency === "string" && input.currency.length > 0 ? input.currency : null)
+    : "USD";
+
   const valEvalStart = Math.max(reqStartMs, retentionEffectiveStartMs, deskEffectiveStartMs);
   const valSeries = classifySeriesIntervals({
     rawIntervals: input.valuation_intervals,
@@ -269,6 +282,8 @@ export function evaluateHistoryContinuity(input = {}) {
     reqStartMs: valEvalStart,
     reqEndMs,
     defaultSourceClass: sourceClass,
+    targetCurrency,
+    hasExplicitInputCurrency,
   });
   const flowSeries = classifySeriesIntervals({
     rawIntervals: input.flow_intervals,
@@ -279,6 +294,8 @@ export function evaluateHistoryContinuity(input = {}) {
     reqStartMs: valEvalStart,
     reqEndMs,
     defaultSourceClass: sourceClass,
+    targetCurrency,
+    hasExplicitInputCurrency,
   });
 
   const gapIntervals = [];

@@ -269,9 +269,24 @@ function normalizeManagementView(account) {
 
 export function classifyAccountEligibility(account, { require_live_cohort = true } = {}) {
   const view = normalizeManagementView(account);
-  const paper = account?.broker_environment === "paper" || account?.account_scope === "paper";
-  const env = account?.broker_environment ?? null;
-  const conflict = scopeConflict({ paper, environment: env }, view);
+  const rawEnv = account?.broker_environment;
+  const env = rawEnv === "live" || rawEnv === "paper" ? rawEnv : null;
+  const paper = account?.paper === true
+    || account?.is_paper === true
+    || rawEnv === "paper"
+    || account?.account_scope === "paper"
+    || account?.scope === "paper";
+  const contradictoryPaperLive = (account?.paper === false || account?.is_paper === false)
+    && (rawEnv === "paper" || account?.account_scope === "paper" || account?.scope === "paper");
+  const contradictoryScopeEnv = (account?.account_scope === "paper" && rawEnv === "live")
+    || (account?.account_scope === "live" && rawEnv === "paper")
+    || (account?.scope === "paper" && rawEnv === "live")
+    || (account?.scope === "live" && rawEnv === "paper");
+  const invalidEnv = rawEnv != null && rawEnv !== "live" && rawEnv !== "paper";
+  const conflict = contradictoryPaperLive
+    || contradictoryScopeEnv
+    || invalidEnv
+    || scopeConflict({ paper, environment: env }, view);
   if (conflict) {
     return {
       processing_eligible: false,
@@ -286,6 +301,14 @@ export function classifyAccountEligibility(account, { require_live_cohort = true
       management_status: view.management_status || MANAGEMENT_STATUS.UNKNOWN,
       disposition: "paper",
       reason: "paper_account",
+    };
+  }
+  if (require_live_cohort && env !== "live") {
+    return {
+      processing_eligible: false,
+      management_status: MANAGEMENT_STATUS.UNKNOWN,
+      disposition: "unknown",
+      reason: "broker_environment_missing_or_unverified",
     };
   }
   const disposition = managementDisposition({ paper, environment: env }, view);
@@ -443,7 +466,8 @@ export function evaluateSizingUnitNav(input, options = {}) {
       : [{
         account_id: typeof account?.account_id === "string" ? account.account_id : null,
         platform: typeof account?.platform === "string" ? account.platform : null,
-        broker_environment: account?.broker_environment ?? null,
+        broker_environment: account?.broker_environment === "live" || account?.broker_environment === "paper"
+          ? account.broker_environment : null,
         management_status: eligibility.management_status,
         disposition: eligibility.disposition,
         reason: eligibility.reason,
@@ -597,7 +621,8 @@ export function evaluateSizingUnitCohort(accounts, options = {}) {
       const excl = {
         account_id: typeof acct?.account_id === "string" ? acct.account_id : null,
         platform: typeof acct?.platform === "string" ? acct.platform : null,
-        broker_environment: acct?.broker_environment ?? null,
+        broker_environment: acct?.broker_environment === "live" || acct?.broker_environment === "paper"
+          ? acct.broker_environment : null,
         management_status: elig.management_status,
         disposition: elig.disposition,
         reason: elig.reason,

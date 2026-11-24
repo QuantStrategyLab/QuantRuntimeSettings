@@ -334,18 +334,18 @@ export function applyCorporateAction(ledgerState, event) {
 
   if (event.action_type === "forward_split" || event.action_type === "reverse_split") {
     if (divRecLeg.applicable || payLeg.applicable) {
-      return rejectAction(ledgerState, "unexpected_dividend_leg_on_split");
+      return failAction("unexpected_dividend_leg_on_split");
     }
     const isHaltSentinel = Boolean(event.v2_control?.announced_within_two_sessions) && ratCmp(ratio, ONE) === 0;
     if (!isHaltSentinel) {
       if (ratio.n <= 0n) {
-        return rejectAction(ledgerState, "invalid_split_ratio");
+        return failAction("invalid_split_ratio");
       }
       if (event.action_type === "forward_split" && ratCmp(ratio, ONE) <= 0) {
-        return rejectAction(ledgerState, "forward_split_requires_ratio_gt_1");
+        return failAction("forward_split_requires_ratio_gt_1");
       }
       if (event.action_type === "reverse_split" && ratCmp(ratio, ONE) >= 0) {
-        return rejectAction(ledgerState, "reverse_split_requires_ratio_lt_1");
+        return failAction("reverse_split_requires_ratio_lt_1");
       }
       const expectedPostRef = ratDiv(preRef, ratio);
       const rawPostUnits = ratMul(preUnits, ratio);
@@ -374,7 +374,7 @@ export function applyCorporateAction(ledgerState, event) {
     nextSettled = ratAdd(settledBefore, cilLeg.rat);
   } else if (event.action_type === "cash_dividend") {
     if (cilLeg.applicable || payLeg.applicable || !divRecLeg.applicable) {
-      return rejectAction(ledgerState, "invalid_ex_date_dividend_legs");
+      return failAction("invalid_ex_date_dividend_legs");
     }
     const eligible = ratFromText(event.eligible_units);
     const dpu = ratFromText(event.dividend_per_unit_usd);
@@ -396,10 +396,14 @@ export function applyCorporateAction(ledgerState, event) {
     nextRec = ratAdd(recBefore, divRecLeg.rat);
   } else if (event.action_type === "dividend_payment") {
     if (cilLeg.applicable || divRecLeg.applicable || !payLeg.applicable) {
-      return rejectAction(ledgerState, "invalid_dividend_payment_legs");
+      return failAction("invalid_dividend_payment_legs");
     }
-    if (ratCmp(preNotional, postNotional) !== 0) {
-      return rejectAction(ledgerState, "unexpected_position_change_on_payment");
+    if (
+      ratCmp(preUnits, postUnits) !== 0
+      || ratCmp(preRef, postRef) !== 0
+      || ratCmp(preNotional, postNotional) !== 0
+    ) {
+      return failAction("unexpected_position_change_on_payment");
     }
     const instRec = nextLedger.receivables_by_instrument[event.instrument_id];
     const instAmt = instRec ? ratFromText(instRec.amount_usd) : null;
@@ -414,7 +418,7 @@ export function applyCorporateAction(ledgerState, event) {
       || ratCmp(instAmt, payLeg.rat) < 0
       || ratCmp(recBefore, payLeg.rat) < 0
     ) {
-      return rejectAction(ledgerState, "cross_symbol_or_missing_dividend_receivable");
+      return failAction("cross_symbol_or_missing_dividend_receivable");
     }
     const remInstAmt = ratSub(instAmt, payLeg.rat);
     nextLedger.receivables_by_instrument[event.instrument_id] = {
@@ -426,7 +430,7 @@ export function applyCorporateAction(ledgerState, event) {
     nextSettled = ratAdd(settledBefore, payLeg.rat);
   } else if (event.action_type === "ticker_change") {
     if (cilLeg.applicable || divRecLeg.applicable || payLeg.applicable || !event.ticker_lineage) {
-      return rejectAction(ledgerState, "invalid_ticker_change_event");
+      return failAction("invalid_ticker_change_event");
     }
     if (
       event.ticker_lineage.instrument_id !== event.instrument_id
@@ -445,7 +449,7 @@ export function applyCorporateAction(ledgerState, event) {
     }
   } else if (event.action_type === "delisting") {
     if (!event.delisting || event.delisting.invoked_v3 !== true) {
-      return rejectAction(ledgerState, "delisting_requires_v3_flag");
+      return failAction("delisting_requires_v3_flag");
     }
     if (ratCmp(preNotional, postNotional) !== 0) {
       return failAction("delisting_conservation_mismatch");
