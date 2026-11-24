@@ -118,14 +118,23 @@ function canonicalStringify(value) {
   return JSON.stringify(value === undefined ? null : value);
 }
 
+function exactTerminatingScale(r, minScale = 0, fallbackMaxScale = 18) {
+  let d = r.d;
+  let pow2 = 0;
+  let pow5 = 0;
+  while (d % 2n === 0n) { d /= 2n; pow2++; }
+  while (d % 5n === 0n) { d /= 5n; pow5++; }
+  return d === 1n ? Math.max(pow2, pow5, minScale) : Math.max(minScale, fallbackMaxScale);
+}
+
 function formatUsdAmount(r) {
   if (r.n === 0n) return "0";
-  return ratToDecimalText(r, { minScale: 2, maxScale: 8 });
+  return ratToDecimalText(r, { minScale: 2, maxScale: exactTerminatingScale(r, 2) });
 }
 
 function formatUnits(r) {
   if (r.n === 0n) return "0";
-  return ratToDecimalText(r, { minScale: 0, maxScale: 8 });
+  return ratToDecimalText(r, { minScale: 0, maxScale: exactTerminatingScale(r, 0) });
 }
 
 function computeTotalEquityRat(ledger) {
@@ -337,7 +346,15 @@ export function applyCorporateAction(ledgerState, event) {
       return failAction("unexpected_dividend_leg_on_split");
     }
     const isHaltSentinel = Boolean(event.v2_control?.announced_within_two_sessions) && ratCmp(ratio, ONE) === 0;
-    if (!isHaltSentinel) {
+    if (isHaltSentinel) {
+      if (
+        ratCmp(preUnits, postUnits) !== 0
+        || ratCmp(preRef, postRef) !== 0
+        || cilLeg.applicable
+      ) {
+        return haltLedgerRejection(ledgerState, "invalid_halt_sentinel_position_change", event.instrument_id, pos.symbol);
+      }
+    } else {
       if (ratio.n <= 0n) {
         return failAction("invalid_split_ratio");
       }
@@ -451,6 +468,13 @@ export function applyCorporateAction(ledgerState, event) {
         ...nextLedger.receivables_by_instrument[event.instrument_id],
         symbol: event.ticker_lineage.new_symbol,
       };
+    }
+    if (Array.isArray(nextLedger.v2?.halted_instruments)) {
+      nextLedger.v2.halted_instruments = nextLedger.v2.halted_instruments.map((h) => (
+        h.instrument_id === event.instrument_id
+          ? { ...h, symbol: event.ticker_lineage.new_symbol }
+          : h
+      ));
     }
   } else if (event.action_type === "delisting") {
     if (!event.delisting || event.delisting.invoked_v3 !== true) {
@@ -604,7 +628,7 @@ export function reconcileV2Broker(ledgerState, instrumentId, reconcilePayload = 
     : (nextLedger.v2?.halted && Array.isArray(nextLedger.v2?.triggers)
       ? nextLedger.v2.triggers.map((t) => ({
         instrument_id: t.instrument_id,
-        symbol: t.symbol || nextLedger.positions?.[t.instrument_id]?.symbol || null,
+        symbol: nextLedger.positions?.[t.instrument_id]?.symbol || t.symbol || null,
       }))
       : []);
   const withFailedTarget = () => {
@@ -617,9 +641,16 @@ export function reconcileV2Broker(ledgerState, instrumentId, reconcilePayload = 
     }
     return next;
   };
+  const symMatchesLineage = (storedSym, targetSym) => {
+    if (!targetSym) return true;
+    if (storedSym === targetSym) return true;
+    return Array.isArray(pos?.ticker_history)
+      && pos.ticker_history.includes(storedSym)
+      && targetSym === pos?.symbol;
+  };
   const haltedMatchesTarget = rawHalted.length === 0
     ? !nextLedger.v2?.halted
-    : rawHalted.some((h) => h.instrument_id === instrumentId && (!reconcilePayload?.symbol || h.symbol === reconcilePayload.symbol));
+    : rawHalted.some((h) => h.instrument_id === instrumentId && symMatchesLineage(h.symbol, reconcilePayload?.symbol));
   const payloadSymbolValid = !reconcilePayload?.symbol || reconcilePayload.symbol === pos?.symbol;
 
   const brokerEq = broker ? ratFromText(broker.adjusted_equity_usd) : null;

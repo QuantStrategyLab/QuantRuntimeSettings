@@ -236,7 +236,10 @@ export function evaluatePeriod7aReturn(input = {}, options = {}) {
       if (svMs === null || !svRat || svMs <= startMs || svMs > endMs) {
         return failPeriod("unavailable", "invalid_intraday_subvaluation");
       }
-      subValsByMs.set(svMs, (subValsByMs.get(svMs) || []).concat([svRat]));
+      if (subValsByMs.has(svMs)) {
+        return failPeriod("partial", "ambiguous_same_timestamp_subvaluations");
+      }
+      subValsByMs.set(svMs, [svRat]);
     }
   }
 
@@ -493,6 +496,8 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
 
   const outSessions = [];
   let compoundedGrowth = ONE;
+  let totalRawChangeRat = ZERO;
+  let totalAdjPnlRat = ZERO;
   let anyApproximate = false;
   let prevPeriodEndMs = null;
 
@@ -591,6 +596,8 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
       }
     }
     compoundedGrowth = ratMul(compoundedGrowth, ratAdd(ONE, _internal.twrEq));
+    totalRawChangeRat = ratAdd(totalRawChangeRat, _internal.rawChangeRat);
+    totalAdjPnlRat = ratAdd(totalAdjPnlRat, _internal.adjPnlRat);
 
     const ddB = ratSub(ONE, ratDiv(iB, iBStar));
     const oneMinusDd = ratSub(ONE, ddB);
@@ -667,6 +674,8 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
     status: "ok",
     return_method: anyApproximate ? "modified_dietz" : "daily_linked_twr",
     approximate: anyApproximate,
+    raw_asset_change_usd: formatUsd(totalRawChangeRat, { explicitPlus: true }),
+    adjusted_pnl_usd: formatUsd(totalAdjPnlRat),
     return_pct: ratToDecimalText(
       ratMul(ratSub(compoundedGrowth, ONE), HUNDRED),
       anyApproximate ? { maxScale: 6 } : {},
@@ -686,17 +695,18 @@ export function buildCashflow7aSummary({ initialState, sessions, valuations, flo
   const res = evaluateTwrLedger({ initialState, sessions, valuations, flows, calendarProvider });
   const last = res.sessions.at(-1) || null;
   const approx = Boolean(res.approximate || last?.approximate);
+  const fullOk = res.status === "ok" && res.return_pct !== null;
   return {
     ledger: res,
     last,
     cashflow_7a: {
       raw_asset_change: {
         label: DESK_7A_LABELS.raw_asset_change,
-        amount_usd: last ? last.raw_asset_change_usd : null,
+        amount_usd: fullOk ? res.raw_asset_change_usd : null,
       },
       adjusted_performance: {
         label: DESK_7A_LABELS.adjusted_combined,
-        pnl_usd: last ? last.adjusted_pnl_usd : null,
+        pnl_usd: fullOk ? res.adjusted_pnl_usd : null,
         return_pct: res.return_pct,
         return_method: res.return_pct === null ? null : (res.return_method ?? (last ? last.return_method : null)),
         approximate: approx,

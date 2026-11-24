@@ -119,7 +119,20 @@ export function applyNativeDailyReturns(blocks, input) {
   // Native daily returns already have a starting capital boundary. Rebasing the
   // first close to zero would silently remove the first day's actual return.
   const comparisons = nativeBenchmarks(index, input, gaps);
-  const stripDietzKeys = ["cashflow_method", "approximate", "sizing_eligible", "breaker_eligible", "verdict_eligible", "method_version"];
+  const stripDietzKeys = [
+    "cashflow_method", "approximate", "sizing_eligible", "breaker_eligible",
+    "verdict_eligible", "method_version", "multi_day_intervals", "twr_return_percent", "max_drawdown",
+  ];
+  let peak = 1, peakDate = daily[0].date, worst = 0, lossPeakDate = peakDate, troughDate = peakDate;
+  for (const point of index) {
+    const loss = peak > 0 ? (1 - point.value / peak) * 100 : 0;
+    if (loss > worst) { worst = loss; lossPeakDate = peakDate; troughDate = point.date; }
+    if (point.value > peak) { peak = point.value; peakDate = point.date; }
+  }
+  const nativeTwrPercent = incomplete ? null : (growth - 1) * 100;
+  const nativeMaxDrawdown = incomplete
+    ? { percent: null, peak_date: null, trough_date: null, unavailable_reason: reason }
+    : { percent: worst, peak_date: lossPeakDate, trough_date: troughDate, unavailable_reason: null };
   const nativePoints = gaps ? daily.map((row, i) => ({ date: row.date, value: row.value * 100,
     daily_return_percent: row.value * 100, breakBefore: i > 0 && hasGap(daily[i - 1], row) }))
     : index.map((row, i) => ({ date: row.date, value: (row.value - 1) * 100, daily_return_percent: daily[i].value * 100 }));
@@ -170,6 +183,8 @@ export function applyNativeDailyReturns(blocks, input) {
       coverage,
       aligned_start: daily[0].date,
       no_common_date: false,
+      twr_return_percent: nativeTwrPercent,
+      max_drawdown: nativeMaxDrawdown,
       points: nativePoints,
       ...comparisons,
     };
@@ -183,19 +198,12 @@ export function applyNativeDailyReturns(blocks, input) {
     as_of: daily.at(-1).date, coverage, aligned_start: daily[0].date, no_common_date: false,
     points: nativePoints,
     ...comparisons, per_currency: nextReturnPerCurrency });
-  let peak = 1, peakDate = daily[0].date, worst = 0, lossPeakDate = peakDate, troughDate = peakDate;
-  for (const point of index) {
-    const loss = peak > 0 ? (1 - point.value / peak) * 100 : 0;
-    if (loss > worst) { worst = loss; lossPeakDate = peakDate; troughDate = point.date; }
-    if (point.value > peak) { peak = point.value; peakDate = point.date; }
-  }
   Object.assign(blocks.summary, { status, unavailable_reason: reason, currency, value_kind: "pnl",
     cashflow_method: undefined, approximate: undefined,
     sizing_eligible: undefined, breaker_eligible: undefined, verdict_eligible: undefined, method_version: undefined,
-    as_of: daily.at(-1).date, coverage, twr_return_percent: incomplete ? null : (growth - 1) * 100,
+    as_of: daily.at(-1).date, coverage, twr_return_percent: nativeTwrPercent,
     amount, simple_weighted_return_percent: null, best_day: null, worst_day: null,
-    max_drawdown: incomplete ? { percent: null, peak_date: null, trough_date: null, unavailable_reason: reason }
-      : { percent: worst, peak_date: lossPeakDate, trough_date: troughDate, unavailable_reason: null },
+    max_drawdown: nativeMaxDrawdown,
     metric_reasons: { ...blocks.summary.metric_reasons, twr: metricReason },
     excess_returns: comparisons.benchmarks.map(comparison => ({ benchmark: comparison.id,
       start: daily[0].date, end: comparison.points.at(-1).date,

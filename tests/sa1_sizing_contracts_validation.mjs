@@ -560,6 +560,78 @@ const handlers = {
     assert.equal(keptCleanRes.ledger.positions.inst_delist.units, "25");
     assert.equal(keptCleanRes.ledger.positions.inst_delist.ref_price_usd, "3.00");
     assert.equal(keptCleanRes.ledger.settled_cash_usd, "1000.00");
+
+    // Codex P2 #1: preserve >8 decimal places when persisting corporate-action state
+    const highPrecLedger = createCorporateActionLedger({
+      ...spec.initial_ledger,
+      positions: {
+        inst_tqqq: { instrument_id: "inst_tqqq", symbol: "TQQQ", units: "100", ref_price_usd: "100.00000001" },
+      },
+    });
+    const highPrecSplit = structuredClone(spec.subcases[0].event);
+    highPrecSplit.event_id = "ca-a03-p2-9dec-split";
+    highPrecSplit.pre_units = "100";
+    highPrecSplit.post_units = "200";
+    highPrecSplit.pre_ref = "100.00000001";
+    highPrecSplit.post_ref = "50.000000005";
+    const hpSplitRes = applyCorporateAction(highPrecLedger, highPrecSplit);
+    assert.equal(hpSplitRes.ok, true, hpSplitRes.reason);
+    assert.equal(hpSplitRes.ledger.positions.inst_tqqq.ref_price_usd, "50.000000005");
+    const followOnDiv = structuredClone(spec.subcases[2].event);
+    followOnDiv.event_id = "ca-a03-p2-9dec-div";
+    followOnDiv.instrument_id = "inst_tqqq";
+    followOnDiv.symbol = "TQQQ";
+    followOnDiv.pre_units = "200";
+    followOnDiv.post_units = "200";
+    followOnDiv.pre_ref = "50.000000005";
+    followOnDiv.post_ref = "49.000000005";
+    followOnDiv.eligible_units = "200";
+    followOnDiv.dividend_per_unit_usd = "1.00";
+    followOnDiv.incremental_dividend_receivable = { applicable: true, amount_usd: "200.00" };
+    const followOnDivRes = applyCorporateAction(hpSplitRes.ledger, followOnDiv);
+    assert.equal(followOnDivRes.ok, true, followOnDivRes.reason);
+    assert.equal(followOnDivRes.ledger.positions.inst_tqqq.ref_price_usd, "49.000000005");
+
+    // Codex P2 #3: ratio=1 halt sentinel rejects position/ref mutations
+    const badSentinel = structuredClone(spec.subcases.find((s) => s.name === "v2_halt_and_reconcile").halt_event);
+    badSentinel.event_id = "ca-a03-p2-bad-sentinel";
+    badSentinel.pre_units = "100";
+    badSentinel.post_units = "200";
+    badSentinel.pre_ref = "150.00";
+    badSentinel.post_ref = "75.00";
+    const badSentinelRes = applyCorporateAction(freshSplitLedger, badSentinel);
+    assert.equal(badSentinelRes.ok, false);
+    assert.equal(badSentinelRes.reason, "invalid_halt_sentinel_position_change");
+    assert.equal(badSentinelRes.v2.state, "HALT");
+    assert.equal(badSentinelRes.ledger.positions.inst_tqqq.units, "100");
+    assert.equal(badSentinelRes.ledger.positions.inst_tqqq.ref_price_usd, "150.00");
+    assert.equal(badSentinelRes.ledger.applied_events.length, 0);
+
+    // Codex P2 #4: halted instrument ticker_change preserves V2 reconciliation under new symbol
+    const haltOldTicker = reconcileV2Broker(freshSplitLedger, "inst_rename", {
+      broker_reconciled: "mismatch",
+      broker_ledger: { adjusted_equity_usd: "23500.00", shares: "99", hwm_usd: spec.initial_ledger.loss_memory.w_ref_usd },
+    });
+    assert.equal(haltOldTicker.v2.halted_instruments.some((h) => h.symbol === "OLDT"), true);
+    const renameWhileHaltedEvt = structuredClone(spec.subcases.find((s) => s.name === "ticker_change").event);
+    renameWhileHaltedEvt.event_id = "ca-a03-p2-halted-rename";
+    const renamedHaltedRes = applyCorporateAction(haltOldTicker.ledger, renameWhileHaltedEvt);
+    assert.equal(renamedHaltedRes.ok, true, renamedHaltedRes.reason);
+    assert.equal(renamedHaltedRes.ledger.v2.halted_instruments.find((h) => h.instrument_id === "inst_rename").symbol, "NEWT");
+    const staleOldSymRec = reconcileV2Broker(renamedHaltedRes.ledger, "inst_rename", {
+      broker_reconciled: "exact_match",
+      symbol: "OLDT",
+      broker_ledger: { adjusted_equity_usd: "23500.00", shares: "50", hwm_usd: spec.initial_ledger.loss_memory.w_ref_usd },
+    });
+    assert.equal(staleOldSymRec.ok, false);
+    assert.equal(staleOldSymRec.reason, "halted_instrument_mismatch");
+    const clearNewSymRec = reconcileV2Broker(renamedHaltedRes.ledger, "inst_rename", {
+      broker_reconciled: "exact_match",
+      symbol: "NEWT",
+      broker_ledger: { adjusted_equity_usd: "23500.00", shares: "50", hwm_usd: spec.initial_ledger.loss_memory.w_ref_usd },
+    });
+    assert.equal(clearNewSymRec.ok, true, clearNewSymRec.reason);
+    assert.equal(clearNewSymRec.v2.state, "CLEAR");
   },
 
   async "SA-A06"() {
@@ -1145,7 +1217,15 @@ const handlers = {
         approximate: true,
         sizing_eligible: false,
         per_currency: [
-          { currency: "USD", cashflow_method: "modified_dietz", approximate: true, sizing_eligible: false },
+          {
+            currency: "USD",
+            twr_return_percent: 10,
+            max_drawdown: { percent: 8, peak_date: "2025-01-01", trough_date: "2025-01-02", unavailable_reason: null },
+            multi_day_intervals: [{ days: 2 }],
+            cashflow_method: "modified_dietz",
+            approximate: true,
+            sizing_eligible: false,
+          },
           { currency: "EUR", twr_return_percent: 13.3333, cashflow_method: "modified_dietz", approximate: true, sizing_eligible: false },
         ],
       },
@@ -1207,6 +1287,10 @@ const handlers = {
     const eurReturnRow = appliedMulti.returns.per_currency.find((r) => r.currency === "EUR");
     assert.ok(usdReturnRow && eurReturnRow, "returns.per_currency must include both USD and EUR");
     assert.equal(Object.hasOwn(usdReturnRow, "cashflow_method"), false);
+    assert.equal(Object.hasOwn(usdReturnRow, "multi_day_intervals"), false);
+    assert.ok(Math.abs(usdReturnRow.twr_return_percent - 2) < 1e-10);
+    assert.equal(usdReturnRow.twr_return_percent, appliedMulti.summary.twr_return_percent);
+    assert.equal(usdReturnRow.max_drawdown.percent, 0);
     assert.equal(eurReturnRow.cashflow_method, "modified_dietz");
     assert.equal(eurReturnRow.approximate, true);
 
@@ -1443,6 +1527,77 @@ const handlers = {
     assert.equal(reserveBypassLedger.breaker_eligible, false);
     assert.equal(reserveBypassLedger.verdict_eligible, false);
     assert.equal(reserveBypassLedger.unavailable_reason, "session_reserve_mismatch");
+
+    // Codex P2 #2: multi-session Desk 7A summary aggregates monetary P&L and raw asset change over evaluated sessions
+    const roundTripSessions = [
+      {
+        period_start_utc: "2025-01-06T21:00:00.000Z",
+        period_end_utc: "2025-01-07T21:00:00.000Z",
+        ending_equity_usd: "110.00",
+        intraday_subvaluations: [],
+        flows: [],
+      },
+      {
+        period_start_utc: "2025-01-07T21:00:00.000Z",
+        period_end_utc: "2025-01-08T21:00:00.000Z",
+        ending_equity_usd: "100.00",
+        intraday_subvaluations: [],
+        flows: [],
+      },
+    ];
+    const deskRoundTripPerf = projectDesk7aPerformance({
+      initialState: { e_prev_usd: "100.00", e_star_prev_usd: "100.00", h_usd: "0", tier_drawdown_limit_d: "0.30" },
+      sessions: roundTripSessions,
+      calendarProvider: calProv,
+    });
+    assert.equal(deskRoundTripPerf.cashflow_7a.raw_asset_change.amount_usd, "0");
+    assert.equal(deskRoundTripPerf.cashflow_7a.adjusted_performance.pnl_usd, "0");
+    assert.equal(deskRoundTripPerf.cashflow_7a.adjusted_performance.return_pct, "0");
+    const deskRoundTripOv = projectDesk7aOverview({
+      initialState: { e_prev_usd: "100.00", e_star_prev_usd: "100.00", h_usd: "0", tier_drawdown_limit_d: "0.30" },
+      sessions: roundTripSessions,
+      calendarProvider: calProv,
+    });
+    assert.equal(deskRoundTripOv.cashflow_7a.raw_asset_change.amount_usd, "0");
+    assert.equal(deskRoundTripOv.cashflow_7a.adjusted_performance.pnl_usd, "0");
+    assert.equal(deskRoundTripOv.cashflow_7a.adjusted_performance.return_pct, "0");
+
+    // Codex P2 #5: conflicting same-timestamp intraday_subvaluations fail closed regardless of ordering
+    const sameTsPeriod = {
+      period_start_utc: "2025-01-06T21:00:00.000Z",
+      period_end_utc: "2025-01-07T21:00:00.000Z",
+      opening_equity_usd: "100.00",
+      ending_equity_usd: "120.00",
+      intraday_subvaluations: [
+        { effective_at: "2025-01-07T15:00:00.000Z", pre_flow_equity_usd: "100.00" },
+        { effective_at: "2025-01-07T15:00:00.000Z", pre_flow_equity_usd: "110.00" },
+      ],
+      flows: [
+        {
+          source_ref: "e1".padEnd(64, "0"),
+          type: "deposit",
+          amount_usd: "10.00",
+          effective_at: "2025-01-07T15:00:00.000Z",
+          time_precision: "exact",
+          coverage: "complete",
+        },
+        {
+          source_ref: "e2".padEnd(64, "0"),
+          type: "deposit",
+          amount_usd: "10.00",
+          effective_at: "2025-01-07T15:00:00.000Z",
+          time_precision: "exact",
+          coverage: "complete",
+        },
+      ],
+    };
+    const sameTsDirect = evaluatePeriod7aReturn(sameTsPeriod, { calendarProvider: calProv });
+    assert.equal(sameTsDirect.status, "partial");
+    assert.equal(sameTsDirect.return_pct, null);
+    assert.equal(sameTsDirect.sizing_eligible, false);
+    assert.equal(sameTsDirect.breaker_eligible, false);
+    assert.equal(sameTsDirect.verdict_eligible, false);
+    assert.equal(sameTsDirect.unavailable_reason, "ambiguous_same_timestamp_subvaluations");
 
     // S6: Dietz -64% period followed by exact 0% period never regains eligibility or dd_b="0"
     const dietzThenExactSessions = [
