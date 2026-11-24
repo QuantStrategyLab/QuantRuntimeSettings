@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.github.io/QuantRuntimeSettings/schemas/qsl-corporate-action-event.v1.schema.json",
+  "title": "QSL Corporate Action Event v1 (C-SA-CA)",
+  "description": "Atomic, apply-once, replayable corporate-action event contract enforcing exact-decimal equity/distribution conservation, explicit leg marking, internal cash classification, adjusted loss memory invariance, ticker lineage, delisting V3, and V2 halt/reconcile rules.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "revision",
+    "account_id",
+    "broker_environment",
+    "instrument_id",
+    "symbol",
+    "action_type",
+    "ex_date",
+    "effective_at",
+    "pre_units",
+    "post_units",
+    "pre_ref",
+    "post_ref",
+    "ratio",
+    "eligible_units",
+    "dividend_per_unit_usd",
+    "incremental_cash_in_lieu",
+    "incremental_dividend_receivable",
+    "payment_transfer_usd",
+    "ticker_lineage",
+    "delisting",
+    "v2_control",
+    "origin",
+    "source_class",
+    "evidence_ref"
+  ],
+  "properties": {
+    "schema_version": { "const": "qsl.corporate_action_event.v1" },
+    "event_id": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "account_id": { "type": "string", "pattern": "^[A-Za-z0-9._:/-]{1,128}$" },
+    "broker_environment": { "enum": ["live", "paper"] },
+    "instrument_id": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" },
+    "symbol": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9./-]{0,31}$" },
+    "action_type": {
+      "enum": [
+        "forward_split",
+        "reverse_split",
+        "cash_dividend",
+        "dividend_payment",
+        "ticker_change",
+        "delisting"
+      ]
+    },
+    "ex_date": { "type": "string", "format": "date" },
+    "effective_at": { "$ref": "#/$defs/utcTime" },
+    "pre_units": { "$ref": "#/$defs/nonNegativeDecimal" },
+    "post_units": { "$ref": "#/$defs/nonNegativeDecimal" },
+    "pre_ref": { "$ref": "#/$defs/nonNegativeDecimal" },
+    "post_ref": { "$ref": "#/$defs/nonNegativeDecimal" },
+    "ratio": { "$ref": "#/$defs/nonNegativeDecimal" },
+    "eligible_units": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+    "dividend_per_unit_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+    "incremental_cash_in_lieu": { "$ref": "#/$defs/actionLeg" },
+    "incremental_dividend_receivable": { "$ref": "#/$defs/actionLeg" },
+    "payment_transfer_usd": { "$ref": "#/$defs/actionLeg" },
+    "ticker_lineage": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["prior_symbol", "new_symbol", "instrument_id"],
+          "properties": {
+            "prior_symbol": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9./-]{0,31}$" },
+            "new_symbol": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9./-]{0,31}$" },
+            "instrument_id": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "delisting": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["invoked_v3", "terminal_valuation_usd", "resolved"],
+          "properties": {
+            "invoked_v3": { "type": "boolean" },
+            "terminal_valuation_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+            "resolved": { "type": "boolean" }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "v2_control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["announced_within_two_sessions", "price_anomaly_detected", "broker_reconciled"],
+      "properties": {
+        "announced_within_two_sessions": { "type": "boolean" },
+        "price_anomaly_detected": { "type": "boolean" },
+        "broker_reconciled": { "enum": ["exact_match", "mismatch", "pending", "none"] },
+        "broker_ledger": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["adjusted_equity_usd", "shares", "hwm_usd"],
+              "properties": {
+                "adjusted_equity_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
+                "shares": { "$ref": "#/$defs/nonNegativeDecimal" },
+                "hwm_usd": { "$ref": "#/$defs/nonNegativeDecimal" }
+              }
+            },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "origin": { "enum": ["synthetic", "production"] },
+    "source_class": {
+      "enum": [
+        "synthetic",
+        "historical_reconstruction",
+        "decision_time_market",
+        "operator_declared",
+        "authorized_operational",
+        "paper_broker",
+        "authorized_live_broker"
+      ]
+    },
+    "evidence_ref": { "type": "string", "minLength": 1, "maxLength": 128 }
+  },
+  "$defs": {
+    "utcTime": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "nonNegativeDecimal": { "type": "string", "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$" },
+    "nullableNonNegativeDecimal": {
+      "anyOf": [
+        { "$ref": "#/$defs/nonNegativeDecimal" },
+        { "type": "null" }
+      ]
+    },
+    "actionLeg": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applicable", "amount_usd"],
+      "properties": {
+        "applicable": { "type": "boolean" },
+        "amount_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "reason": { "type": "string", "maxLength": 128 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "applicable": { "const": true } }, "required": ["applicable"] },
+          "then": { "properties": { "amount_usd": { "$ref": "#/$defs/nonNegativeDecimal" } } }
+        },
+        {
+          "if": { "properties": { "applicable": { "const": false } }, "required": ["applicable"] },
+          "then": { "properties": { "amount_usd": { "type": "null" } } }
+        }
+      ]
+    }
+  }
+}

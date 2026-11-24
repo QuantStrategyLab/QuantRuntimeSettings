@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.github.io/QuantRuntimeSettings/schemas/qsl-sizing-unit-continuity.v1.schema.json",
+  "title": "QSL Sizing Unit History Continuity v1 (C-SA-17)",
+  "description": "Half-open UTC interval continuity evaluation by account, environment, binding, and evidence kind (valuation vs external_flow), enforcing independent 366-day retention and 6-month Desk clipping, non-transferability of valuation bindings to flows, and fail-closed insufficient_history.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "account_id",
+    "broker_environment",
+    "requested_interval",
+    "retention_clip",
+    "desk_window_clip",
+    "truncated",
+    "continuity_status",
+    "covered_intervals",
+    "gap_intervals",
+    "rejected_intervals",
+    "result",
+    "origin",
+    "source_class",
+    "evidence_ref"
+  ],
+  "properties": {
+    "schema_version": { "const": "qsl.sizing_unit_continuity.v1" },
+    "account_id": { "type": "string", "pattern": "^[A-Za-z0-9._:/-]{1,128}$" },
+    "broker_environment": { "enum": ["live", "paper"] },
+    "requested_interval": { "$ref": "#/$defs/halfOpenInterval" },
+    "retention_clip": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["limit_days", "effective_start_utc", "effective_end_utc", "truncated"],
+      "properties": {
+        "limit_days": { "const": 366 },
+        "effective_start_utc": { "$ref": "#/$defs/utcTime" },
+        "effective_end_utc": { "$ref": "#/$defs/utcTime" },
+        "truncated": { "type": "boolean" }
+      }
+    },
+    "desk_window_clip": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["limit_months", "applicable", "effective_start_utc", "effective_end_utc", "truncated"],
+      "properties": {
+        "limit_months": { "const": 6 },
+        "applicable": { "type": "boolean" },
+        "effective_start_utc": { "$ref": "#/$defs/utcTime" },
+        "effective_end_utc": { "$ref": "#/$defs/utcTime" },
+        "truncated": { "type": "boolean" }
+      }
+    },
+    "truncated": { "type": "boolean" },
+    "continuity_status": {
+      "enum": ["continuous", "valuation_only_continuous", "binding_gap", "insufficient_history"]
+    },
+    "covered_intervals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "start_utc",
+          "end_utc",
+          "account_id",
+          "broker_environment",
+          "binding_id",
+          "evidence_kind",
+          "coverage",
+          "precision",
+          "source_class"
+        ],
+        "properties": {
+          "start_utc": { "$ref": "#/$defs/utcTime" },
+          "end_utc": { "$ref": "#/$defs/utcTime" },
+          "account_id": { "type": "string", "maxLength": 128 },
+          "broker_environment": { "enum": ["live", "paper"] },
+          "binding_id": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" },
+          "evidence_kind": { "enum": ["valuation", "external_flow"] },
+          "coverage": { "enum": ["complete", "incomplete", "reported", "missing"] },
+          "precision": { "enum": ["exact", "date", "mixed", "unknown"] },
+          "source_class": { "$ref": "#/$defs/sourceClass" }
+        }
+      }
+    },
+    "gap_intervals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["start_utc", "end_utc", "evidence_kind", "reason", "binding_id"],
+        "properties": {
+          "start_utc": { "$ref": "#/$defs/utcTime" },
+          "end_utc": { "$ref": "#/$defs/utcTime" },
+          "evidence_kind": { "enum": ["valuation", "external_flow", "both"] },
+          "reason": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "binding_id": { "type": ["string", "null"], "maxLength": 128 }
+        }
+      }
+    },
+    "rejected_intervals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["start_utc", "end_utc", "evidence_kind", "reason", "binding_id", "account_id", "broker_environment"],
+        "properties": {
+          "start_utc": { "$ref": "#/$defs/utcTime" },
+          "end_utc": { "$ref": "#/$defs/utcTime" },
+          "evidence_kind": { "enum": ["valuation", "external_flow"] },
+          "reason": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "binding_id": { "type": ["string", "null"], "maxLength": 128 },
+          "account_id": { "type": ["string", "null"], "maxLength": 128 },
+          "broker_environment": { "enum": ["live", "paper", null] }
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "return_pct", "unavailable_reason"],
+      "properties": {
+        "status": { "enum": ["eligible", "insufficient_history"] },
+        "return_pct": {
+          "anyOf": [
+            { "type": "string", "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$" },
+            { "type": "null" }
+          ]
+        },
+        "unavailable_reason": { "type": ["string", "null"], "maxLength": 128 }
+      }
+    },
+    "origin": { "enum": ["synthetic", "production"] },
+    "source_class": { "$ref": "#/$defs/sourceClass" },
+    "evidence_ref": { "type": "string", "minLength": 1, "maxLength": 128 }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "continuity_status": { "enum": ["valuation_only_continuous", "binding_gap", "insufficient_history"] }
+        },
+        "required": ["continuity_status"]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "properties": {
+              "status": { "const": "insufficient_history" },
+              "return_pct": { "type": "null" }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "utcTime": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "halfOpenInterval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_utc", "end_utc"],
+      "properties": {
+        "start_utc": { "$ref": "#/$defs/utcTime" },
+        "end_utc": { "$ref": "#/$defs/utcTime" }
+      }
+    },
+    "sourceClass": {
+      "enum": [
+        "synthetic",
+        "historical_reconstruction",
+        "decision_time_market",
+        "operator_declared",
+        "authorized_operational",
+        "paper_broker",
+        "authorized_live_broker"
+      ]
+    }
+  }
+}

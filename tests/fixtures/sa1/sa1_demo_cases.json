@@ -1,0 +1,570 @@
+{
+  "schema_version": "qsl.sa1_demo_cases.v1",
+  "frozen_phase": "SA1-W1",
+  "origin": "synthetic",
+  "cases": {
+    "SA1-D1": {
+      "id": "SA1-D1",
+      "title": "7A + Q5-1(c) Deposit/Withdrawal invariance",
+      "deposit_case": {
+        "initial_state": {
+          "e_prev_usd": "50000.00",
+          "e_star_prev_usd": "50000.00",
+          "h_usd": "0",
+          "tier_drawdown_limit_d": "0.30",
+          "prior_i_b": "1",
+          "prior_i_b_star": "1",
+          "prior_dd_b": "0"
+        },
+        "session": {
+          "period_start_utc": "2025-01-08T21:00:00.000Z",
+          "period_end_utc": "2025-01-10T21:00:00.000Z",
+          "ending_equity_usd": "60000.00",
+          "intraday_subvaluations": [],
+          "flows": [
+            {
+              "source_ref": "1111111111111111111111111111111111111111111111111111111111111111",
+              "type": "deposit",
+              "amount_usd": "10000.00",
+              "effective_at": "2025-01-10T21:00:00.000Z",
+              "time_precision": "exact",
+              "coverage": "complete"
+            }
+          ]
+        },
+        "expected": {
+          "raw_asset_change_usd": "+10000.00",
+          "raw_label": "资产变动（含出入金） / Asset change (includes cash flows)",
+          "adjusted_pnl_usd": "0",
+          "twr_return": "0",
+          "e_star_after_usd": "60000.00",
+          "w_ref_usd": "60000.00",
+          "l_usd": "0",
+          "w_usd": "60000.00",
+          "dd_b": "0",
+          "c_t": "0.3",
+          "method_version": null
+        }
+      },
+      "withdrawal_case": {
+        "initial_state": {
+          "e_prev_usd": "100.00",
+          "e_star_prev_usd": "100.00",
+          "h_usd": "0",
+          "tier_drawdown_limit_d": "0.30",
+          "prior_i_b": "1",
+          "prior_i_b_star": "1",
+          "prior_dd_b": "0"
+        },
+        "sessions": [
+          {
+            "period_start_utc": "2025-01-08T21:00:00.000Z",
+            "period_end_utc": "2025-01-10T21:00:00.000Z",
+            "ending_equity_usd": "50.00",
+            "intraday_subvaluations": [],
+            "flows": [
+              {
+                "source_ref": "2222222222222222222222222222222222222222222222222222222222222222",
+                "type": "withdrawal",
+                "amount_usd": "-50.00",
+                "effective_at": "2025-01-10T21:00:00.000Z",
+                "time_precision": "exact",
+                "coverage": "complete"
+              }
+            ]
+          },
+          {
+            "period_start_utc": "2025-01-10T21:00:00.000Z",
+            "period_end_utc": "2025-01-13T21:00:00.000Z",
+            "ending_equity_usd": "55.00",
+            "intraday_subvaluations": [],
+            "flows": []
+          }
+        ],
+        "expected": {
+          "after_withdrawal": {
+            "raw_asset_change_usd": "-50.00",
+            "adjusted_pnl_usd": "0",
+            "twr_return": "0",
+            "e_star_after_usd": "100.00",
+            "w_star_usd": "100.00",
+            "w_ref_usd": "50.00",
+            "l_usd": "0",
+            "dd_b": "0",
+            "false_loss_trip": false
+          },
+          "after_gain": {
+            "w_ref_usd": "55.00",
+            "w_star_usd": "100.00",
+            "l_usd": "0",
+            "dd_b": "0",
+            "c_t": "0.3",
+            "twr_return": "0.1"
+          }
+        }
+      }
+    },
+    "SA1-D2": {
+      "id": "SA1-D2",
+      "title": "C-SA-CA Split, Reverse Split, Dividend Receivable & Replay",
+      "initial_ledger": {
+        "account_id": "synth-sizing-01",
+        "broker_environment": "live",
+        "settled_cash_usd": "1000.00",
+        "dividend_receivable_usd": "0",
+        "positions": {
+          "inst_tqqq": { "instrument_id": "inst_tqqq", "symbol": "TQQQ", "units": "100", "ref_price_usd": "150.00" },
+          "inst_soxl": { "instrument_id": "inst_soxl", "symbol": "SOXL", "units": "10", "ref_price_usd": "20.00" },
+          "inst_div": { "instrument_id": "inst_div", "symbol": "SQQQ", "units": "100", "ref_price_usd": "50.00" }
+        },
+        "loss_memory": {
+          "dd_b": "0.1",
+          "w_ref_usd": "22444.44",
+          "l_usd": "2244.44",
+          "tier_drawdown_limit_d": "0.30",
+          "c_t": "0.222222222222"
+        }
+      },
+      "events": [
+        {
+          "schema_version": "qsl.corporate_action_event.v1",
+          "event_id": "ca-demo-split-2for1",
+          "revision": 1,
+          "account_id": "synth-sizing-01",
+          "broker_environment": "live",
+          "instrument_id": "inst_tqqq",
+          "symbol": "TQQQ",
+          "action_type": "forward_split",
+          "ex_date": "2025-01-08",
+          "effective_at": "2025-01-08T14:30:00.000Z",
+          "pre_units": "100",
+          "post_units": "200",
+          "pre_ref": "150.00",
+          "post_ref": "75.00",
+          "ratio": "2",
+          "eligible_units": null,
+          "dividend_per_unit_usd": null,
+          "incremental_cash_in_lieu": { "applicable": false, "amount_usd": null, "reason": "exact_whole_share_split" },
+          "incremental_dividend_receivable": { "applicable": false, "amount_usd": null, "reason": "not_a_distribution" },
+          "payment_transfer_usd": { "applicable": false, "amount_usd": null, "reason": "not_a_payment" },
+          "ticker_lineage": null,
+          "delisting": null,
+          "v2_control": { "announced_within_two_sessions": false, "price_anomaly_detected": false, "broker_reconciled": "none", "broker_ledger": null },
+          "origin": "synthetic",
+          "source_class": "synthetic",
+          "evidence_ref": "sa1:demo:ca-split-1"
+        },
+        {
+          "schema_version": "qsl.corporate_action_event.v1",
+          "event_id": "ca-demo-rsplit-1for4",
+          "revision": 1,
+          "account_id": "synth-sizing-01",
+          "broker_environment": "live",
+          "instrument_id": "inst_soxl",
+          "symbol": "SOXL",
+          "action_type": "reverse_split",
+          "ex_date": "2025-01-08",
+          "effective_at": "2025-01-08T14:30:00.000Z",
+          "pre_units": "10",
+          "post_units": "2",
+          "pre_ref": "20.00",
+          "post_ref": "80.00",
+          "ratio": "0.25",
+          "eligible_units": null,
+          "dividend_per_unit_usd": null,
+          "incremental_cash_in_lieu": { "applicable": true, "amount_usd": "40.00" },
+          "incremental_dividend_receivable": { "applicable": false, "amount_usd": null, "reason": "not_a_distribution" },
+          "payment_transfer_usd": { "applicable": false, "amount_usd": null, "reason": "settled_as_cil" },
+          "ticker_lineage": null,
+          "delisting": null,
+          "v2_control": { "announced_within_two_sessions": false, "price_anomaly_detected": false, "broker_reconciled": "none", "broker_ledger": null },
+          "origin": "synthetic",
+          "source_class": "synthetic",
+          "evidence_ref": "sa1:demo:ca-rsplit-1"
+        },
+        {
+          "schema_version": "qsl.corporate_action_event.v1",
+          "event_id": "ca-demo-div-ex",
+          "revision": 1,
+          "account_id": "synth-sizing-01",
+          "broker_environment": "live",
+          "instrument_id": "inst_div",
+          "symbol": "SQQQ",
+          "action_type": "cash_dividend",
+          "ex_date": "2025-01-10",
+          "effective_at": "2025-01-10T14:30:00.000Z",
+          "pre_units": "100",
+          "post_units": "100",
+          "pre_ref": "50.00",
+          "post_ref": "49.00",
+          "ratio": "1",
+          "eligible_units": "100",
+          "dividend_per_unit_usd": "1.00",
+          "incremental_cash_in_lieu": { "applicable": false, "amount_usd": null, "reason": "not_a_fractional_split" },
+          "incremental_dividend_receivable": { "applicable": true, "amount_usd": "100.00" },
+          "payment_transfer_usd": { "applicable": false, "amount_usd": null, "reason": "payable_at_settlement" },
+          "ticker_lineage": null,
+          "delisting": null,
+          "v2_control": { "announced_within_two_sessions": false, "price_anomaly_detected": false, "broker_reconciled": "none", "broker_ledger": null },
+          "origin": "synthetic",
+          "source_class": "synthetic",
+          "evidence_ref": "sa1:demo:ca-div-ex-1"
+        },
+        {
+          "schema_version": "qsl.corporate_action_event.v1",
+          "event_id": "ca-demo-div-pay",
+          "revision": 1,
+          "account_id": "synth-sizing-01",
+          "broker_environment": "live",
+          "instrument_id": "inst_div",
+          "symbol": "SQQQ",
+          "action_type": "dividend_payment",
+          "ex_date": "2025-01-13",
+          "effective_at": "2025-01-13T14:30:00.000Z",
+          "pre_units": "100",
+          "post_units": "100",
+          "pre_ref": "49.00",
+          "post_ref": "49.00",
+          "ratio": "1",
+          "eligible_units": "100",
+          "dividend_per_unit_usd": null,
+          "incremental_cash_in_lieu": { "applicable": false, "amount_usd": null, "reason": "payment_settlement" },
+          "incremental_dividend_receivable": { "applicable": false, "amount_usd": null, "reason": "payment_settlement" },
+          "payment_transfer_usd": { "applicable": true, "amount_usd": "100.00" },
+          "ticker_lineage": null,
+          "delisting": null,
+          "v2_control": { "announced_within_two_sessions": false, "price_anomaly_detected": false, "broker_reconciled": "none", "broker_ledger": null },
+          "origin": "synthetic",
+          "source_class": "synthetic",
+          "evidence_ref": "sa1:demo:ca-div-pay-1"
+        }
+      ],
+      "expected": {
+        "external_flow_delta": "0",
+        "phantom_return": "0",
+        "phantom_drawdown": "0",
+        "settled_cash_after_usd": "1140.00",
+        "dividend_receivable_after_usd": "0",
+        "dd_b": "0.1",
+        "replay_idempotent": true
+      }
+    },
+    "SA1-D3": {
+      "id": "SA1-D3",
+      "title": "C-SA-15 Skew & Pinned csa22-v1 Boundary Vectors",
+      "checks": [
+        {
+          "name": "skew_pass_60000ms",
+          "observed_at": "2025-01-08T21:01:00.000Z",
+          "fetched_at": "2025-01-08T21:01:00.000Z",
+          "evaluated_at": "2025-01-08T21:00:00.000Z",
+          "expected": { "data_status": "fresh", "age_seconds": -60, "age_sessions": 0, "sizing_eligible": true }
+        },
+        {
+          "name": "skew_fail_60001ms",
+          "observed_at": "2025-01-08T21:01:00.001Z",
+          "fetched_at": "2025-01-08T21:01:00.001Z",
+          "evaluated_at": "2025-01-08T21:00:00.000Z",
+          "expected": { "data_status": "invalid_future_skew", "sizing_eligible": false, "o1_block_exposure_increase": true }
+        },
+        {
+          "name": "skew_fail_61s",
+          "observed_at": "2025-01-08T21:00:00.000Z",
+          "fetched_at": "2025-01-08T21:01:01.000Z",
+          "evaluated_at": "2025-01-08T21:00:00.000Z",
+          "expected": { "data_status": "invalid_future_skew", "sizing_eligible": false, "o1_block_exposure_increase": true }
+        },
+        {
+          "name": "exact_close_2025_01_08_across_mourning_day_01_09",
+          "observed_at": "2025-01-08T21:00:00.000Z",
+          "fetched_at": "2025-01-08T21:00:01.000Z",
+          "evaluated_at": "2025-01-09T21:00:00.000Z",
+          "expected": { "data_status": "fresh", "age_sessions": 0, "sizing_eligible": true }
+        },
+        {
+          "name": "edt_half_day_2025_07_03_across_holiday_07_04",
+          "observed_at": "2025-07-03T17:00:00.000Z",
+          "fetched_at": "2025-07-03T17:00:05.000Z",
+          "evaluated_at": "2025-07-04T20:00:00.000Z",
+          "expected": { "data_status": "fresh", "age_sessions": 0, "sizing_eligible": true }
+        },
+        {
+          "name": "dst_spring_shift_2025_03_07_to_03_10_close",
+          "observed_at": "2025-03-07T21:00:00.000Z",
+          "fetched_at": "2025-03-07T21:00:05.000Z",
+          "evaluated_at": "2025-03-10T20:00:00.000Z",
+          "expected": { "data_status": "stale", "age_sessions": 1, "sizing_eligible": false, "o1_block_exposure_increase": true }
+        },
+        {
+          "name": "thanksgiving_and_early_close_2025_11_26_to_11_28_close",
+          "observed_at": "2025-11-26T21:00:00.000Z",
+          "fetched_at": "2025-11-26T21:00:05.000Z",
+          "evaluated_at": "2025-11-28T18:00:00.000Z",
+          "expected": { "data_status": "stale", "age_sessions": 1, "sizing_eligible": false, "o1_block_exposure_increase": true }
+        }
+      ]
+    },
+    "SA1-D4": {
+      "id": "SA1-D4",
+      "title": "C-SA-14 Mixed-Currency Unavailable",
+      "single_account_mixed": {
+        "account_id": "synth-mixed-single",
+        "platform": "ibkr",
+        "broker_environment": "live",
+        "management_status": "managed",
+        "evidence_state": "known",
+        "observed_at": "2025-01-08T21:00:00.000Z",
+        "fetched_at": "2025-01-08T21:00:05.000Z",
+        "evaluated_at": "2025-01-08T21:01:00.000Z",
+        "balances": [
+          { "currency": "USD", "net_assets": "25000.00" },
+          { "currency": "HKD", "net_assets": "78000.00" }
+        ],
+        "origin": "synthetic",
+        "source_class": "synthetic",
+        "evidence_ref": "sa1:demo:d4-single"
+      },
+      "cohort_mixed": [
+        {
+          "account_id": "synth-usd-01",
+          "platform": "ibkr",
+          "broker_environment": "live",
+          "management_status": "managed",
+          "evidence_state": "known",
+          "currency": "USD",
+          "nav_usd": "30000.00",
+          "settled_cash_usd": "30000.00",
+          "unsettled_cash_usd": "0",
+          "tbill_nav_usd": "0",
+          "etf_market_value_usd": "0",
+          "accrued_fees_usd": "0",
+          "margin_debt_usd": "0",
+          "positions": [],
+          "observed_at": "2025-01-08T21:00:00.000Z",
+          "fetched_at": "2025-01-08T21:00:05.000Z",
+          "origin": "synthetic",
+          "source_class": "synthetic",
+          "evidence_ref": "sa1:demo:d4-usd"
+        },
+        {
+          "account_id": "synth-hkd-01",
+          "platform": "longbridge",
+          "broker_environment": "live",
+          "management_status": "managed",
+          "evidence_state": "known",
+          "currency": "HKD",
+          "balances": [{ "currency": "HKD", "net_assets": "100000.00" }],
+          "observed_at": "2025-01-08T20:45:00.000Z",
+          "fetched_at": "2025-01-08T20:45:05.000Z",
+          "origin": "synthetic",
+          "source_class": "synthetic",
+          "evidence_ref": "sa1:demo:d4-hkd"
+        }
+      ],
+      "expected": {
+        "status": "unavailable",
+        "reason": "mixed_currency",
+        "nav_usd": null,
+        "fx_inferred": false,
+        "currency_coercion": "prohibited"
+      }
+    },
+    "SA1-D5": {
+      "id": "SA1-D5",
+      "title": "C-SA-16 / 7A Date-Only & Missing-Input Fail-Closed",
+      "date_only_case": {
+        "period_start_utc": "2025-01-08T21:00:00.000Z",
+        "period_end_utc": "2025-01-10T21:00:00.000Z",
+        "opening_equity_usd": "50000.00",
+        "ending_equity_usd": "51000.00",
+        "flows": [
+          {
+            "source_ref": "3333333333333333333333333333333333333333333333333333333333333333",
+            "type": "deposit",
+            "amount_usd": "1000.00",
+            "effective_date": "2025-01-10",
+            "time_precision": "date",
+            "coverage": "reported"
+          }
+        ]
+      },
+      "missing_snapshot_case": {
+        "valuations": [
+          { "observed_at": "2025-01-08T21:00:00.000Z", "equity_usd": "50000.00" },
+          { "observed_at": "2025-01-10T21:00:00.000Z", "equity_usd": null, "missing": true }
+        ],
+        "flows": []
+      },
+      "expected": {
+        "return_pct": null,
+        "interpolated": false,
+        "empty_as_zero": false
+      }
+    },
+    "SA1-D6": {
+      "id": "SA1-D6",
+      "title": "C-SA-14 B2 Cohort Isolation & Private Locator Stripping",
+      "evaluated_at": "2025-01-08T21:01:00.000Z",
+      "accounts": [
+        {
+          "account_id": "synth-unit-live-usd",
+          "platform": "ibkr",
+          "broker_environment": "live",
+          "management_status": "managed",
+          "evidence_state": "known",
+          "currency": "USD",
+          "nav_usd": "50000.00",
+          "settled_cash_usd": "20000.00",
+          "unsettled_cash_usd": "5000.00",
+          "tbill_nav_usd": "15000.00",
+          "etf_market_value_usd": "10010.00",
+          "accrued_fees_usd": "10.00",
+          "margin_debt_usd": "0",
+          "positions": [
+            { "symbol": "TQQQ", "qty": "100", "market_value_usd": "7010.00", "price_ref": "XNYS:close:2025-01-08" },
+            { "symbol": "SOXL", "qty": "100", "market_value_usd": "3000.00", "price_ref": "XNYS:close:2025-01-08" }
+          ],
+          "observed_at": "2025-01-08T21:00:00.000Z",
+          "fetched_at": "2025-01-08T21:00:05.000Z",
+          "source_ref": "kv://private-bucket/should-not-leak",
+          "kv_key": "private:kv:key:1",
+          "do_key": "private:do:key:1",
+          "origin": "synthetic",
+          "source_class": "synthetic",
+          "evidence_ref": "sa1:demo:d6-eligible"
+        },
+        {
+          "account_id": "synth-display-only",
+          "platform": "schwab",
+          "broker_environment": "live",
+          "management_status": "not_under_management",
+          "evidence_state": "known",
+          "currency": "USD",
+          "nav_usd": "99999.00",
+          "observed_at": "2025-01-08T21:00:00.000Z",
+          "fetched_at": "2025-01-08T21:00:05.000Z",
+          "source_ref": "do://private/display-only"
+        },
+        {
+          "account_id": "synth-mgmt-disabled",
+          "platform": "firstrade",
+          "broker_environment": "live",
+          "management_status": "management_disabled",
+          "evidence_state": "known",
+          "currency": "USD",
+          "nav_usd": "88888.00",
+          "observed_at": "2025-01-08T21:00:00.000Z",
+          "fetched_at": "2025-01-08T21:00:05.000Z"
+        },
+        {
+          "account_id": "synth-paper-acct",
+          "platform": "longbridge",
+          "broker_environment": "paper",
+          "management_status": "managed",
+          "evidence_state": "known",
+          "currency": "USD",
+          "nav_usd": "77777.00",
+          "observed_at": "2025-01-08T21:00:00.000Z",
+          "fetched_at": "2025-01-08T21:00:05.000Z"
+        },
+        {
+          "account_id": "synth-unknown-acct",
+          "platform": "ibkr",
+          "broker_environment": "live",
+          "management_status": "unknown",
+          "evidence_state": "unknown",
+          "currency": "USD",
+          "nav_usd": "66666.00",
+          "observed_at": "2025-01-08T21:00:00.000Z",
+          "fetched_at": "2025-01-08T21:00:05.000Z"
+        }
+      ],
+      "expected": {
+        "status": "available",
+        "account_id": "synth-unit-live-usd",
+        "nav_usd": "50000.00",
+        "excluded_count": 4,
+        "margin_enabled": false,
+        "margin_debt_usd": "0"
+      }
+    },
+    "SA1-D7": {
+      "id": "SA1-D7",
+      "title": "C-SA-17 Valuation-vs-Flow Interval Discontinuity",
+      "input": {
+        "account_id": "synth-sizing-01",
+        "broker_environment": "live",
+        "requested_interval": {
+          "start_utc": "2025-01-01T00:00:00.000Z",
+          "end_utc": "2025-02-01T00:00:00.000Z"
+        },
+        "desk_view": false,
+        "current_valuation_binding_id": "b_curr_val",
+        "history_source_binding_ids": ["b_prior_val"],
+        "current_flow_binding_id": "b_curr_flow",
+        "flow_history_source_binding_ids": [],
+        "valuation_intervals": [
+          {
+            "start_utc": "2025-01-01T00:00:00.000Z",
+            "end_utc": "2025-01-15T00:00:00.000Z",
+            "account_id": "synth-sizing-01",
+            "broker_environment": "live",
+            "binding_id": "b_prior_val",
+            "coverage": "complete",
+            "precision": "exact",
+            "source_class": "synthetic"
+          },
+          {
+            "start_utc": "2025-01-15T00:00:00.000Z",
+            "end_utc": "2025-02-01T00:00:00.000Z",
+            "account_id": "synth-sizing-01",
+            "broker_environment": "live",
+            "binding_id": "b_curr_val",
+            "coverage": "complete",
+            "precision": "exact",
+            "source_class": "synthetic"
+          }
+        ],
+        "flow_intervals": [
+          {
+            "start_utc": "2025-01-01T00:00:00.000Z",
+            "end_utc": "2025-01-15T00:00:00.000Z",
+            "account_id": "synth-sizing-01",
+            "broker_environment": "live",
+            "binding_id": "b_prior_val",
+            "coverage": "complete",
+            "precision": "exact",
+            "source_class": "synthetic"
+          },
+          {
+            "start_utc": "2025-01-15T00:00:00.000Z",
+            "end_utc": "2025-02-01T00:00:00.000Z",
+            "account_id": "synth-sizing-01",
+            "broker_environment": "live",
+            "binding_id": "b_curr_flow",
+            "coverage": "complete",
+            "precision": "exact",
+            "source_class": "synthetic"
+          }
+        ],
+        "origin": "synthetic",
+        "source_class": "synthetic",
+        "evidence_ref": "sa1:demo:d7"
+      },
+      "expected": {
+        "continuity_status": "valuation_only_continuous",
+        "result_status": "insufficient_history",
+        "return_pct": null,
+        "has_gaps": true
+      }
+    },
+    "SA1-D8": {
+      "id": "SA1-D8",
+      "title": "SA-A19 Zero B0 Read-Path Writes",
+      "expected": {
+        "storage_writes": 0,
+        "kv_writes": 0
+      }
+    }
+  }
+}
