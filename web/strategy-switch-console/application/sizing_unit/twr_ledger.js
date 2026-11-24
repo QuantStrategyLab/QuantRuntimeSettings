@@ -489,6 +489,32 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
           sessions: outSessions,
         };
       }
+    } else if (sStartMs !== null && sEndMs !== null) {
+      const subMs = Array.isArray(session?.intraday_subvaluations)
+        ? session.intraday_subvaluations
+          .map((sv) => parseInstantMs(sv?.effective_at))
+          .filter((ms) => ms !== null && ms > sStartMs && ms < sEndMs)
+          .sort((a, b) => a - b)
+        : [];
+      const pointsMs = [sStartMs, ...subMs, sEndMs];
+      const MAX_UNVERIFIED_CALENDAR_SPAN_MS = 3 * 86_400_000;
+      for (let idx = 1; idx < pointsMs.length; idx++) {
+        if (pointsMs[idx] - pointsMs[idx - 1] > MAX_UNVERIFIED_CALENDAR_SPAN_MS) {
+          return {
+            labels: DESK_7A_LABELS,
+            status: "partial",
+            return_pct: null,
+            interpolated: false,
+            empty_as_zero: false,
+            sizing_eligible: false,
+            breaker_eligible: false,
+            verdict_eligible: false,
+            method_version: null,
+            unavailable_reason: "calendar_provider_required_for_multiday_span",
+            sessions: outSessions,
+          };
+        }
+      }
     }
 
     const period = evaluatePeriod7aReturn({
@@ -520,7 +546,7 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
 
     if (period.approximate || !period.sizing_eligible) {
       anyApproximate = true;
-    } else {
+    } else if (!anyApproximate) {
       iB = ratMul(iB, ratAdd(ONE, _internal.twrBankroll));
       iBStar = ratMax(iBStar, iB);
     }
@@ -529,7 +555,7 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
     const ddB = ratSub(ONE, ratDiv(iB, iBStar));
     const oneMinusDd = ratSub(ONE, ddB);
     const eEnd = ratFromText(String(session.ending_equity_usd));
-    if (!period.approximate && period.sizing_eligible) {
+    if (!anyApproximate) {
       let nextEStar = eStar;
       for (const obs of [ePrev, _internal.ePreEndRat, ..._internal.observedSubvals, eEnd]) {
         nextEStar = ratMax(nextEStar, obs);
@@ -559,11 +585,13 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
       : [];
 
     // Pure withdrawal never causes a drawdown increase when market return is >= 0.
-    const falseLossTrip = hadWithdrawal
+    const falseLossTrip = !anyApproximate
+      && hadWithdrawal
       && _internal.twrBankroll !== null
       && _internal.twrBankroll.n >= 0n
       && ratCmp(ddB, prevDdB) > 0;
 
+    const sessionEligible = !anyApproximate && period.sizing_eligible;
     outSessions.push({
       period_start_utc: session.period_start_utc,
       period_end_utc: session.period_end_utc,
@@ -573,20 +601,20 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
       twr_return_pct: period.return_pct,
       e_star_after_usd: formatUsd(eStar),
       w_star_usd: formatUsd(wStar),
-      w_ref_usd: formatUsd(wRef),
-      l_usd: formatUsd(lUsd),
+      w_ref_usd: anyApproximate ? null : formatUsd(wRef),
+      l_usd: anyApproximate ? null : formatUsd(lUsd),
       w_usd: formatUsd(w),
-      dd_b: ratToDecimalText(ddB),
-      c_t: ratToDecimalText(cT),
+      dd_b: anyApproximate ? null : ratToDecimalText(ddB),
+      c_t: anyApproximate ? null : ratToDecimalText(cT),
       mid_drawdown_deposit_flag: midDrawdownDepositFlag,
       flow_audit_events: flowAuditEvents,
       false_loss_trip: falseLossTrip,
       return_method: period.return_method,
       cashflow_method: period.cashflow_method,
-      approximate: period.approximate,
-      sizing_eligible: period.sizing_eligible,
-      breaker_eligible: period.breaker_eligible,
-      verdict_eligible: period.verdict_eligible,
+      approximate: anyApproximate,
+      sizing_eligible: sessionEligible,
+      breaker_eligible: sessionEligible && period.breaker_eligible,
+      verdict_eligible: sessionEligible && period.verdict_eligible,
       method_version: null,
     });
     ePrev = eEnd;
@@ -614,8 +642,8 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
   };
 }
 
-export function buildCashflow7aSummary({ initialState, sessions, calendarProvider } = {}) {
-  const res = evaluateTwrLedger({ initialState, sessions, calendarProvider });
+export function buildCashflow7aSummary({ initialState, sessions, valuations, flows, calendarProvider } = {}) {
+  const res = evaluateTwrLedger({ initialState, sessions, valuations, flows, calendarProvider });
   const last = res.sessions.at(-1) || null;
   const approx = Boolean(res.approximate || last?.approximate);
   return {
@@ -630,7 +658,7 @@ export function buildCashflow7aSummary({ initialState, sessions, calendarProvide
         label: DESK_7A_LABELS.adjusted_combined,
         pnl_usd: last ? last.adjusted_pnl_usd : null,
         return_pct: res.return_pct,
-        return_method: res.return_pct === null ? null : (last ? last.return_method : null),
+        return_method: res.return_pct === null ? null : (res.return_method ?? (last ? last.return_method : null)),
         approximate: approx,
         sizing_eligible: Boolean(res.sizing_eligible),
         method_version: null,

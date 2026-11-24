@@ -250,8 +250,70 @@ const handlers = {
     const unappliedRes = applyCorporateAction(freshSplitLedger, unappliedSplit);
     assert.equal(unappliedRes.ok, false);
     assert.equal(unappliedRes.v2.halted, true);
+    assert.equal(unappliedRes.ledger.v2.halted, true);
+    assert.equal(unappliedRes.ledger.v2.state, "HALT");
     assert.equal(unappliedRes.ledger.positions.inst_tqqq.units, "100");
     assert.equal(unappliedRes.ledger.applied_events.length, 0);
+    // S8: V2 HALT persists across serialize/hydrate after rejected unapplied split
+    const roundTripHalted = hydrateCorporateActionLedger(serializeCorporateActionLedger(unappliedRes.ledger));
+    assert.equal(roundTripHalted.v2.halted, true);
+    assert.equal(roundTripHalted.v2.state, "HALT");
+    assert.equal(roundTripHalted.v2.halted_instruments.some((h) => h.instrument_id === "inst_tqqq"), true);
+
+    // S8: Failed reconciliation on inst_a records halted_instruments so reconciling inst_b cannot clear HALT
+    const failRecA = reconcileV2Broker(freshSplitLedger, "inst_tqqq", {
+      broker_reconciled: "mismatch",
+      broker_ledger: { adjusted_equity_usd: "23500.00", shares: "999", hwm_usd: spec.initial_ledger.loss_memory.w_ref_usd },
+    });
+    assert.equal(failRecA.v2.halted, true);
+    assert.equal(failRecA.ledger.v2.halted_instruments.some((h) => h.instrument_id === "inst_tqqq"), true);
+    const totalEq = "22500.00";
+    const clearRecB = reconcileV2Broker(failRecA.ledger, "inst_soxl", {
+      broker_reconciled: "exact_match",
+      broker_ledger: { adjusted_equity_usd: totalEq, shares: "10", hwm_usd: spec.initial_ledger.loss_memory.w_ref_usd },
+    });
+    assert.equal(clearRecB.ok, false);
+    assert.equal(clearRecB.v2.halted, true);
+    assert.equal(clearRecB.v2.state, "HALT");
+    assert.equal(clearRecB.v2.human_rearm_required, true);
+
+    // S9: accrue dividend on OLDT -> ticker_change OLDT->NEWT -> settle dividend on NEWT succeeds
+    let renameLedger = createCorporateActionLedger(spec.initial_ledger);
+    const renameExDiv = structuredClone(spec.subcases[2].event);
+    renameExDiv.event_id = "ca-a03-s9-div-ex";
+    renameExDiv.instrument_id = "inst_rename";
+    renameExDiv.symbol = "OLDT";
+    renameExDiv.pre_units = "50";
+    renameExDiv.post_units = "50";
+    renameExDiv.pre_ref = "40.00";
+    renameExDiv.post_ref = "38.00";
+    renameExDiv.eligible_units = "50";
+    renameExDiv.dividend_per_unit_usd = "2.00";
+    const rStep1 = applyCorporateAction(renameLedger, renameExDiv);
+    assert.equal(rStep1.ok, true);
+    assert.equal(rStep1.ledger.dividend_receivable_usd, "100.00");
+
+    const renameEvt = structuredClone(spec.subcases.find((s) => s.name === "ticker_change").event);
+    renameEvt.event_id = "ca-a03-s9-rename";
+    renameEvt.pre_ref = "38.00";
+    renameEvt.post_ref = "38.00";
+    const rStep2 = applyCorporateAction(rStep1.ledger, renameEvt);
+    assert.equal(rStep2.ok, true);
+    assert.equal(rStep2.ledger.positions.inst_rename.symbol, "NEWT");
+
+    const renamePay = structuredClone(spec.subcases[3].event);
+    renamePay.event_id = "ca-a03-s9-div-pay";
+    renamePay.instrument_id = "inst_rename";
+    renamePay.symbol = "NEWT";
+    renamePay.pre_units = "50";
+    renamePay.post_units = "50";
+    renamePay.pre_ref = "38.00";
+    renamePay.post_ref = "38.00";
+    renamePay.eligible_units = "50";
+    const rStep3 = applyCorporateAction(rStep2.ledger, renamePay);
+    assert.equal(rStep3.ok, true, `S9 failed: ${rStep3.reason}`);
+    assert.equal(rStep3.ledger.dividend_receivable_usd, "0");
+    assert.equal(rStep3.ledger.settled_cash_usd, "1100.00");
 
     // P1 regression: cross-symbol dividend settlement cannot clear inst_dist's receivable
     const exDiv = applyCorporateAction(freshSplitLedger, spec.subcases[2].event);
@@ -389,6 +451,40 @@ const handlers = {
     );
     assert.equal(emptySesRes.data_status, "unavailable");
     assert.equal(emptySesRes.sizing_eligible, false);
+
+    // S3: numeric ms timestamp evaluatedAtMs + 60000.001 exceeds 60s bound
+    const evalMs = Date.parse("2025-01-08T21:00:00.000Z");
+    const numSkewRes = evaluateFreshness(
+      {
+        observed_at: evalMs + 60000.001,
+        fetched_at: evalMs + 60000.001,
+        evaluated_at: evalMs,
+        last_observed_value: "50000.00",
+      },
+      { calendarProvider: provider },
+    );
+    assert.equal(numSkewRes.data_status, "invalid_future_skew");
+    assert.equal(numSkewRes.sizing_eligible, false);
+
+    // S4: forged spec_digest on csa22-v1 with shifted close fails closed
+    const forgedDigest = "a".repeat(64);
+    const forgedCal = structuredClone(pinnedCalendar);
+    forgedCal.metadata.spec_digest = forgedDigest;
+    forgedCal.sessions["2025-01-08"].spec_digest = forgedDigest;
+    forgedCal.sessions["2025-01-08"].close_utc = "2025-01-08T22:00:00.000Z";
+    const forgedProvider = createPinnedCalendarProvider(forgedCal);
+    assert.equal(forgedProvider.is_pinned, false);
+    const forgedRes = evaluateFreshness(
+      {
+        observed_at: "2025-01-08T20:59:59.000Z",
+        fetched_at: "2025-01-08T21:00:00.000Z",
+        evaluated_at: "2025-01-08T21:00:00.000Z",
+        last_observed_value: "50000.00",
+      },
+      { calendarProvider: forgedProvider },
+    );
+    assert.equal(forgedRes.data_status, "unavailable");
+    assert.equal(forgedRes.sizing_eligible, false);
   },
 
   async "SA-A07"() {
@@ -566,16 +662,45 @@ const handlers = {
     assert.equal(disambigA.status, "available");
     assert.equal(disambigA.nav_usd, "50000.00");
 
+    // S1: explicit (platform, account_key) ignores unrelated EUR balance on other platform
+    const acctBEur = {
+      ...spec.accounts[0],
+      account_id: "shared-key-1",
+      account_key: "shared-key-1",
+      platform: "longbridge",
+      currency: "EUR",
+      balances: [{ currency: "EUR", net_assets: "1000.00" }],
+    };
+    const disambigUsdOverEur = evaluateSizingUnitCohort([acctBEur, acctA], {
+      evaluated_at: spec.evaluated_at,
+      calendarProvider: provider,
+      designated_platform: "ibkr",
+      designated_account_id: "shared-key-1",
+    });
+    assert.equal(disambigUsdOverEur.status, "available");
+    assert.equal(disambigUsdOverEur.nav_usd, "50000.00");
+
+    // S2: single-slash file:/ path and signed GCS HTTPS URL in positions[].price_ref rejected cleanly
+    const singleSlashAcct = structuredClone(spec.accounts[0]);
+    singleSlashAcct.positions[0].price_ref = "file:/tmp/example/prices";
+    const singleSlashProjected = projectSizingUnitAccountFacts([singleSlashAcct], {
+      evaluated_at: spec.evaluated_at,
+      calendarProvider: provider,
+    });
+    assert.equal(singleSlashProjected.status, "unavailable");
+    assert.equal(singleSlashProjected.nav_usd, null);
+    assert.equal(/file:\/tmp\/example\/prices/.test(JSON.stringify(singleSlashProjected)), false);
+
     // P1 regression: signed GCS HTTPS URL in positions[].price_ref must be stripped & rejected
     const signedUrlAcct = structuredClone(spec.accounts[0]);
-    signedUrlAcct.positions[0].price_ref = "https://storage.googleapis.com/private-bucket/prices.json?X-Goog-Algorithm=GOOG4&X-Goog-Signature=deadbeef";
+    signedUrlAcct.positions[0].price_ref = "https://storage.example.invalid/private-bucket/prices.json?X-Goog-Algorithm=GOOG4&X-Goog-Signature=deadbeef";
     const signedProjected = projectSizingUnitAccountFacts([signedUrlAcct], {
       evaluated_at: spec.evaluated_at,
       calendarProvider: provider,
     });
     assert.equal(signedProjected.status, "unavailable");
     assert.equal(signedProjected.nav_usd, null);
-    assert.equal(/storage\.googleapis\.com|X-Goog-Signature/.test(JSON.stringify(signedProjected)), false);
+    assert.equal(/storage\.example\.invalid|X-Goog-Signature/.test(JSON.stringify(signedProjected)), false);
   },
 
   async "SA-A10"() {
@@ -781,6 +906,104 @@ const handlers = {
     assert.equal(Object.hasOwn(usdSummaryRow, "cashflow_method"), false);
     assert.equal(Object.hasOwn(usdSummaryRow, "approximate"), false);
     assert.equal(Object.hasOwn(usdSummaryRow, "sizing_eligible"), false);
+    // S7: multi-currency returns.per_currency retains BOTH USD native and EUR Dietz entries
+    const usdReturnRow = appliedMulti.returns.per_currency.find((r) => r.currency === "USD");
+    const eurReturnRow = appliedMulti.returns.per_currency.find((r) => r.currency === "EUR");
+    assert.ok(usdReturnRow && eurReturnRow, "returns.per_currency must include both USD and EUR");
+    assert.equal(Object.hasOwn(usdReturnRow, "cashflow_method"), false);
+    assert.equal(eurReturnRow.cashflow_method, "modified_dietz");
+    assert.equal(eurReturnRow.approximate, true);
+
+    // S5: missing intermediate trading day (Jan 6 -> Jan 10, 100 -> 120) rejected with & without calendar
+    const { createPinnedCalendarProvider } = await import(
+      "../web/strategy-switch-console/application/sizing_unit/freshness.js"
+    );
+    const { evaluateTwrLedger } = await import(
+      "../web/strategy-switch-console/application/sizing_unit/twr_ledger.js"
+    );
+    const calProv = createPinnedCalendarProvider(pinnedCalendar);
+    const jan6to10Vals = [
+      { observed_at: "2025-01-06T21:00:00.000Z", equity_usd: "100.00" },
+      { observed_at: "2025-01-10T21:00:00.000Z", equity_usd: "120.00" },
+    ];
+    for (const calArg of [undefined, calProv]) {
+      const ledgerGap = evaluateTwrLedger({
+        initialState: { e_prev_usd: "100.00", e_star_prev_usd: "100.00", h_usd: "0", tier_drawdown_limit_d: "0.30" },
+        valuations: jan6to10Vals,
+        flows: [],
+        calendarProvider: calArg,
+      });
+      assert.equal(ledgerGap.status, "partial");
+      assert.equal(ledgerGap.return_pct, null);
+      assert.equal(ledgerGap.sizing_eligible, false);
+
+      const deskPerfGap = projectDesk7aPerformance({
+        initialState: { e_prev_usd: "100.00", e_star_prev_usd: "100.00", h_usd: "0", tier_drawdown_limit_d: "0.30" },
+        valuations: jan6to10Vals,
+        flows: [],
+        calendarProvider: calArg,
+      });
+      assert.equal(deskPerfGap.cashflow_7a.adjusted_performance.return_pct, null);
+      assert.equal(deskPerfGap.cashflow_7a.adjusted_performance.sizing_eligible, false);
+
+      const deskOvGap = projectDesk7aOverview({
+        initialState: { e_prev_usd: "100.00", e_star_prev_usd: "100.00", h_usd: "0", tier_drawdown_limit_d: "0.30" },
+        valuations: jan6to10Vals,
+        flows: [],
+        calendarProvider: calArg,
+      });
+      assert.equal(deskOvGap.cashflow_7a.adjusted_performance.return_pct, null);
+      assert.equal(deskOvGap.cashflow_7a.adjusted_performance.sizing_eligible, false);
+    }
+
+    // S6: Dietz -64% period followed by exact 0% period never regains eligibility or dd_b="0"
+    const dietzThenExactSessions = [
+      {
+        period_start_utc: "2025-01-06T21:00:00.000Z",
+        period_end_utc: "2025-01-07T21:00:00.000Z",
+        ending_equity_usd: "55.00",
+        intraday_subvaluations: [],
+        flows: [
+          {
+            source_ref: "d64".padEnd(64, "0"),
+            type: "deposit",
+            amount_usd: "25.00",
+            effective_at: "2025-01-07T15:00:00.000Z",
+            time_precision: "exact",
+            coverage: "complete",
+          },
+        ],
+      },
+      {
+        period_start_utc: "2025-01-07T21:00:00.000Z",
+        period_end_utc: "2025-01-08T21:00:00.000Z",
+        ending_equity_usd: "55.00",
+        intraday_subvaluations: [],
+        flows: [],
+      },
+    ];
+    const mixedChainLedger = evaluateTwrLedger({
+      initialState: { e_prev_usd: "100.00", e_star_prev_usd: "100.00", h_usd: "0", tier_drawdown_limit_d: "0.30" },
+      sessions: dietzThenExactSessions,
+      calendarProvider: calProv,
+    });
+    assert.equal(mixedChainLedger.return_method, "modified_dietz");
+    assert.equal(mixedChainLedger.approximate, true);
+    assert.equal(mixedChainLedger.sizing_eligible, false);
+    assert.equal(mixedChainLedger.breaker_eligible, false);
+    assert.equal(mixedChainLedger.sessions[1].sizing_eligible, false);
+    assert.equal(mixedChainLedger.sessions[1].breaker_eligible, false);
+    assert.equal(mixedChainLedger.sessions[1].approximate, true);
+    assert.notEqual(mixedChainLedger.sessions[1].dd_b, "0");
+
+    const mixedChainDesk = projectDesk7aPerformance({
+      initialState: { e_prev_usd: "100.00", e_star_prev_usd: "100.00", h_usd: "0", tier_drawdown_limit_d: "0.30" },
+      sessions: dietzThenExactSessions,
+      calendarProvider: calProv,
+    });
+    assert.equal(mixedChainDesk.cashflow_7a.adjusted_performance.return_method, "modified_dietz");
+    assert.equal(mixedChainDesk.cashflow_7a.adjusted_performance.approximate, true);
+    assert.equal(mixedChainDesk.cashflow_7a.adjusted_performance.sizing_eligible, false);
   },
 
   async "SA-A11"() {
@@ -873,6 +1096,47 @@ const handlers = {
     assert.equal(mismatchedSwitch.result.status, "insufficient_history");
     assert.equal(mismatchedSwitch.result.return_pct, null);
     assert.ok(mismatchedSwitch.gap_intervals.length > 0);
+
+    // S2: continuity evidence_ref never echoes signed HTTPS URL query params
+    const signedContinuity = evaluateHistoryContinuity({
+      account_id: "synth-sizing-01",
+      broker_environment: "live",
+      requested_interval: { start_utc: "2025-07-01T00:00:00.000Z", end_utc: "2025-09-01T00:00:00.000Z" },
+      desk_view: true,
+      current_valuation_binding_id: "b_val_1",
+      history_source_binding_ids: [],
+      current_flow_binding_id: "b_flow_1",
+      flow_history_source_binding_ids: [],
+      valuation_intervals: [
+        {
+          start_utc: "2025-07-01T00:00:00.000Z",
+          end_utc: "2025-09-01T00:00:00.000Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_val_1",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+      ],
+      flow_intervals: [
+        {
+          start_utc: "2025-07-01T00:00:00.000Z",
+          end_utc: "2025-09-01T00:00:00.000Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_flow_1",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+      ],
+      origin: "synthetic",
+      source_class: "synthetic",
+      evidence_ref: "https://storage.example.invalid/private-bucket/continuity.json?sig=secret123",
+    });
+    assert.ok(validateContinuitySchema(signedContinuity));
+    assert.equal(/storage\.example\.invalid|sig=secret123|https:/.test(JSON.stringify(signedContinuity)), false);
   },
 };
 

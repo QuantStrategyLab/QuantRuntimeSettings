@@ -273,8 +273,8 @@ export async function deskPerformanceResponse(request, env, deps) {
   });
 }
 
-export function projectDesk7aPerformance({ initialState, sessions, evaluatedAt } = {}) {
-  const { last, cashflow_7a } = buildCashflow7aSummary({ initialState, sessions });
+export function projectDesk7aPerformance({ initialState, sessions, valuations, flows, calendarProvider, evaluatedAt } = {}) {
+  const { last, cashflow_7a } = buildCashflow7aSummary({ initialState, sessions, valuations, flows, calendarProvider });
   const endDate = last?.period_end_utc?.slice(0, 10) || "2025-01-08";
   const nowMs = Date.parse(evaluatedAt || last?.period_end_utc || "2025-01-08T21:00:00Z");
   const proj = performanceProjection({ members: [], range: "ALL", end: endDate, now: nowMs, readable: true });

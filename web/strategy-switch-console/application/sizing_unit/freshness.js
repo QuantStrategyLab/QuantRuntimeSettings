@@ -13,9 +13,11 @@
 
 export const FUTURE_SKEW_LIMIT_MS = 60_000;
 export const FUTURE_SKEW_LIMIT_NS = 60_000_000_000n;
+export const PINNED_CALENDAR_DIGESTS = Object.freeze({
+  "csa22-v1": "6601c01f2907119c25a2687d4b67210285d3c13ebf2d86a2953745dbd1f6f2af",
+});
 const ISO_INSTANT_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-](\d{2}):(\d{2}))$/;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const SHA256_HEX_RE = /^[a-f0-9]{64}$/;
 const NY_DATE_FORMAT = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/New_York",
   year: "numeric",
@@ -25,7 +27,11 @@ const NY_DATE_FORMAT = new Intl.DateTimeFormat("en-CA", {
 
 function parseInstantNs(value) {
   if (typeof value === "number") {
-    return Number.isFinite(value) ? BigInt(Math.round(value)) * 1_000_000n : null;
+    if (!Number.isFinite(value)) return null;
+    const wholeMs = Math.trunc(value);
+    const subMs = value - wholeMs;
+    const subNs = BigInt(Math.round(subMs * 1_000_000));
+    return BigInt(wholeMs) * 1_000_000n + subNs;
   }
   if (typeof value !== "string") return null;
   const match = ISO_INSTANT_RE.exec(value);
@@ -90,18 +96,20 @@ function nextIsoDate(isoDate) {
 }
 
 function isPinnedCalendarMetadata(meta) {
+  const expectedDigest = meta && typeof meta.calendar_version === "string"
+    && Object.hasOwn(PINNED_CALENDAR_DIGESTS, meta.calendar_version)
+    ? PINNED_CALENDAR_DIGESTS[meta.calendar_version]
+    : null;
   return Boolean(
     meta
-    && typeof meta.calendar_version === "string"
-    && meta.calendar_version.length > 0
-    && meta.calendar_version !== "unknown"
-    && typeof meta.spec_digest === "string"
-    && SHA256_HEX_RE.test(meta.spec_digest)
+    && expectedDigest !== null
+    && meta.spec_digest === expectedDigest
     && meta.exchange === "XNYS"
     && typeof meta.coverage_start_date === "string"
     && ISO_DATE_RE.test(meta.coverage_start_date)
     && typeof meta.coverage_end_date === "string"
-    && ISO_DATE_RE.test(meta.coverage_end_date),
+    && ISO_DATE_RE.test(meta.coverage_end_date)
+    && meta.coverage_start_date <= meta.coverage_end_date,
   );
 }
 
@@ -152,13 +160,14 @@ export function countXnysSessionCloses(startExclusiveInput, endInclusiveInput, c
   ) {
     return { covered: false, age_sessions: null, reason: "calendar_provider_unavailable" };
   }
+  const expectedDigest = typeof calendarProvider.calendar_version === "string"
+    && Object.hasOwn(PINNED_CALENDAR_DIGESTS, calendarProvider.calendar_version)
+    ? PINNED_CALENDAR_DIGESTS[calendarProvider.calendar_version]
+    : null;
   if (
     calendarProvider.exchange !== "XNYS"
-    || typeof calendarProvider.calendar_version !== "string"
-    || !calendarProvider.calendar_version.length
-    || calendarProvider.calendar_version === "unknown"
-    || typeof calendarProvider.spec_digest !== "string"
-    || !SHA256_HEX_RE.test(calendarProvider.spec_digest)
+    || expectedDigest === null
+    || calendarProvider.spec_digest !== expectedDigest
   ) {
     return { covered: false, age_sessions: null, reason: "calendar_unpinned" };
   }

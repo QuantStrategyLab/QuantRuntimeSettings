@@ -332,9 +332,9 @@ export async function deskOverviewResponse(request, env, deps) {
   });
 }
 
-export function projectDesk7aOverview({ initialState, session, sessions, evaluatedAt } = {}) {
-  const list = Array.isArray(sessions) ? sessions : (session ? [session] : []);
-  const { last, cashflow_7a } = buildCashflow7aSummary({ initialState, sessions: list });
+export function projectDesk7aOverview({ initialState, session, sessions, valuations, flows, calendarProvider, evaluatedAt } = {}) {
+  const list = Array.isArray(sessions) ? sessions : (session ? [session] : undefined);
+  const { last, cashflow_7a } = buildCashflow7aSummary({ initialState, sessions: list, valuations, flows, calendarProvider });
   const endDate = last?.period_end_utc?.slice(0, 10) || "2025-01-08";
   const nowMs = Date.parse(evaluatedAt || last?.period_end_utc || "2025-01-08T21:00:00Z");
   const perfProj = performanceProjection({ members: [], range: "ALL", end: endDate, now: nowMs, readable: true });

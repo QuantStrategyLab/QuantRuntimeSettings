@@ -9,7 +9,7 @@
  * - Always fails closed to insufficient_history (return_pct: null) on any gap.
  */
 
-import { parseInstantMs } from "./nav.js";
+import { parseInstantMs, safePublicText } from "./nav.js";
 
 export const CONTINUITY_SCHEMA = "qsl.sizing_unit_continuity.v1";
 export const RETENTION_LIMIT_DAYS = 366;
@@ -204,13 +204,11 @@ function findTransitionMismatches(valCovered, flowCovered, evalEndIso) {
  * account/environment isolation, and separate valuation vs external_flow bindings.
  */
 export function evaluateHistoryContinuity(input = {}) {
-  const accountId = input.account_id || "unknown-account";
+  const accountId = safePublicText(input.account_id, "redacted-account");
   const brokerEnv = input.broker_environment === "paper" ? "paper" : "live";
   const origin = input.origin === "production" ? "production" : "synthetic";
   const sourceClass = input.source_class || "synthetic";
-  const evidenceRef = typeof input.evidence_ref === "string" && input.evidence_ref.length
-    ? input.evidence_ref
-    : `sa1:continuity:${accountId}`;
+  const evidenceRef = safePublicText(input.evidence_ref, `sa1:continuity:${accountId}`);
 
   const reqStartMs = parseInstantMs(input.requested_interval?.start_utc);
   const reqEndMs = parseInstantMs(input.requested_interval?.end_utc);

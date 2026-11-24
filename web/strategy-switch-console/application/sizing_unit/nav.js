@@ -29,10 +29,16 @@ const PRIVATE_KEYS = new Set([
   "source_binding_id",
   "raw_path",
 ]);
+const URI_SCHEME_PREFIX_RE = /^(?:https?|ftp|file|kv|do|gs|s3|r2|blob|data):/i;
 const PRIVATE_VALUE_RE = new RegExp(
-  "(?:https?://|kv://|do://|gs://|s3://|r2://|file://|/" + "Users/|/" + "home/|[A-Za-z]:\\\\|[?&](?:X-Goog-|Signature|Expires|AWSAccessKeyId|token|sig|auth)=)",
+  "(?:://|^[a-z][a-z0-9+.-]*:/|^/(?:tmp|var|etc|opt|mnt|" + "Users|" + "home)/|[A-Za-z]:\\\\|\\.\\.[/\\\\]|[?#]|&(?:X-Goog-|Signature|Expires|AWSAccessKeyId|token|sig|auth)=)",
   "i",
 );
+
+export function isUnsafePrivateLocator(value) {
+  if (typeof value !== "string") return false;
+  return URI_SCHEME_PREFIX_RE.test(value) || PRIVATE_VALUE_RE.test(value);
+}
 
 export function parseInstantMs(value) {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
@@ -207,7 +213,7 @@ export function stripPrivateLocators(value) {
     const out = {};
     for (const [k, v] of Object.entries(value)) {
       if (PRIVATE_KEYS.has(k)) continue;
-      if (typeof v === "string" && PRIVATE_VALUE_RE.test(v)) continue;
+      if (typeof v === "string" && isUnsafePrivateLocator(v)) continue;
       out[k] = stripPrivateLocators(v);
     }
     return out;
@@ -215,14 +221,13 @@ export function stripPrivateLocators(value) {
   return value;
 }
 
-function safePublicText(ref, fallback = null) {
+export function safePublicText(ref, fallback = null) {
   if (
     typeof ref !== "string"
     || !ref.length
     || ref.length > 128
-    || ref.includes("://")
-    || ref.includes("?")
-    || PRIVATE_VALUE_RE.test(ref)
+    || /\s/.test(ref)
+    || isUnsafePrivateLocator(ref)
   ) {
     return fallback;
   }
@@ -622,20 +627,6 @@ export function evaluateSizingUnitCohort(accounts, options = {}) {
     });
   }
 
-  const eligibleCurrencies = [...new Set(eligibleAccounts.flatMap(({ acct }) => collectAccountCurrencies(acct)))].sort();
-  if (eligibleCurrencies.length > 1) {
-    const first = eligibleAccounts[0];
-    return failClosedResult({
-      account: first.acct,
-      eligibility: first.elig,
-      fresh: first.fresh,
-      reason: "mixed_currency",
-      currencies: eligibleCurrencies,
-      observations,
-      cohort: { ...cohortSummary, included_count: 0 },
-    });
-  }
-
   const designatedId = options.designated_account_id ?? options.designated_account_key ?? null;
   const designatedPlatform = typeof options.designated_platform === "string" && options.designated_platform.length
     ? options.designated_platform
@@ -648,13 +639,14 @@ export function evaluateSizingUnitCohort(accounts, options = {}) {
   if (designatedId !== null) {
     const eligibleMatches = eligibleAccounts.filter(({ acct }) => matchesDesignated(acct));
     const excludedMatches = excludedRecords.filter(({ acct }) => matchesDesignated(acct));
+    const matchCurrencies = [...new Set(eligibleMatches.flatMap(({ acct }) => collectAccountCurrencies(acct)))].sort();
     if (eligibleMatches.length > 1 || (designatedPlatform === null && eligibleMatches.length + excludedMatches.length > 1)) {
       return failClosedResult({
         account: { account_id: designatedId, platform: designatedPlatform },
         eligibility: { processing_eligible: false, management_status: MANAGEMENT_STATUS.UNKNOWN },
         fresh: runFreshnessCheck({}, { ...options, evaluated_at: evaluatedAt }),
         reason: "ambiguous_sizing_unit",
-        currencies: eligibleCurrencies,
+        currencies: matchCurrencies,
         observations,
         cohort: { ...cohortSummary, included_count: 0 },
       });
@@ -671,23 +663,48 @@ export function evaluateSizingUnitCohort(accounts, options = {}) {
         },
         fresh: fallbackFresh,
         reason: excluded?.reason || "designated_account_not_eligible",
+        currencies: [],
+        observations,
+        cohort: { ...cohortSummary, included_count: 0 },
+      });
+    }
+    if (matchCurrencies.length > 1) {
+      return failClosedResult({
+        account: targetEntry.acct,
+        eligibility: targetEntry.elig,
+        fresh: targetEntry.fresh,
+        reason: "mixed_currency",
+        currencies: matchCurrencies,
+        observations,
+        cohort: { ...cohortSummary, included_count: 0 },
+      });
+    }
+  } else {
+    const eligibleCurrencies = [...new Set(eligibleAccounts.flatMap(({ acct }) => collectAccountCurrencies(acct)))].sort();
+    if (eligibleCurrencies.length > 1) {
+      const first = eligibleAccounts[0];
+      return failClosedResult({
+        account: first.acct,
+        eligibility: first.elig,
+        fresh: first.fresh,
+        reason: "mixed_currency",
         currencies: eligibleCurrencies,
         observations,
         cohort: { ...cohortSummary, included_count: 0 },
       });
     }
-  } else if (eligibleAccounts.length > 1) {
-    const first = eligibleAccounts[0];
-    return failClosedResult({
-      account: first.acct,
-      eligibility: first.elig,
-      fresh: first.fresh,
-      reason: "ambiguous_sizing_unit",
-      currencies: eligibleCurrencies,
-      observations,
-      cohort: { ...cohortSummary, included_count: 0 },
-    });
-  } else {
+    if (eligibleAccounts.length > 1) {
+      const first = eligibleAccounts[0];
+      return failClosedResult({
+        account: first.acct,
+        eligibility: first.elig,
+        fresh: first.fresh,
+        reason: "ambiguous_sizing_unit",
+        currencies: eligibleCurrencies,
+        observations,
+        cohort: { ...cohortSummary, included_count: 0 },
+      });
+    }
     targetEntry = eligibleAccounts[0];
   }
 

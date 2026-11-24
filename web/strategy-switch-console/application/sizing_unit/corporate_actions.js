@@ -139,6 +139,27 @@ function computeTotalEquityRat(ledger) {
   return total;
 }
 
+function haltLedgerRejection(ledgerState, reason, instrumentId, symbol) {
+  const rejected = rejectAction(ledgerState, reason);
+  const existingHalted = Array.isArray(rejected.ledger.v2?.halted_instruments)
+    ? [...rejected.ledger.v2.halted_instruments]
+    : [];
+  if (instrumentId && !existingHalted.some((h) => h.instrument_id === instrumentId)) {
+    existingHalted.push({ instrument_id: instrumentId, symbol: symbol ?? null });
+  }
+  const haltedV2 = {
+    ...rejected.ledger.v2,
+    halted: true,
+    state: "HALT",
+    auto_cleared: false,
+    human_rearm_required: true,
+    halted_instruments: existingHalted,
+  };
+  rejected.v2 = haltedV2;
+  rejected.ledger.v2 = structuredClone(haltedV2);
+  return rejected;
+}
+
 function rejectAction(ledgerState, reason) {
   return {
     ok: false,
@@ -317,16 +338,7 @@ export function applyCorporateAction(ledgerState, event) {
       const expectedPostRef = ratDiv(preRef, ratio);
       const rawPostUnits = ratMul(preUnits, ratio);
       if (ratCmp(postRef, expectedPostRef) !== 0) {
-        return {
-          ...rejectAction(ledgerState, "split_ratio_not_applied"),
-          v2: {
-            ...structuredClone(ledgerState.v2),
-            halted: true,
-            state: "HALT",
-            auto_cleared: false,
-            human_rearm_required: true,
-          },
-        };
+        return haltLedgerRejection(ledgerState, "split_ratio_not_applied", event.instrument_id, pos.symbol);
       }
       if (cilLeg.applicable) {
         const remainder = ratSub(rawPostUnits, postUnits);
@@ -336,28 +348,10 @@ export function applyCorporateAction(ledgerState, event) {
           || ratCmp(remainder, ONE) >= 0
           || ratCmp(ratMul(remainder, postRef), cilLeg.rat) !== 0
         ) {
-          return {
-            ...rejectAction(ledgerState, "split_cil_mismatch"),
-            v2: {
-              ...structuredClone(ledgerState.v2),
-              halted: true,
-              state: "HALT",
-              auto_cleared: false,
-              human_rearm_required: true,
-            },
-          };
+          return haltLedgerRejection(ledgerState, "split_cil_mismatch", event.instrument_id, pos.symbol);
         }
       } else if (ratCmp(postUnits, rawPostUnits) !== 0) {
-        return {
-          ...rejectAction(ledgerState, "split_ratio_not_applied"),
-          v2: {
-            ...structuredClone(ledgerState.v2),
-            halted: true,
-            state: "HALT",
-            auto_cleared: false,
-            human_rearm_required: true,
-          },
-        };
+        return haltLedgerRejection(ledgerState, "split_ratio_not_applied", event.instrument_id, pos.symbol);
       }
     }
     const lhs = preNotional;
@@ -397,9 +391,11 @@ export function applyCorporateAction(ledgerState, event) {
     }
     const instRec = nextLedger.receivables_by_instrument[event.instrument_id];
     const instAmt = instRec ? ratFromText(instRec.amount_usd) : null;
+    const lineageMatches = instRec
+      && (instRec.symbol === event.symbol || (Array.isArray(pos.ticker_history) && pos.ticker_history.includes(instRec.symbol)));
     if (
       !instRec
-      || instRec.symbol !== event.symbol
+      || !lineageMatches
       || (event.currency && instRec.currency && event.currency !== instRec.currency)
       || !instAmt
       || ratCmp(instAmt, payLeg.rat) < 0
@@ -410,6 +406,7 @@ export function applyCorporateAction(ledgerState, event) {
     const remInstAmt = ratSub(instAmt, payLeg.rat);
     nextLedger.receivables_by_instrument[event.instrument_id] = {
       ...instRec,
+      symbol: pos.symbol,
       amount_usd: formatUsdAmount(remInstAmt),
     };
     nextRec = ratSub(recBefore, payLeg.rat);
@@ -427,6 +424,12 @@ export function applyCorporateAction(ledgerState, event) {
     }
     nextLedger.positions[event.instrument_id].symbol = event.ticker_lineage.new_symbol;
     nextLedger.positions[event.instrument_id].ticker_history.push(event.ticker_lineage.new_symbol);
+    if (nextLedger.receivables_by_instrument[event.instrument_id]) {
+      nextLedger.receivables_by_instrument[event.instrument_id] = {
+        ...nextLedger.receivables_by_instrument[event.instrument_id],
+        symbol: event.ticker_lineage.new_symbol,
+      };
+    }
   } else if (event.action_type === "delisting") {
     if (!event.delisting || event.delisting.invoked_v3 !== true) {
       return rejectAction(ledgerState, "delisting_requires_v3_flag");
@@ -519,25 +522,37 @@ export function reconcileV2Broker(ledgerState, instrumentId, reconcilePayload = 
   const pos = nextLedger.positions?.[instrumentId];
   const broker = reconcilePayload?.broker_ledger;
   const rawHalted = Array.isArray(nextLedger.v2?.halted_instruments) && nextLedger.v2.halted_instruments.length > 0
-    ? nextLedger.v2.halted_instruments
+    ? [...nextLedger.v2.halted_instruments]
     : (nextLedger.v2?.halted && Array.isArray(nextLedger.v2?.triggers)
       ? nextLedger.v2.triggers.map((t) => ({
         instrument_id: t.instrument_id,
         symbol: t.symbol || nextLedger.positions?.[t.instrument_id]?.symbol || null,
       }))
       : []);
+  const withFailedTarget = () => {
+    const next = [...rawHalted];
+    if (instrumentId && !next.some((h) => h.instrument_id === instrumentId)) {
+      next.push({
+        instrument_id: instrumentId,
+        symbol: pos?.symbol || reconcilePayload?.symbol || null,
+      });
+    }
+    return next;
+  };
   const haltedMatchesTarget = rawHalted.length === 0
-    || rawHalted.some((h) => h.instrument_id === instrumentId && (!reconcilePayload?.symbol || h.symbol === reconcilePayload.symbol));
+    ? !nextLedger.v2?.halted
+    : rawHalted.some((h) => h.instrument_id === instrumentId && (!reconcilePayload?.symbol || h.symbol === reconcilePayload.symbol));
   const payloadSymbolValid = !reconcilePayload?.symbol || reconcilePayload.symbol === pos?.symbol;
 
   if (!pos || !broker || reconcilePayload?.broker_reconciled !== "exact_match" || !haltedMatchesTarget || !payloadSymbolValid) {
+    const updatedHalted = !haltedMatchesTarget ? rawHalted : withFailedTarget();
     nextLedger.v2 = {
       ...nextLedger.v2,
       halted: true,
       state: "HALT",
       auto_cleared: false,
       human_rearm_required: true,
-      halted_instruments: rawHalted,
+      halted_instruments: updatedHalted,
     };
     return {
       ok: false,
@@ -581,7 +596,7 @@ export function reconcileV2Broker(ledgerState, instrumentId, reconcilePayload = 
     state: "HALT",
     auto_cleared: false,
     human_rearm_required: true,
-    halted_instruments: rawHalted,
+    halted_instruments: withFailedTarget(),
   };
   return { ok: false, reason: "v2_ledger_mismatch", v2: structuredClone(nextLedger.v2), ledger: nextLedger };
 }

@@ -119,17 +119,43 @@ export function applyNativeDailyReturns(blocks, input) {
   // Native daily returns already have a starting capital boundary. Rebasing the
   // first close to zero would silently remove the first day's actual return.
   const comparisons = nativeBenchmarks(index, input, gaps);
-  const retainedReturnPerCurrency = Array.isArray(blocks.returns.per_currency)
-    ? blocks.returns.per_currency.filter(row => row.currency !== currency)
-    : [];
+  const stripDietzKeys = ["cashflow_method", "approximate", "sizing_eligible", "breaker_eligible", "verdict_eligible", "method_version"];
+  const nativePoints = gaps ? daily.map((row, i) => ({ date: row.date, value: row.value * 100,
+    daily_return_percent: row.value * 100, breakBefore: i > 0 && hasGap(daily[i - 1], row) }))
+    : index.map((row, i) => ({ date: row.date, value: (row.value - 1) * 100, daily_return_percent: daily[i].value * 100 }));
+  const priorReturnCurrencies = Array.isArray(blocks.returns.per_currency) ? blocks.returns.per_currency : [];
+  const otherReturnCurrencies = priorReturnCurrencies.filter(row => row.currency !== currency);
+  const hasOtherCurrencies = otherReturnCurrencies.length > 0
+    || (Array.isArray(blocks.summary.per_currency) && blocks.summary.per_currency.some(row => row.currency !== currency));
+  let nextReturnPerCurrency = [];
+  if (hasOtherCurrencies) {
+    const existingEntry = priorReturnCurrencies.find(row => row.currency === currency) || {};
+    const cleanEntry = { ...existingEntry };
+    for (const key of stripDietzKeys) delete cleanEntry[key];
+    const nativeEntry = {
+      ...cleanEntry,
+      currency,
+      status,
+      unavailable_reason: reason,
+      value_kind: "pnl",
+      return_kind: "twr",
+      as_of: daily.at(-1).date,
+      coverage,
+      aligned_start: daily[0].date,
+      no_common_date: false,
+      points: nativePoints,
+      ...comparisons,
+    };
+    nextReturnPerCurrency = priorReturnCurrencies.some(row => row.currency === currency)
+      ? priorReturnCurrencies.map(row => row.currency === currency ? nativeEntry : row)
+      : [...priorReturnCurrencies, nativeEntry];
+  }
   Object.assign(blocks.returns, { status, unavailable_reason: reason, currency, value_kind: "pnl",
     return_kind: "twr", cashflow_method: undefined, approximate: undefined,
     sizing_eligible: undefined, breaker_eligible: undefined, verdict_eligible: undefined, method_version: undefined,
     as_of: daily.at(-1).date, coverage, aligned_start: daily[0].date, no_common_date: false,
-    points: gaps ? daily.map((row, i) => ({ date: row.date, value: row.value * 100,
-      daily_return_percent: row.value * 100, breakBefore: i > 0 && hasGap(daily[i - 1], row) }))
-      : index.map((row, i) => ({ date: row.date, value: (row.value - 1) * 100, daily_return_percent: daily[i].value * 100 })),
-    ...comparisons, per_currency: retainedReturnPerCurrency });
+    points: nativePoints,
+    ...comparisons, per_currency: nextReturnPerCurrency });
   let peak = 1, peakDate = daily[0].date, worst = 0, lossPeakDate = peakDate, troughDate = peakDate;
   for (const point of index) {
     const loss = peak > 0 ? (1 - point.value / peak) * 100 : 0;
