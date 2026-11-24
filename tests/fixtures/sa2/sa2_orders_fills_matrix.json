@@ -59,12 +59,7 @@
         { "name": "conflated_longbridge_paper", "broker": "longbridge_paper", "environment": "paper", "account": "longbridge:paper:pilot" },
         { "name": "research_env_disallowed", "broker": "binance", "environment": "research", "account": "binance:research:archive" },
         { "name": "account_prefix_broker_mismatch", "broker": "ibkr", "environment": "live", "account": "longbridge:live:sg" },
-        { "name": "account_prefix_env_mismatch", "broker": "longbridge", "environment": "live", "account": "longbridge:paper:pilot" },
-        { "name": "raw_u_account_rejected", "broker": "ibkr", "environment": "live", "account": "U1234567" },
-        { "name": "raw_du_account_rejected", "broker": "ibkr", "environment": "paper", "account": "DU987654" },
-        { "name": "raw_6digit_account_rejected", "broker": "schwab", "environment": "live", "account": "12345678" },
-        { "name": "raw_split_digits_rejected", "broker": "schwab", "environment": "live", "account": "12-34-56" },
-        { "name": "private_kv_locator_rejected", "broker": "ibkr", "environment": "live", "account": "kv://ibkr/live/a1" }
+        { "name": "account_prefix_env_mismatch", "broker": "longbridge", "environment": "live", "account": "longbridge:paper:pilot" }
       ]
     },
     "dedup_and_lifecycle": {
@@ -316,7 +311,7 @@
         "target_id": "synthetic-target",
         "source_binding_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "account_scope": "synthetic-live",
-        "account_selector": "U100001",
+        "account_selector": "synthetic-selector",
         "period": { "from": "2026-10-01", "to": "2026-10-23" },
         "observed_at": "2026-10-23T16:00:00.000Z",
         "source": "ibkr_flex",

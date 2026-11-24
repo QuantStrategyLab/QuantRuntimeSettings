@@ -247,7 +247,13 @@
     },
     "currency": {
       "type": "string",
-      "pattern": "^[A-Z][A-Z0-9]{2,9}$"
+      "pattern": "^[A-Z]{3,10}$",
+      "not": {
+        "anyOf": [
+          { "pattern": "(?:^|[^A-Za-z0-9])[dD]?[uU][0-9]{5,}(?:$|[^A-Za-z0-9])" },
+          { "pattern": "[0-9](?:[-_. ]*[0-9]){5}" }
+        ]
+      }
     },
     "nullableCurrency": {
       "anyOf": [{ "$ref": "#/$defs/currency" }, { "type": "null" }]

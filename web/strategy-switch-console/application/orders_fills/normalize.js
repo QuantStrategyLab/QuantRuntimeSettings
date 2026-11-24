@@ -16,7 +16,6 @@ import {
   mulDecimal,
   parseDecimal,
   parseInstantNs,
-  safePublicText,
   subDecimal,
   toUtcIsoFromNs,
 } from "../sizing_unit/nav.js";
@@ -84,7 +83,16 @@ function validateCurrency(value, fieldName = "currency", { allowNull = false } =
     if (allowNull) return null;
     throw new OrdersFillsError(`missing_${fieldName}`, 400);
   }
-  if (typeof value !== "string" || !CURRENCY_RE.test(value)) {
+  if (typeof value !== "string") {
+    throw new OrdersFillsError(`invalid_${fieldName}`, 400);
+  }
+  if (isUnsafePrivateLocator(value)) {
+    throw new OrdersFillsError(`unsafe_private_locator_${fieldName}`, 400);
+  }
+  if (isRawAccountIdentifier(value)) {
+    throw new OrdersFillsError(`raw_account_id_prohibited_${fieldName}`, 400);
+  }
+  if (!CURRENCY_RE.test(value)) {
     throw new OrdersFillsError(`invalid_${fieldName}`, 400);
   }
   return value;
@@ -151,27 +159,34 @@ export function normalizeBrokerIdentity(raw = {}) {
   if (isRawAccountIdentifier(account)) {
     throw new OrdersFillsError("raw_account_id_prohibited", 400);
   }
+  let slot;
   if (account.includes(":")) {
     const match = CANONICAL_ORDER_ACCOUNT_RE.exec(account);
     if (!match) {
       throw new OrdersFillsError("invalid_canonical_account_tuple", 400);
     }
-    const [, acctBroker, acctEnv, slot] = match;
+    const [, acctBroker, acctEnv, parsedSlot] = match;
     if (acctBroker !== broker || acctEnv !== environment) {
       throw new OrdersFillsError("account_broker_environment_mismatch", 409);
     }
-    if (isRawAccountIdentifier(slot)) {
+    if (isRawAccountIdentifier(parsedSlot)) {
       throw new OrdersFillsError("raw_account_id_prohibited", 400);
     }
-  } else if (!OPAQUE_ACCOUNT_SLOT_RE.test(account)) {
-    throw new OrdersFillsError("invalid_account_slot", 400);
+    slot = parsedSlot;
+  } else {
+    if (!OPAQUE_ACCOUNT_SLOT_RE.test(account)) {
+      throw new OrdersFillsError("invalid_account_slot", 400);
+    }
+    slot = account;
   }
+
+  const canonicalAccount = `${broker}:${environment}:${slot}`;
 
   return {
     broker,
     environment,
-    account,
-    binding_key: `${broker}|${environment}|${account}`,
+    account: canonicalAccount,
+    binding_key: `${broker}|${environment}|${canonicalAccount}`,
   };
 }
 
@@ -182,8 +197,15 @@ function assertRecordIdentityMatches(raw, identity) {
   if (raw.environment !== undefined && raw.environment !== identity.environment) {
     throw new OrdersFillsError("record_environment_mismatch", 409);
   }
-  if (raw.account !== undefined && raw.account !== identity.account) {
-    throw new OrdersFillsError("record_account_mismatch", 409);
+  if (raw.account !== undefined) {
+    const recIdentity = normalizeBrokerIdentity({
+      broker: raw.broker ?? identity.broker,
+      environment: raw.environment ?? identity.environment,
+      account: raw.account,
+    });
+    if (recIdentity.account !== identity.account) {
+      throw new OrdersFillsError("record_account_mismatch", 409);
+    }
   }
 }
 
@@ -233,7 +255,7 @@ function resolveFeeFields(raw) {
 function resolveNotionalUsd(qtyText, priceText, currency, raw) {
   if (priceText === null) {
     if (currency === "USD") return { notional_usd: null, usd_basis_qualified: true };
-    return { notional_usd: null, usd_basis_qualified: raw.usd_basis_qualified === true };
+    return { notional_usd: null, usd_basis_qualified: false };
   }
   if (currency === "USD") {
     const prod = mulDecimal(parseDecimal(qtyText), parseDecimal(priceText));
@@ -270,15 +292,32 @@ export function normalizeSubmissionRecord(raw, identity) {
   const limitPrice = validateDecimalString(raw.limit_price ?? null, "limit_price", { allowNull: true, positive: true });
   const currency = validateCurrency(raw.currency);
   const submittedAt = parseStrictUtcString(
-    raw.submitted_at ?? raw.resolved_at ?? raw.updated_at,
+    raw.submitted_at ?? raw.resolved_at ?? raw.canceled_at ?? raw.updated_at,
     "submitted_at",
   );
+  const submittedAtNs = parseInstantNs(submittedAt);
+  let effectiveEventAtNs = submittedAtNs;
+  let resolvedAtNs = null;
+  for (const [tsField, tsVal] of [
+    ["resolved_at", raw.resolved_at],
+    ["canceled_at", raw.canceled_at],
+    ["updated_at", raw.updated_at],
+  ]) {
+    if (tsVal !== undefined && tsVal !== null) {
+      const iso = parseStrictUtcString(tsVal, tsField);
+      const ns = parseInstantNs(iso);
+      if (ns > effectiveEventAtNs) effectiveEventAtNs = ns;
+      if (tsField === "resolved_at" || tsField === "canceled_at") {
+        resolvedAtNs = resolvedAtNs === null || ns > resolvedAtNs ? ns : resolvedAtNs;
+      }
+    }
+  }
   const evidenceRef = assertSafeIdentifier(raw.evidence_ref, "evidence_ref", { allowSha256: true });
 
   const fee = resolveFeeFields(raw);
   const notional = resolveNotionalUsd(qtySubmitted, limitPrice, currency, raw);
 
-  // Optional submission cancel / estimated fee fields carried through for reconciliation metadata.
+  // Optional submission cancel / estimated fee / timestamp metadata carried via WeakMap.
   const qtyCanceled = raw.qty_canceled !== undefined && raw.qty_canceled !== null
     ? validateDecimalString(raw.qty_canceled, "qty_canceled", { nonNegative: true })
     : null;
@@ -306,12 +345,13 @@ export function normalizeSubmissionRecord(raw, identity) {
     submitted_at: submittedAt,
     evidence_ref: evidenceRef,
   };
-  if (qtyCanceled !== null || estimatedFeeUsd !== null) {
-    SUBMISSION_META.set(record, {
-      ...(qtyCanceled !== null ? { qty_canceled: qtyCanceled } : {}),
-      ...(estimatedFeeUsd !== null ? { estimated_fee_usd: estimatedFeeUsd } : {}),
-    });
-  }
+  SUBMISSION_META.set(record, {
+    ...(qtyCanceled !== null ? { qty_canceled: qtyCanceled } : {}),
+    ...(estimatedFeeUsd !== null ? { estimated_fee_usd: estimatedFeeUsd } : {}),
+    submitted_at_ns: submittedAtNs,
+    effective_at_ns: effectiveEventAtNs,
+    resolved_at_ns: resolvedAtNs,
+  });
   return record;
 }
 
@@ -414,9 +454,9 @@ export function normalizeCutoffOpenOrderRecord(raw, identity) {
   } else if (currency === "USD") {
     if (expectedRemainingDec.num === 0n) {
       kPendUsd = "0";
-    } else if (limitPrice !== null) {
+    } else if (limitPrice !== null && reservedFeeUsd !== null) {
       const baseNotional = mulDecimal(expectedRemainingDec, parseDecimal(limitPrice));
-      const feeDec = reservedFeeUsd !== null ? parseDecimal(reservedFeeUsd) : { num: 0n, scale: 0 };
+      const feeDec = parseDecimal(reservedFeeUsd);
       kPendUsd = formatUsdExact(addDecimal(baseNotional, feeDec));
     } else {
       kPendUsd = null;
@@ -498,9 +538,30 @@ export function adaptLegacyBrokerExecutionPayload(legacyPayload, context = {}) {
   if (!Array.isArray(legacyPayload.records)) {
     throw new OrdersFillsError("invalid_legacy_broker_executions_records", 400);
   }
+  if (context.broker !== undefined && context.broker !== "ibkr") {
+    throw new OrdersFillsError("legacy_source_broker_mismatch", 409);
+  }
+  const targetEnv = context.environment ?? "live";
+  const acctScope = typeof legacyPayload.account_scope === "string" ? legacyPayload.account_scope : "";
+  const acctSelector = typeof legacyPayload.account_selector === "string" ? legacyPayload.account_selector : "";
+  if (/^U\d+$/i.test(acctSelector) && targetEnv !== "live") {
+    throw new OrdersFillsError("legacy_source_environment_mismatch", 409);
+  }
+  if (/^DU\d+$/i.test(acctSelector) && targetEnv !== "paper") {
+    throw new OrdersFillsError("legacy_source_environment_mismatch", 409);
+  }
+  if (/\blive\b/i.test(acctScope) && !/\bpaper\b/i.test(acctScope) && targetEnv !== "live") {
+    throw new OrdersFillsError("legacy_source_environment_mismatch", 409);
+  }
+  if (/\bpaper\b/i.test(acctScope) && !/\blive\b/i.test(acctScope) && targetEnv !== "paper") {
+    throw new OrdersFillsError("legacy_source_environment_mismatch", 409);
+  }
+  if (!/\bpaper\b/i.test(acctScope) && !/^DU\d+$/i.test(acctSelector) && targetEnv !== "live") {
+    throw new OrdersFillsError("legacy_source_environment_mismatch", 409);
+  }
   const identity = normalizeBrokerIdentity({
-    broker: context.broker ?? "ibkr",
-    environment: context.environment ?? "live",
+    broker: "ibkr",
+    environment: targetEnv,
     account: context.account,
   });
   const asOf = parseStrictUtcString(legacyPayload.observed_at, "legacy_observed_at");
@@ -508,8 +569,19 @@ export function adaptLegacyBrokerExecutionPayload(legacyPayload, context = {}) {
     ? parseStrictUtcString(context.evaluated_at, "evaluated_at")
     : asOf;
   const cap = context.cap ?? 256;
-  const evidenceRef = safePublicText(context.evidence_ref, "legacy:broker_executions:v1");
-  const obsDate = asOf.slice(0, 10);
+  const evidenceRef = assertSafeIdentifier(
+    context.evidence_ref ?? "legacy:broker_executions:v1",
+    "evidence_ref",
+    { allowSha256: true },
+  );
+  const legacyCoverage = typeof legacyPayload.coverage === "string"
+    && !isRawAccountIdentifier(legacyPayload.coverage)
+    && !isUnsafePrivateLocator(legacyPayload.coverage)
+    ? legacyPayload.coverage
+    : null;
+  if (!legacyCoverage) {
+    throw new OrdersFillsError("invalid_legacy_broker_executions_coverage", 400);
+  }
 
   const mappedRecords = legacyPayload.records.map((row, idx) => {
     const qtyDec = parseDecimal(row?.quantity);
@@ -520,9 +592,7 @@ export function adaptLegacyBrokerExecutionPayload(legacyPayload, context = {}) {
     if (typeof row.trade_date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(row.trade_date)) {
       throw new OrdersFillsError("invalid_legacy_execution_trade_date", 400);
     }
-    const executedAt = row.trade_date === obsDate
-      ? asOf
-      : `${row.trade_date}T00:00:00.000Z`;
+    const executedAt = `${row.trade_date}T00:00:00.000Z`;
     return {
       broker: identity.broker,
       environment: identity.environment,
@@ -563,7 +633,7 @@ export function adaptLegacyBrokerExecutionPayload(legacyPayload, context = {}) {
         domain_capability: "supported",
         as_of: asOf,
         source: legacyPayload.source,
-        scope: legacyPayload.coverage,
+        scope: legacyCoverage,
         cap,
         count: mappedRecords.length,
         truncated: mappedRecords.length >= cap,

@@ -103,6 +103,11 @@ export function evaluateAuthoritativeOrdersAndFills(input, options = {}) {
   const executions = normalizeOrderDomain("executions", input.domains.executions, identity);
   const prelimCutoff = normalizeOrderDomain("cutoff_open_orders", input.domains.cutoff_open_orders, identity);
 
+  const priorOrdersFills = options.priorOrdersFills ?? input.prior_orders_fills ?? null;
+  const priorKPendOrderIds = options.priorKPendOrderIds
+    ?? input.prior_k_pend_order_ids
+    ?? (Array.isArray(priorOrdersFills?.orders) ? priorOrdersFills.orders.map((o) => o.client_order_id) : null);
+
   const reconciled = reconcileOrdersAndFills({
     identity,
     submissions: submissions.records,
@@ -110,14 +115,15 @@ export function evaluateAuthoritativeOrdersAndFills(input, options = {}) {
     cutoffOpenOrders: prelimCutoff.records,
     cutoffCoverage: prelimCutoff,
     lockStore,
-    priorKPendUsd: options.priorKPendUsd ?? input.prior_k_pend_usd ?? null,
+    priorKPendUsd: options.priorKPendUsd ?? input.prior_k_pend_usd ?? priorOrdersFills?.summary?.k_pend_usd ?? null,
+    priorKPendOrderIds,
     evaluatedAt,
   });
 
   const hasOrderUnknownLocks = reconciled.order_unknown_locks.length > 0;
   const cutoffFinal = {
     ...prelimCutoff,
-    k_pend_release_allowed: prelimCutoff.k_pend_release_allowed && !hasOrderUnknownLocks,
+    k_pend_release_allowed: Boolean(reconciled.k_pend_release_allowed),
   };
 
   const currenciesSet = new Set([

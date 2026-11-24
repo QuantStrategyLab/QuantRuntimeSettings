@@ -173,8 +173,8 @@
               "cash_settled_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
               "proceeds_eligible_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
               "r_cash_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
-              "k_pend_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
-              "raw_deployable_cash_usd": { "$ref": "#/$defs/decimal" },
+              "k_pend_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+              "raw_deployable_cash_usd": { "$ref": "#/$defs/nullableDecimal" },
               "c_avail_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
               "total_buy_commit_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
               "remaining_deployable_cash_usd": { "$ref": "#/$defs/nonNegativeDecimal" }
@@ -185,6 +185,52 @@
               "status": { "const": "available" },
               "provenance": { "enum": ["synthetic_fixture", "research_prereg_amended", "venue_observed"] },
               "oi_cost_3_resolved": { "const": true }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": { "const": "available" },
+          "capital": {
+            "properties": { "k_pend_usd": { "type": "string" } },
+            "required": ["k_pend_usd"]
+          }
+        },
+        "required": ["status", "capital"]
+      },
+      "then": {
+        "properties": {
+          "capital": {
+            "properties": {
+              "raw_deployable_cash_usd": { "$ref": "#/$defs/decimal" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": { "const": "available" },
+          "capital": {
+            "properties": { "k_pend_usd": { "type": "null" } },
+            "required": ["k_pend_usd"]
+          }
+        },
+        "required": ["status", "capital"]
+      },
+      "then": {
+        "properties": {
+          "capital": {
+            "properties": {
+              "k_pend_release_allowed": { "const": false },
+              "raw_deployable_cash_usd": { "type": "null" },
+              "c_avail_usd": { "const": "0" },
+              "total_buy_commit_usd": { "const": "0" },
+              "remaining_deployable_cash_usd": { "const": "0" }
             }
           }
         }

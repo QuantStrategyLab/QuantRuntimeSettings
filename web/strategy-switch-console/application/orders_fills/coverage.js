@@ -17,6 +17,22 @@ import {
   OrdersFillsError,
 } from "./constants.js";
 
+function validateSafeCurrencyToken(value, fieldName) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new OrdersFillsError(`invalid_${fieldName}`, 400);
+  }
+  if (isUnsafePrivateLocator(value)) {
+    throw new OrdersFillsError(`unsafe_private_locator_${fieldName}`, 400);
+  }
+  if (isRawAccountIdentifier(value)) {
+    throw new OrdersFillsError(`raw_account_id_prohibited_${fieldName}`, 400);
+  }
+  if (!CURRENCY_RE.test(value)) {
+    throw new OrdersFillsError(`invalid_${fieldName}`, 400);
+  }
+  return value;
+}
+
 function validateSafeMetaText(value, fieldName) {
   if (typeof value !== "string" || value.trim().length === 0 || value.length > 128) {
     throw new OrdersFillsError(`invalid_${fieldName}`, 400);
@@ -100,7 +116,7 @@ export function evaluateDomainCoverage(rawDomain, options = {}) {
   }
   const cap = rawDomain.cap;
 
-  const completeness = rawDomain.completeness;
+  let completeness = rawDomain.completeness;
   if (!COMPLETENESS_SET.has(completeness) || completeness === "unsupported") {
     throw new OrdersFillsError("invalid_domain_completeness", 400);
   }
@@ -114,6 +130,10 @@ export function evaluateDomainCoverage(rawDomain, options = {}) {
     : Array.isArray(rawDomain.records)
       ? rawDomain.records
       : null;
+
+  if (normalizedRecords !== null && normalizedRecords.length > cap) {
+    throw new OrdersFillsError("domain_records_exceed_cap", 400);
+  }
 
   let count;
   if (rawDomain.count !== undefined && rawDomain.count !== null) {
@@ -134,16 +154,21 @@ export function evaluateDomainCoverage(rawDomain, options = {}) {
     throw new OrdersFillsError("domain_count_exceeds_cap", 400);
   }
 
+  if (normalizedRecords !== null && count !== normalizedRecords.length && !truncated) {
+    completeness = "incomplete";
+  }
+
   const currencies = new Set();
-  if (typeof rawDomain.native_currency === "string" && CURRENCY_RE.test(rawDomain.native_currency)) {
-    currencies.add(rawDomain.native_currency);
-  } else if (rawDomain.native_currency !== undefined && rawDomain.native_currency !== null) {
-    throw new OrdersFillsError("invalid_native_currency", 400);
+  if (rawDomain.native_currency !== undefined && rawDomain.native_currency !== null) {
+    currencies.add(validateSafeCurrencyToken(rawDomain.native_currency, "native_currency"));
   }
   if (normalizedRecords) {
     for (const rec of normalizedRecords) {
-      if (typeof rec?.currency === "string" && CURRENCY_RE.test(rec.currency)) {
-        currencies.add(rec.currency);
+      if (rec && rec.currency !== undefined && rec.currency !== null) {
+        currencies.add(validateSafeCurrencyToken(rec.currency, "record_currency"));
+      }
+      if (rec && rec.fee_currency !== undefined && rec.fee_currency !== null) {
+        validateSafeCurrencyToken(rec.fee_currency, "record_fee_currency");
       }
     }
   }

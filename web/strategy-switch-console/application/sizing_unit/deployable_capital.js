@@ -19,7 +19,6 @@ import {
   ratMul,
   ratSub,
   ratToDecimalText,
-  safePublicText,
   stripPrivateLocators,
   toUtcIsoFromNs,
 } from "./nav.js";
@@ -112,15 +111,23 @@ function parseAccountId(rawAccount, broker, environment) {
   if (isRawAccountIdentifier(rawAccount)) {
     return { ok: false, reason: "raw_account_id_prohibited" };
   }
+  let slot;
   if (rawAccount.includes(":")) {
     const match = SAFE_ACCOUNT_TUPLE_RE.exec(rawAccount);
     if (!match) return { ok: false, reason: "invalid_account_id" };
     if (broker && match[1] !== broker) return { ok: false, reason: "account_broker_mismatch" };
     if (environment && match[2] !== environment) return { ok: false, reason: "account_environment_mismatch" };
-    return { ok: true, value: rawAccount };
+    if (isRawAccountIdentifier(match[3])) return { ok: false, reason: "raw_account_id_prohibited" };
+    slot = match[3];
+    const resolvedBroker = broker ?? match[1];
+    const resolvedEnv = environment ?? match[2];
+    return { ok: true, value: `${resolvedBroker}:${resolvedEnv}:${slot}` };
   }
   if (!SAFE_OPAQUE_ACCOUNT_RE.test(rawAccount)) {
     return { ok: false, reason: "invalid_account_id" };
+  }
+  if (broker && environment) {
+    return { ok: true, value: `${broker}:${environment}:${rawAccount}` };
   }
   return { ok: true, value: rawAccount };
 }
@@ -132,6 +139,26 @@ function validateSafeSymbol(sym) {
     && !isRawAccountIdentifier(sym)
     && !isUnsafePrivateLocator(sym)
   );
+}
+
+const SAFE_MACHINE_REASON_RE = /^[a-z][a-z0-9_]{0,127}$/;
+const SENSITIVE_REASON_WORD_RE = /(?:token|secret|password|sig|auth)/i;
+const SAFE_EVIDENCE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const SHA256_EVIDENCE_RE = /^sha256:[a-f0-9]{64}$/;
+
+function sanitizePublicReason(value, fallback = "unavailable") {
+  if (typeof value !== "string" || value.length === 0 || value.length > 128) return fallback;
+  if (isRawAccountIdentifier(value) || isUnsafePrivateLocator(value)) return fallback;
+  if (!SAFE_MACHINE_REASON_RE.test(value) || SENSITIVE_REASON_WORD_RE.test(value)) return fallback;
+  return value;
+}
+
+function isSafeEvidenceRef(value) {
+  if (typeof value !== "string" || value.length === 0 || value.length > 128) return false;
+  if (isUnsafePrivateLocator(value)) return false;
+  if (SHA256_EVIDENCE_RE.test(value)) return true;
+  if (isRawAccountIdentifier(value)) return false;
+  return SAFE_EVIDENCE_ID_RE.test(value);
 }
 
 function resolveEvaluatedAt(input, options) {
@@ -184,14 +211,13 @@ function normalizeFeeSchedule(rawSchedule) {
     }
   }
 
-  let bExecRat = ZERO_RAT;
-  let bExecValid = true;
-  if (rawSchedule.b_exec_usd !== undefined) {
+  let bExecRat = null;
+  let bExecValid = false;
+  if (rawSchedule.b_exec_usd !== undefined && rawSchedule.b_exec_usd !== null) {
     const parsedBExec = parseNonNegativeRat(rawSchedule.b_exec_usd);
-    if (!parsedBExec) {
-      bExecValid = false;
-    } else {
+    if (parsedBExec) {
       bExecRat = parsedBExec;
+      bExecValid = true;
     }
   }
 
@@ -320,6 +346,7 @@ export function evaluateWorkableBankrollBminTier(params = {}) {
     };
   }
 
+  let cFixedCostFailureReason = null;
   let cFixedRat = null;
   if (params.c_fixed_ann_usd !== undefined && params.c_fixed_ann_usd !== null) {
     cFixedRat = parseNonNegativeRat(params.c_fixed_ann_usd);
@@ -339,17 +366,26 @@ export function evaluateWorkableBankrollBminTier(params = {}) {
     Number.isInteger(params.annual_ticket_count)
     && params.annual_ticket_count >= 0
     && params.fee_schedule_resolved
+    && params.fee_schedule_resolved.ok
   ) {
-    const ticketFee = ratAdd(params.fee_schedule_resolved.cMinRat, params.fee_schedule_resolved.cRegSpec.fixed);
-    const ticketsTotal = ratMul({ n: BigInt(params.annual_ticket_count), d: 1n }, ticketFee);
-    const roundingAnn = params.rounding_friction_ann_usd !== undefined && params.rounding_friction_ann_usd !== null
-      ? parseNonNegativeRat(params.rounding_friction_ann_usd)
-      : ZERO_RAT;
-    const passthroughAnn = params.fixed_passthrough_ann_usd !== undefined && params.fixed_passthrough_ann_usd !== null
-      ? parseNonNegativeRat(params.fixed_passthrough_ann_usd)
-      : ZERO_RAT;
-    if (roundingAnn && passthroughAnn) {
-      cFixedRat = ratAdd(ticketsTotal, ratAdd(roundingAnn, passthroughAnn));
+    const rawRounding = params.annual_rounding_friction_usd !== undefined
+      ? params.annual_rounding_friction_usd
+      : params.rounding_friction_ann_usd;
+    const rawPassthrough = params.annual_passthrough_usd !== undefined
+      ? params.annual_passthrough_usd
+      : params.fixed_passthrough_ann_usd;
+    if (rawRounding === undefined || rawRounding === null || rawPassthrough === undefined || rawPassthrough === null) {
+      cFixedCostFailureReason = "incomplete_fixed_annual_cost_inputs";
+    } else {
+      const roundingAnn = parseNonNegativeRat(rawRounding);
+      const passthroughAnn = parseNonNegativeRat(rawPassthrough);
+      if (!roundingAnn || !passthroughAnn) {
+        cFixedCostFailureReason = "invalid_fixed_annual_cost_inputs";
+      } else {
+        const ticketFee = ratAdd(params.fee_schedule_resolved.cMinRat, params.fee_schedule_resolved.cRegSpec.fixed);
+        const ticketsTotal = ratMul({ n: BigInt(params.annual_ticket_count), d: 1n }, ticketFee);
+        cFixedRat = ratAdd(ticketsTotal, ratAdd(roundingAnn, passthroughAnn));
+      }
     }
   }
 
@@ -362,7 +398,7 @@ export function evaluateWorkableBankrollBminTier(params = {}) {
       expected_excess_growth_ann_usd: null,
       threshold_ratio: "0.1",
       friction_ratio: null,
-      reason: "expected_excess_growth_unset",
+      reason: cFixedCostFailureReason ?? "expected_excess_growth_unset",
     };
   }
 
@@ -401,7 +437,7 @@ export function evaluateWorkableBankrollBminTier(params = {}) {
       expected_excess_growth_ann_usd: formatUsdRat(deltaGRat),
       threshold_ratio: "0.1",
       friction_ratio: null,
-      reason: "c_fixed_ann_unset",
+      reason: cFixedCostFailureReason ?? "c_fixed_ann_unset",
     };
   }
 
@@ -445,10 +481,12 @@ function buildUnavailableResult({
   sourceClass = "synthetic",
   evidenceRef = "sa2:q21:unavailable",
 }) {
+  const safeReason = sanitizePublicReason(reason, "unavailable");
+  const safeEvidenceRef = isSafeEvidenceRef(evidenceRef) ? evidenceRef : "sa2:q21:unavailable";
   return stripPrivateLocators({
     schema_version: DEPLOYABLE_CAPITAL_SCHEMA,
     status: "unavailable",
-    reason,
+    reason: safeReason,
     account_id: accountId,
     broker,
     environment,
@@ -495,11 +533,11 @@ function buildUnavailableResult({
       expected_excess_growth_ann_usd: null,
       threshold_ratio: "0.1",
       friction_ratio: null,
-      reason,
+      reason: safeReason,
     },
     origin,
     source_class: sourceClass,
-    evidence_ref: safePublicText(evidenceRef, "sa2:q21:unavailable") || "sa2:q21:unavailable",
+    evidence_ref: safeEvidenceRef,
   });
 }
 
@@ -517,24 +555,45 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
   const sourceClass = SOURCE_CLASS_SET.has(raw.source_class)
     ? raw.source_class
     : (SOURCE_CLASS_SET.has(nav?.source_class) ? nav.source_class : "synthetic");
-  const evidenceRefRaw = raw.evidence_ref ?? nav?.evidence_ref ?? ordersFills?.evidence_ref ?? "sa2:q21:eval";
-  const evidenceRef = (
-    typeof evidenceRefRaw === "string"
-    && !isRawAccountIdentifier(evidenceRefRaw)
-    && !isUnsafePrivateLocator(evidenceRefRaw)
-    && safePublicText(evidenceRefRaw)
-  )
-    ? evidenceRefRaw
-    : "sa2:q21:eval";
+  const feeParsed = normalizeFeeSchedule(raw.fee_schedule);
 
-  const rawBroker = raw.broker ?? nav?.platform ?? ordersFills?.broker ?? null;
-  const broker = typeof rawBroker === "string" && BROKER_SET.has(rawBroker) ? rawBroker : null;
-  const rawEnv = raw.environment ?? raw.broker_environment ?? nav?.broker_environment ?? ordersFills?.environment ?? null;
-  const environment = typeof rawEnv === "string" && ENV_SET.has(rawEnv) ? rawEnv : null;
+  const rawEvidenceUnsafe = raw.evidence_ref !== undefined && raw.evidence_ref !== null && !isSafeEvidenceRef(raw.evidence_ref);
+  const evidenceRefCandidate = raw.evidence_ref ?? nav?.evidence_ref ?? ordersFills?.evidence_ref ?? "sa2:q21:eval";
+  const evidenceRef = isSafeEvidenceRef(evidenceRefCandidate) ? evidenceRefCandidate : "sa2:q21:eval";
 
-  const rawAccount = raw.account_id ?? nav?.account_id ?? ordersFills?.account ?? null;
-  const parsedAccount = parseAccountId(rawAccount, broker, environment);
+  const rawBrokerSpec = raw.broker ?? null;
+  const navBrokerSpec = nav?.platform ?? null;
+  const ordersBrokerSpec = ordersFills?.broker ?? null;
+  const effectiveBrokerSpec = rawBrokerSpec ?? navBrokerSpec ?? ordersBrokerSpec ?? null;
+  const broker = typeof effectiveBrokerSpec === "string" && BROKER_SET.has(effectiveBrokerSpec) ? effectiveBrokerSpec : null;
+
+  const rawEnvSpec = raw.environment ?? raw.broker_environment ?? null;
+  const navEnvSpec = nav?.broker_environment ?? null;
+  const ordersEnvSpec = ordersFills?.environment ?? null;
+  const effectiveEnvSpec = rawEnvSpec ?? navEnvSpec ?? ordersEnvSpec ?? null;
+  const environment = typeof effectiveEnvSpec === "string" && ENV_SET.has(effectiveEnvSpec) ? effectiveEnvSpec : null;
+
+  const rawAccountSpec = raw.account_id ?? null;
+  const navAccountSpec = nav?.account_id ?? null;
+  const ordersAccountSpec = ordersFills?.account ?? null;
+  const effectiveAccountRaw = rawAccountSpec ?? navAccountSpec ?? ordersAccountSpec ?? null;
+  const parsedAccount = parseAccountId(effectiveAccountRaw, broker, environment);
   const accountId = parsedAccount.ok ? parsedAccount.value : null;
+
+  if (rawEvidenceUnsafe) {
+    return buildUnavailableResult({
+      reason: "unsafe_evidence_ref",
+      accountId,
+      broker,
+      environment,
+      evaluatedAt,
+      feeScheduleView: feeParsed.view,
+      orderUnknownSymbols: [],
+      origin,
+      sourceClass,
+      evidenceRef: "sa2:q21:unavailable",
+    });
+  }
 
   const unknownSet = new Set();
   for (const list of [raw.order_unknown_symbols, ordersFills?.order_unknown_symbols]) {
@@ -574,8 +633,6 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
   }
   const orderUnknownSymbols = [...unknownSet].sort();
 
-  const feeParsed = normalizeFeeSchedule(raw.fee_schedule);
-
   if (!resolveEvaluatedAt(raw, options)) {
     return buildUnavailableResult({
       reason: "missing_or_invalid_evaluated_at",
@@ -604,7 +661,7 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
       evidenceRef,
     });
   }
-  if (rawBroker !== null && broker === null) {
+  if (effectiveBrokerSpec !== null && broker === null) {
     return buildUnavailableResult({
       reason: "invalid_broker",
       accountId,
@@ -618,7 +675,7 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
       evidenceRef,
     });
   }
-  if (rawEnv !== null && environment === null) {
+  if (effectiveEnvSpec !== null && environment === null) {
     return buildUnavailableResult({
       reason: "invalid_environment",
       accountId,
@@ -632,10 +689,20 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
       evidenceRef,
     });
   }
-  if (nav && ordersFills) {
-    if (nav.account_id && ordersFills.account && nav.account_id !== ordersFills.account) {
+
+  // Pairwise (broker, environment, account) consistency across raw, sizing_unit_nav, and orders_fills.
+  const identityMismatchChecks = [
+    [rawBrokerSpec && navBrokerSpec && rawBrokerSpec !== navBrokerSpec, "raw_nav_broker_mismatch"],
+    [rawBrokerSpec && ordersBrokerSpec && rawBrokerSpec !== ordersBrokerSpec, "raw_orders_broker_mismatch"],
+    [navBrokerSpec && ordersBrokerSpec && navBrokerSpec !== ordersBrokerSpec, "nav_orders_broker_mismatch"],
+    [rawEnvSpec && navEnvSpec && rawEnvSpec !== navEnvSpec, "raw_nav_environment_mismatch"],
+    [rawEnvSpec && ordersEnvSpec && rawEnvSpec !== ordersEnvSpec, "raw_orders_environment_mismatch"],
+    [navEnvSpec && ordersEnvSpec && navEnvSpec !== ordersEnvSpec, "nav_orders_environment_mismatch"],
+  ];
+  for (const [cond, mismatchReason] of identityMismatchChecks) {
+    if (cond) {
       return buildUnavailableResult({
-        reason: "nav_orders_account_mismatch",
+        reason: mismatchReason,
         accountId,
         broker,
         environment,
@@ -647,9 +714,76 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
         evidenceRef,
       });
     }
-    if (nav.platform && ordersFills.broker && nav.platform !== ordersFills.broker) {
+  }
+
+  const parsedNavAccount = navAccountSpec ? parseAccountId(navAccountSpec, navBrokerSpec ?? broker, navEnvSpec ?? environment) : { ok: true, value: null };
+  const parsedOrdersAccount = ordersAccountSpec ? parseAccountId(ordersAccountSpec, ordersBrokerSpec ?? broker, ordersEnvSpec ?? environment) : { ok: true, value: null };
+  if (!parsedNavAccount.ok || !parsedOrdersAccount.ok) {
+    return buildUnavailableResult({
+      reason: !parsedNavAccount.ok ? parsedNavAccount.reason : parsedOrdersAccount.reason,
+      accountId: null,
+      broker,
+      environment,
+      evaluatedAt,
+      feeScheduleView: feeParsed.view,
+      orderUnknownSymbols,
+      origin,
+      sourceClass,
+      evidenceRef,
+    });
+  }
+  if (accountId && parsedNavAccount.value && accountId !== parsedNavAccount.value) {
+    return buildUnavailableResult({
+      reason: "raw_nav_account_mismatch",
+      accountId,
+      broker,
+      environment,
+      evaluatedAt,
+      feeScheduleView: feeParsed.view,
+      orderUnknownSymbols,
+      origin,
+      sourceClass,
+      evidenceRef,
+    });
+  }
+  if (accountId && parsedOrdersAccount.value && accountId !== parsedOrdersAccount.value) {
+    return buildUnavailableResult({
+      reason: "raw_orders_account_mismatch",
+      accountId,
+      broker,
+      environment,
+      evaluatedAt,
+      feeScheduleView: feeParsed.view,
+      orderUnknownSymbols,
+      origin,
+      sourceClass,
+      evidenceRef,
+    });
+  }
+  if (parsedNavAccount.value && parsedOrdersAccount.value && parsedNavAccount.value !== parsedOrdersAccount.value) {
+    return buildUnavailableResult({
+      reason: "nav_orders_account_mismatch",
+      accountId,
+      broker,
+      environment,
+      evaluatedAt,
+      feeScheduleView: feeParsed.view,
+      orderUnknownSymbols,
+      origin,
+      sourceClass,
+      evidenceRef,
+    });
+  }
+  if (ordersFills?.account_binding) {
+    const ab = ordersFills.account_binding;
+    const expectedAccount = parsedOrdersAccount.value ?? accountId;
+    if (
+      (broker && ab.broker !== broker)
+      || (environment && ab.environment !== environment)
+      || (expectedAccount && parseAccountId(ab.account, ab.broker, ab.environment).value !== expectedAccount)
+    ) {
       return buildUnavailableResult({
-        reason: "nav_orders_broker_mismatch",
+        reason: "orders_fills_account_binding_mismatch",
         accountId,
         broker,
         environment,
@@ -661,20 +795,21 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
         evidenceRef,
       });
     }
-    if (nav.broker_environment && ordersFills.environment && nav.broker_environment !== ordersFills.environment) {
-      return buildUnavailableResult({
-        reason: "nav_orders_environment_mismatch",
-        accountId,
-        broker,
-        environment,
-        evaluatedAt,
-        feeScheduleView: feeParsed.view,
-        orderUnknownSymbols,
-        origin,
-        sourceClass,
-        evidenceRef,
-      });
-    }
+  }
+
+  if (raw.emergency_bypass !== undefined && raw.emergency_bypass !== null && typeof raw.emergency_bypass !== "boolean") {
+    return buildUnavailableResult({
+      reason: "invalid_emergency_bypass",
+      accountId,
+      broker,
+      environment,
+      evaluatedAt,
+      feeScheduleView: feeParsed.view,
+      orderUnknownSymbols,
+      origin,
+      sourceClass,
+      evidenceRef,
+    });
   }
 
   // Standing safety locks (OA-10 / pilot boundaries)
@@ -770,7 +905,7 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
   }
   if (nav && (nav.status !== "available" || nav.freshness?.data_status !== "fresh" || nav.currency !== "USD")) {
     return buildUnavailableResult({
-      reason: nav.reason || "sizing_unit_nav_unavailable",
+      reason: sanitizePublicReason(nav.reason, "sizing_unit_nav_unavailable"),
       accountId,
       broker,
       environment,
@@ -823,41 +958,25 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
 
   let kPendRat = null;
   let kPendReleaseAllowed = true;
+  let kPendUnknown = false;
   if (ordersFills) {
-    if (ordersFills.summary?.k_pend_usd === null || ordersFills.summary?.k_pend_usd === undefined) {
-      return buildUnavailableResult({
-        reason: "k_pend_usd_unavailable",
-        accountId,
-        broker,
-        environment,
-        evaluatedAt,
-        feeScheduleView: feeParsed.view,
-        orderUnknownSymbols,
-        origin,
-        sourceClass,
-        evidenceRef,
-      });
-    }
-    const ofKPend = parseNonNegativeRat(ordersFills.summary.k_pend_usd);
-    if (!ofKPend) {
-      return buildUnavailableResult({
-        reason: "invalid_k_pend_usd",
-        accountId,
-        broker,
-        environment,
-        evaluatedAt,
-        feeScheduleView: feeParsed.view,
-        orderUnknownSymbols,
-        origin,
-        sourceClass,
-        evidenceRef,
-      });
-    }
-    kPendRat = ofKPend;
-    kPendReleaseAllowed = Boolean(ordersFills.summary.k_pend_release_allowed);
-    if (raw.k_pend_usd !== undefined && raw.k_pend_usd !== null) {
-      const explicitK = parseNonNegativeRat(raw.k_pend_usd);
-      if (!explicitK) {
+    const cutoffDom = ordersFills.domains?.cutoff_open_orders;
+    const cutoffCoverageUnproven = Boolean(
+      cutoffDom && (
+        cutoffDom.domain_capability !== "supported"
+        || cutoffDom.completeness !== "complete"
+        || cutoffDom.truncated !== false
+        || (typeof cutoffDom.cap === "number" && typeof cutoffDom.count === "number" && cutoffDom.count >= cutoffDom.cap)
+      ),
+    );
+    const rawOfKPend = ordersFills.summary?.k_pend_usd;
+    if (rawOfKPend === null || rawOfKPend === undefined || (cutoffCoverageUnproven && rawOfKPend === "0")) {
+      kPendUnknown = true;
+      kPendRat = null;
+      kPendReleaseAllowed = false;
+    } else {
+      const ofKPend = parseNonNegativeRat(rawOfKPend);
+      if (!ofKPend) {
         return buildUnavailableResult({
           reason: "invalid_k_pend_usd",
           accountId,
@@ -871,9 +990,32 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
           evidenceRef,
         });
       }
-      if (ratCmp(explicitK, kPendRat) > 0) kPendRat = explicitK;
+      kPendRat = ofKPend;
+      kPendReleaseAllowed = Boolean(ordersFills.summary.k_pend_release_allowed);
+      if (raw.k_pend_usd !== undefined && raw.k_pend_usd !== null) {
+        const explicitK = parseNonNegativeRat(raw.k_pend_usd);
+        if (!explicitK) {
+          return buildUnavailableResult({
+            reason: "invalid_k_pend_usd",
+            accountId,
+            broker,
+            environment,
+            evaluatedAt,
+            feeScheduleView: feeParsed.view,
+            orderUnknownSymbols,
+            origin,
+            sourceClass,
+            evidenceRef,
+          });
+        }
+        if (ratCmp(explicitK, kPendRat) > 0) kPendRat = explicitK;
+      }
+      if (raw.k_pend_release_allowed === false) kPendReleaseAllowed = false;
     }
-    if (raw.k_pend_release_allowed === false) kPendReleaseAllowed = false;
+  } else if (raw.k_pend_usd === null && raw.k_pend_release_allowed === false) {
+    kPendUnknown = true;
+    kPendRat = null;
+    kPendReleaseAllowed = false;
   } else {
     kPendRat = parseNonNegativeRat(raw.k_pend_usd);
     if (!kPendRat) {
@@ -997,12 +1139,28 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
       });
     }
 
+    if (t.emergency_bypass !== undefined && t.emergency_bypass !== null && typeof t.emergency_bypass !== "boolean") {
+      return buildUnavailableResult({
+        reason: "invalid_emergency_bypass",
+        accountId,
+        broker,
+        environment,
+        evaluatedAt,
+        feeScheduleView: feeParsed.view,
+        orderUnknownSymbols,
+        origin,
+        sourceClass,
+        evidenceRef,
+      });
+    }
+
     const idealNotional = ratMul(wTargetRat, equityRat);
     const qIdealInt = ratFloorBigInt(ratDiv(idealNotional, priceRefRat));
     const deltaQRawInt = qIdealInt - qPreInt;
 
     // Resolve O5 worst-case limit price (OI-COST-4)
     let priceLimRat = null;
+    let o5CollarMissing = false;
     if (t.price_lim !== undefined && t.price_lim !== null) {
       priceLimRat = parsePositiveRat(t.price_lim);
       if (!priceLimRat || ratCmp(priceLimRat, priceRefRat) < 0) {
@@ -1019,28 +1177,11 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
           evidenceRef,
         });
       }
-    } else if (t.price_lim === null || (t.collar_bps === undefined && !feeParsed.defaultCollarRat)) {
-      if (t.price_lim === null || deltaQRawInt > 0n) {
-        return buildUnavailableResult({
-          reason: "oi_cost_4_price_collar_unavailable",
-          accountId,
-          broker,
-          environment,
-          evaluatedAt,
-          feeScheduleView: { ...feeParsed.view, oi_cost_4_resolved: false },
-          orderUnknownSymbols,
-          origin,
-          sourceClass,
-          evidenceRef,
-        });
-      }
-    } else {
-      const collarBps = t.collar_bps !== undefined && t.collar_bps !== null
-        ? parseNonNegativeRat(t.collar_bps)
-        : feeParsed.defaultCollarRat;
+    } else if (t.collar_bps !== undefined && t.collar_bps !== null) {
+      const collarBps = parseNonNegativeRat(t.collar_bps);
       if (!collarBps) {
         return buildUnavailableResult({
-          reason: "oi_cost_4_price_collar_unavailable",
+          reason: "invalid_o5_price_collar",
           accountId,
           broker,
           environment,
@@ -1053,6 +1194,10 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
         });
       }
       priceLimRat = ratMul(priceRefRat, ratAdd(ONE_RAT, ratDiv(collarBps, BPS_DENOM)));
+    } else if (t.price_lim !== null && feeParsed.defaultCollarRat) {
+      priceLimRat = ratMul(priceRefRat, ratAdd(ONE_RAT, ratDiv(feeParsed.defaultCollarRat, BPS_DENOM)));
+    } else if (deltaQRawInt > 0n) {
+      o5CollarMissing = true;
     }
 
     const prePosRat = ratMul({ n: qPreInt, d: 1n }, priceRefRat);
@@ -1061,13 +1206,14 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
     const wCurRat = equityRat.n > 0n ? ratDiv(prePosRat, equityRat) : ZERO_RAT;
     const bandThreshold = ratMul(bBandRat, wTargetRat);
     const withinBand = bBandRat.n > 0n && ratCmp(ratAbs(ratSub(wCurRat, wTargetRat)), bandThreshold) <= 0;
-    const emergencyBypass = Boolean(t.emergency_bypass ?? raw.emergency_bypass);
+    const emergencyBypass = (t.emergency_bypass ?? raw.emergency_bypass) === true;
 
     preparedTargets.push({
       symbol: t.symbol,
       qPreInt,
       priceRefRat,
       priceLimRat,
+      o5CollarMissing,
       wTargetRat,
       wCurRat,
       idealNotional,
@@ -1079,10 +1225,25 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
     });
   }
 
-  // Fold any held non-target positions into C_inv without double counting.
+  // Fold any held non-target positions into C_inv without double counting;
+  // reject unpriced or zero-valued held non-zero positions fail-closed.
   const targetBySymbol = new Map(preparedTargets.map((item) => [item.symbol, item]));
+  const nonTargetQtyBySymbol = new Map();
   for (const extraPos of [raw.positions, nav?.positions].filter(Array.isArray).flat()) {
-    if (!extraPos || typeof extraPos !== "object" || !validateSafeSymbol(extraPos.symbol)) continue;
+    if (!extraPos || typeof extraPos !== "object" || Array.isArray(extraPos) || !validateSafeSymbol(extraPos.symbol)) {
+      return buildUnavailableResult({
+        reason: "invalid_position_entry",
+        accountId,
+        broker,
+        environment,
+        evaluatedAt,
+        feeScheduleView: feeParsed.view,
+        orderUnknownSymbols,
+        origin,
+        sourceClass,
+        evidenceRef,
+      });
+    }
     const qtyInt = parseNonNegativeIntBigInt(extraPos.qty);
     if (qtyInt === null) {
       return buildUnavailableResult({
@@ -1116,12 +1277,77 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
       }
       continue;
     }
-    if (seenSymbols.has(extraPos.symbol)) continue;
-    const mvRat = extraPos.market_value_usd !== undefined
-      ? parseNonNegativeRat(extraPos.market_value_usd)
-      : (extraPos.price_ref ? ratMul({ n: qtyInt, d: 1n }, parsePositiveRat(extraPos.price_ref) ?? ZERO_RAT) : null);
-    if (!mvRat) continue;
+    if (seenSymbols.has(extraPos.symbol)) {
+      const prevQty = nonTargetQtyBySymbol.get(extraPos.symbol);
+      if (prevQty !== undefined && prevQty !== qtyInt) {
+        return buildUnavailableResult({
+          reason: "positions_qty_mismatch",
+          accountId,
+          broker,
+          environment,
+          evaluatedAt,
+          feeScheduleView: feeParsed.view,
+          orderUnknownSymbols,
+          origin,
+          sourceClass,
+          evidenceRef,
+        });
+      }
+      continue;
+    }
+
+    let mvRat = null;
+    if (extraPos.market_value_usd !== undefined && extraPos.market_value_usd !== null) {
+      mvRat = parseNonNegativeRat(extraPos.market_value_usd);
+      if (!mvRat || (qtyInt > 0n && mvRat.n === 0n)) {
+        return buildUnavailableResult({
+          reason: "held_position_valuation_unavailable",
+          accountId,
+          broker,
+          environment,
+          evaluatedAt,
+          feeScheduleView: feeParsed.view,
+          orderUnknownSymbols,
+          origin,
+          sourceClass,
+          evidenceRef,
+        });
+      }
+    } else if (extraPos.price_ref !== undefined && extraPos.price_ref !== null) {
+      const refPriceRat = parsePositiveRat(extraPos.price_ref);
+      if (!refPriceRat) {
+        return buildUnavailableResult({
+          reason: "held_position_valuation_unavailable",
+          accountId,
+          broker,
+          environment,
+          evaluatedAt,
+          feeScheduleView: feeParsed.view,
+          orderUnknownSymbols,
+          origin,
+          sourceClass,
+          evidenceRef,
+        });
+      }
+      mvRat = ratMul({ n: qtyInt, d: 1n }, refPriceRat);
+    } else if (qtyInt === 0n) {
+      mvRat = ZERO_RAT;
+    } else {
+      return buildUnavailableResult({
+        reason: "held_position_valuation_unavailable",
+        accountId,
+        broker,
+        environment,
+        evaluatedAt,
+        feeScheduleView: feeParsed.view,
+        orderUnknownSymbols,
+        origin,
+        sourceClass,
+        evidenceRef,
+      });
+    }
     seenSymbols.add(extraPos.symbol);
+    nonTargetQtyBySymbol.set(extraPos.symbol, qtyInt);
     cInvRat = ratAdd(cInvRat, mvRat);
   }
 
@@ -1140,10 +1366,30 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
     });
   }
 
-  const rawAvailRat = ratSub(ratAdd(cashSettledRat, proceedsEligibleRat), ratAdd(rCashRat, kPendRat));
-  const cAvailRat = ratMaxZero(rawAvailRat);
+  const anyBuyMissingCollar = preparedTargets.some((item) => item.deltaQRawInt > 0n && item.o5CollarMissing);
+  const anyReductionTarget = preparedTargets.some((item) => item.deltaQRawInt < 0n);
+  if (anyBuyMissingCollar && !anyReductionTarget) {
+    return buildUnavailableResult({
+      reason: "oi_cost_4_price_collar_unavailable",
+      accountId,
+      broker,
+      environment,
+      evaluatedAt,
+      feeScheduleView: { ...feeParsed.view, oi_cost_4_resolved: false },
+      orderUnknownSymbols,
+      origin,
+      sourceClass,
+      evidenceRef,
+    });
+  }
+  const oiCost4AllBuysResolved = !anyBuyMissingCollar;
 
-  // First pass: classify holds, reductions, band-suppressed, ORDER-UNKNOWN blocks, and active buys.
+  const rawAvailRat = kPendUnknown
+    ? null
+    : ratSub(ratAdd(cashSettledRat, proceedsEligibleRat), ratAdd(rCashRat, kPendRat));
+  const cAvailRat = kPendUnknown ? ZERO_RAT : ratMaxZero(rawAvailRat);
+
+  // First pass: classify holds, reductions, band-suppressed, missing-collar / ORDER-UNKNOWN / unknown-K_pend blocks, and active buys.
   const buyCandidates = [];
   for (const item of preparedTargets) {
     item.bandSuppressed = false;
@@ -1172,11 +1418,23 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
       continue;
     }
 
-    // Buy path (deltaQRawInt > 0n)
+    // Buy path (deltaQRawInt > 0n): reductions above NEVER depend on K_pend, C_avail, or O5 collars.
     if (item.isOrderUnknown) {
       item.deltaQFinalInt = 0n;
       item.action = "BLOCKED_BUY";
       item.buyBlockedReason = "order_unknown_lock";
+      continue;
+    }
+    if (item.o5CollarMissing) {
+      item.deltaQFinalInt = 0n;
+      item.action = "BLOCKED_BUY";
+      item.buyBlockedReason = "oi_cost_4_price_collar_unavailable";
+      continue;
+    }
+    if (kPendUnknown) {
+      item.deltaQFinalInt = 0n;
+      item.action = "BLOCKED_BUY";
+      item.buyBlockedReason = "k_pend_unavailable_open_orders";
       continue;
     }
     if (item.withinBand) {
@@ -1301,22 +1559,28 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
     };
   });
 
-  const remainingAvailRat = ratSub(cAvailRat, totalBuyCommitRat);
+  const remainingAvailRat = kPendUnknown ? ZERO_RAT : ratSub(cAvailRat, totalBuyCommitRat);
   const bMinInput = raw.b_min_tier && typeof raw.b_min_tier === "object" ? raw.b_min_tier : {};
   const bMinTier = evaluateWorkableBankrollBminTier({
     bankroll_w_usd: bMinInput.bankroll_w_usd ?? formatUsdRat(equityRat),
     c_fixed_ann_usd: bMinInput.c_fixed_ann_usd ?? null,
     annual_ticket_count: bMinInput.annual_ticket_count,
+    annual_rounding_friction_usd: bMinInput.annual_rounding_friction_usd,
     rounding_friction_ann_usd: bMinInput.rounding_friction_ann_usd,
+    annual_passthrough_usd: bMinInput.annual_passthrough_usd,
     fixed_passthrough_ann_usd: bMinInput.fixed_passthrough_ann_usd,
     expected_excess_growth_ann_usd: bMinInput.expected_excess_growth_ann_usd ?? null,
     fee_schedule_resolved: feeParsed,
   });
 
+  const topReason = kPendUnknown
+    ? "k_pend_unavailable_buys_blocked"
+    : (!oiCost4AllBuysResolved ? "oi_cost_4_price_collar_unavailable_buys_blocked" : null);
+
   return stripPrivateLocators({
     schema_version: DEPLOYABLE_CAPITAL_SCHEMA,
     status: "available",
-    reason: null,
+    reason: topReason,
     account_id: accountId,
     broker,
     environment,
@@ -1336,14 +1600,17 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
       cash_settled_usd: formatUsdRat(cashSettledRat),
       proceeds_eligible_usd: formatUsdRat(proceedsEligibleRat),
       r_cash_usd: formatUsdRat(rCashRat),
-      k_pend_usd: formatUsdRat(kPendRat),
+      k_pend_usd: kPendUnknown ? null : formatUsdRat(kPendRat),
       k_pend_release_allowed: kPendReleaseAllowed,
-      raw_deployable_cash_usd: formatUsdRat(rawAvailRat),
+      raw_deployable_cash_usd: kPendUnknown ? null : formatUsdRat(rawAvailRat),
       c_avail_usd: formatUsdRat(cAvailRat),
-      total_buy_commit_usd: formatUsdRat(totalBuyCommitRat),
+      total_buy_commit_usd: kPendUnknown ? "0" : formatUsdRat(totalBuyCommitRat),
       remaining_deployable_cash_usd: formatUsdRat(remainingAvailRat),
     },
-    fee_schedule: feeParsed.view,
+    fee_schedule: {
+      ...feeParsed.view,
+      oi_cost_4_resolved: oiCost4AllBuysResolved,
+    },
     order_unknown_symbols: orderUnknownSymbols,
     orders: orderItems,
     b_min_tier: bMinTier,

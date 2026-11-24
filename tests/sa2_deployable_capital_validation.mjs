@@ -264,4 +264,282 @@ assert.equal(DEPLOYABLE_CAPITAL_SCHEMA, "qsl.deployable_capital_sizing.v1");
   assert.equal(composed.orders[0].delta_q_buy, "40");
 }
 
+// 10. P1 regression guards for C-SA-Q21 (#1, #8-#14)
+{
+  // #1 (Q21): Unsupported/incomplete open-orders (k_pend_usd: null) blocks buys while keeping reductions unblocked.
+  const unprovenOrdersFills = evaluateAuthoritativeOrdersAndFills({
+    broker: "longbridge",
+    environment: "paper",
+    account: "longbridge:paper:pilot",
+    as_of: "2026-11-24T15:00:00.000Z",
+    evaluated_at: "2026-11-24T15:00:05.000Z",
+    origin: "synthetic",
+    source_class: "paper_broker",
+    evidence_ref: "sa2:q21:p1:unproven-of",
+    domains: {
+      submissions: { domain_capability: "unsupported", as_of: null, source: "omitted", scope: "account_submissions" },
+      executions: { domain_capability: "unsupported", as_of: null, source: "omitted", scope: "account_executions" },
+      cutoff_open_orders: { domain_capability: "unsupported", as_of: null, source: "omitted", scope: "cutoff_open_orders" },
+    },
+  });
+  assert.equal(unprovenOrdersFills.summary.k_pend_usd, null);
+  const q21UnknownKPend = evaluateDeployableCapitalSizing({
+    account_id: "longbridge:paper:pilot",
+    broker: "longbridge",
+    environment: "paper",
+    currency: "USD",
+    margin_enabled: false,
+    h_usd: "0",
+    kelly_applied: false,
+    evaluated_at: "2026-11-24T15:00:05.000Z",
+    equity_usd: "10000.00",
+    cash_settled_usd: "5000.00",
+    proceeds_eligible_usd: "0",
+    r_cash_usd: "0",
+    orders_fills: unprovenOrdersFills,
+    fee_schedule: {
+      provenance: "synthetic_fixture",
+      c_min_usd: "1.00",
+      c_per_share_usd: "0.01",
+      c_reg: "0.25",
+      b_exec_usd: "0",
+    },
+    targets: [
+      { symbol: "TQQQ", q_pre: "0", price_ref: "50.00", price_lim: "50.50", w_target: "0.10" },
+      { symbol: "SOXL", q_pre: "20", price_ref: "25.00", price_lim: "25.25", w_target: "0.025" },
+    ],
+    origin: "synthetic",
+    source_class: "synthetic",
+    evidence_ref: "sa2:q21:p1:unknown-kpend",
+  });
+  assert.ok(validateSchema(q21UnknownKPend), ajv.errorsText(validateSchema.errors));
+  assert.equal(q21UnknownKPend.status, "available");
+  assert.equal(q21UnknownKPend.capital.k_pend_usd, null);
+  assert.equal(q21UnknownKPend.capital.k_pend_release_allowed, false);
+  assert.equal(q21UnknownKPend.capital.c_avail_usd, "0");
+  assert.equal(q21UnknownKPend.orders.find((o) => o.symbol === "TQQQ").action, "BLOCKED_BUY");
+  assert.equal(q21UnknownKPend.orders.find((o) => o.symbol === "TQQQ").delta_q_buy, "0");
+  assert.equal(q21UnknownKPend.orders.find((o) => o.symbol === "SOXL").action, "SELL");
+  assert.equal(q21UnknownKPend.orders.find((o) => o.symbol === "SOXL").delta_q_sell, "10");
+
+  // #8: Invalid order_unknown_symbols returns structured unavailable without TDZ ReferenceError.
+  const badUnknownList = evaluateDeployableCapitalSizing({
+    account_id: "longbridge:paper:pilot",
+    broker: "longbridge",
+    environment: "paper",
+    evaluated_at: "2026-11-24T15:00:00.000Z",
+    order_unknown_symbols: "TQQQ",
+    fee_schedule: { provenance: "synthetic_fixture", c_min_usd: "1.00", c_per_share_usd: "0.01", c_reg: "0.25", b_exec_usd: "0" },
+    targets: [],
+  });
+  assert.ok(validateSchema(badUnknownList));
+  assert.equal(badUnknownList.status, "unavailable");
+  assert.equal(badUnknownList.reason, "invalid_order_unknown_symbols");
+
+  const badUnknownSym = evaluateDeployableCapitalSizing({
+    account_id: "longbridge:paper:pilot",
+    broker: "longbridge",
+    environment: "paper",
+    evaluated_at: "2026-11-24T15:00:00.000Z",
+    order_unknown_symbols: ["U" + "1234567"],
+    fee_schedule: { provenance: "synthetic_fixture", c_min_usd: "1.00", c_per_share_usd: "0.01", c_reg: "0.25", b_exec_usd: "0" },
+    targets: [],
+  });
+  assert.ok(validateSchema(badUnknownSym));
+  assert.equal(badUnknownSym.status, "unavailable");
+  assert.equal(badUnknownSym.reason, "invalid_order_unknown_symbol");
+
+  // #9a: Top-level account vs orders_fills mismatch (without nav) must fail closed.
+  const crossAccountRelabel = evaluateDeployableCapitalSizing({
+    account_id: "ibkr:live:a1",
+    broker: "ibkr",
+    environment: "live",
+    evaluated_at: "2026-11-24T15:00:05.000Z",
+    equity_usd: "10000.00",
+    cash_settled_usd: "5000.00",
+    proceeds_eligible_usd: "0",
+    r_cash_usd: "0",
+    orders_fills: unprovenOrdersFills,
+    fee_schedule: { provenance: "synthetic_fixture", c_min_usd: "1.00", c_per_share_usd: "0.01", c_reg: "0.25", b_exec_usd: "0" },
+    targets: [],
+  });
+  assert.ok(validateSchema(crossAccountRelabel));
+  assert.equal(crossAccountRelabel.status, "unavailable");
+  assert.equal(crossAccountRelabel.reason, "raw_orders_broker_mismatch");
+
+  // #10: Omitting b_exec_usd must fail closed as oi_cost_3_fee_schedule_unavailable.
+  const missingBExec = evaluateDeployableCapitalSizing({
+    account_id: "longbridge:paper:pilot",
+    broker: "longbridge",
+    environment: "paper",
+    evaluated_at: "2026-11-24T15:00:00.000Z",
+    equity_usd: "10000.00",
+    cash_settled_usd: "5000.00",
+    proceeds_eligible_usd: "0",
+    r_cash_usd: "0",
+    k_pend_usd: "0",
+    fee_schedule: { provenance: "synthetic_fixture", c_min_usd: "1.00", c_per_share_usd: "0.01", c_reg: "0.25" },
+    targets: [{ symbol: "TQQQ", q_pre: "0", price_ref: "50.00", price_lim: "50.50", w_target: "0.10" }],
+  });
+  assert.ok(validateSchema(missingBExec));
+  assert.equal(missingBExec.status, "unavailable");
+  assert.equal(missingBExec.reason, "oi_cost_3_fee_schedule_unavailable");
+  assert.equal(missingBExec.fee_schedule.oi_cost_3_resolved, false);
+
+  // #11: Buy missing O5 collar in a mixed portfolio with C_avail = 0 keeps reduction SELL unblocked.
+  const mixedBuyNoCollarPlusSell = evaluateDeployableCapitalSizing({
+    account_id: "longbridge:paper:pilot",
+    broker: "longbridge",
+    environment: "paper",
+    evaluated_at: "2026-11-24T15:00:00.000Z",
+    equity_usd: "10000.00",
+    cash_settled_usd: "0",
+    proceeds_eligible_usd: "0",
+    r_cash_usd: "0",
+    k_pend_usd: "0",
+    fee_schedule: { provenance: "synthetic_fixture", c_min_usd: "1.00", c_per_share_usd: "0.01", c_reg: "0.25", b_exec_usd: "0" },
+    targets: [
+      { symbol: "TQQQ", q_pre: "0", price_ref: "50.00", price_lim: null, w_target: "0.10" },
+      { symbol: "SOXL", q_pre: "20", price_ref: "25.00", price_lim: null, w_target: "0.025" },
+    ],
+  });
+  assert.ok(validateSchema(mixedBuyNoCollarPlusSell), ajv.errorsText(validateSchema.errors));
+  assert.equal(mixedBuyNoCollarPlusSell.status, "available");
+  assert.equal(mixedBuyNoCollarPlusSell.fee_schedule.oi_cost_4_resolved, false);
+  const blockedBuy = mixedBuyNoCollarPlusSell.orders.find((o) => o.symbol === "TQQQ");
+  const unblockedSell = mixedBuyNoCollarPlusSell.orders.find((o) => o.symbol === "SOXL");
+  assert.equal(blockedBuy.action, "BLOCKED_BUY");
+  assert.equal(blockedBuy.delta_q_buy, "0");
+  assert.equal(blockedBuy.buy_blocked_reason, "oi_cost_4_price_collar_unavailable");
+  assert.equal(unblockedSell.action, "SELL");
+  assert.equal(unblockedSell.delta_q_sell, "10");
+
+  // #12: emergency_bypass rejects string "false" / non-boolean and enforces strict boolean precedence.
+  const stringBypass = evaluateDeployableCapitalSizing({
+    account_id: "longbridge:paper:pilot",
+    broker: "longbridge",
+    environment: "paper",
+    evaluated_at: "2026-11-24T15:00:00.000Z",
+    equity_usd: "10000.00",
+    cash_settled_usd: "5000.00",
+    proceeds_eligible_usd: "0",
+    r_cash_usd: "0",
+    k_pend_usd: "0",
+    b_band: "0.20",
+    emergency_bypass: "false",
+    fee_schedule: { provenance: "synthetic_fixture", c_min_usd: "1.00", c_per_share_usd: "0.01", c_reg: "0.25", b_exec_usd: "0" },
+    targets: [{ symbol: "SOXL", q_pre: "20", price_ref: "25.00", price_lim: "25.25", w_target: "0.045" }],
+  });
+  assert.ok(validateSchema(stringBypass));
+  assert.equal(stringBypass.status, "unavailable");
+  assert.equal(stringBypass.reason, "invalid_emergency_bypass");
+
+  const precedenceBypass = evaluateDeployableCapitalSizing({
+    account_id: "longbridge:paper:pilot",
+    broker: "longbridge",
+    environment: "paper",
+    evaluated_at: "2026-11-24T15:00:00.000Z",
+    equity_usd: "10000.00",
+    cash_settled_usd: "0",
+    proceeds_eligible_usd: "0",
+    r_cash_usd: "0",
+    k_pend_usd: "0",
+    b_band: "0.20",
+    emergency_bypass: true,
+    fee_schedule: { provenance: "synthetic_fixture", c_min_usd: "1.00", c_per_share_usd: "0.01", c_reg: "0.25", b_exec_usd: "0" },
+    targets: [
+      { symbol: "SOXL", q_pre: "20", price_ref: "25.00", price_lim: "25.25", w_target: "0.045", emergency_bypass: false },
+      { symbol: "TQQQ", q_pre: "10", price_ref: "50.00", price_lim: "50.50", w_target: "0.045" },
+    ],
+  });
+  assert.ok(validateSchema(precedenceBypass));
+  assert.equal(precedenceBypass.orders.find((o) => o.symbol === "SOXL").action, "HOLD");
+  assert.equal(precedenceBypass.orders.find((o) => o.symbol === "SOXL").emergency_bypass_applied, false);
+  assert.equal(precedenceBypass.orders.find((o) => o.symbol === "TQQQ").action, "SELL");
+  assert.equal(precedenceBypass.orders.find((o) => o.symbol === "TQQQ").emergency_bypass_applied, true);
+
+  // #13a: Held non-zero position without valuation fails closed instead of C_inv = 0.
+  const unpricedPosition = evaluateDeployableCapitalSizing({
+    account_id: "longbridge:paper:pilot",
+    broker: "longbridge",
+    environment: "paper",
+    evaluated_at: "2026-11-24T15:00:00.000Z",
+    equity_usd: "10000.00",
+    cash_settled_usd: "5000.00",
+    proceeds_eligible_usd: "0",
+    r_cash_usd: "0",
+    k_pend_usd: "0",
+    positions: [{ symbol: "QQQ", qty: "10" }],
+    fee_schedule: { provenance: "synthetic_fixture", c_min_usd: "1.00", c_per_share_usd: "0.01", c_reg: "0.25", b_exec_usd: "0" },
+    targets: [],
+  });
+  assert.ok(validateSchema(unpricedPosition));
+  assert.equal(unpricedPosition.status, "unavailable");
+  assert.equal(unpricedPosition.reason, "held_position_valuation_unavailable");
+  assert.equal(unpricedPosition.capital.c_inv_usd, null);
+
+  // #13b: B_min,tier missing annual_rounding_friction_usd or annual_passthrough_usd fails closed as unavailable.
+  const feeModelResolved = { ok: true, cMinRat: { n: 1n, d: 1n }, cRegSpec: { fixed: { n: 1n, d: 4n } } };
+  const incompleteBmin = evaluateWorkableBankrollBminTier({
+    bankroll_w_usd: "50000.00",
+    annual_ticket_count: 10,
+    fee_schedule_resolved: feeModelResolved,
+    expected_excess_growth_ann_usd: "5000.00",
+  });
+  assert.equal(incompleteBmin.status, "unavailable");
+  assert.equal(incompleteBmin.workable, null);
+  assert.equal(incompleteBmin.reason, "incomplete_fixed_annual_cost_inputs");
+
+  const completeBmin = evaluateWorkableBankrollBminTier({
+    bankroll_w_usd: "50000.00",
+    annual_ticket_count: 10,
+    annual_rounding_friction_usd: "50.00",
+    annual_passthrough_usd: "10.00",
+    fee_schedule_resolved: feeModelResolved,
+    expected_excess_growth_ann_usd: "5000.00",
+  });
+  assert.equal(completeBmin.status, "available");
+  assert.equal(completeBmin.c_fixed_ann_usd, "72.50");
+  assert.equal(completeBmin.workable, true);
+
+  // #14: sizing_unit_nav.reason containing raw account / token / private locator is sanitized, never echoed.
+  const leakyNavRes = evaluateDeployableCapitalSizing({
+    account_id: "ibkr:live:a1",
+    broker: "ibkr",
+    environment: "live",
+    evaluated_at: "2026-11-24T15:00:00.000Z",
+    sizing_unit_nav: {
+      account_id: "ibkr:live:a1",
+      platform: "ibkr",
+      broker_environment: "live",
+      status: "unavailable",
+      reason: "account token " + "U" + "1234567 kv:" + "//bucket/secret",
+      currency: "USD",
+      freshness: { data_status: "unavailable" },
+    },
+    fee_schedule: { provenance: "synthetic_fixture", c_min_usd: "1.00", c_per_share_usd: "0.01", c_reg: "0.25", b_exec_usd: "0" },
+    targets: [],
+  });
+  assert.ok(validateSchema(leakyNavRes), ajv.errorsText(validateSchema.errors));
+  assert.equal(leakyNavRes.status, "unavailable");
+  assert.equal(leakyNavRes.reason, "sizing_unit_nav_unavailable");
+  assert.equal(JSON.stringify(leakyNavRes).includes("account token"), false);
+  assert.equal(JSON.stringify(leakyNavRes).includes("U" + "1234567"), false);
+  assert.equal(PRIVATE_LOCATOR_RE.test(JSON.stringify(leakyNavRes)), false);
+
+  const unsafeEvidence = evaluateDeployableCapitalSizing({
+    account_id: "longbridge:paper:pilot",
+    broker: "longbridge",
+    environment: "paper",
+    evaluated_at: "2026-11-24T15:00:00.000Z",
+    fee_schedule: { provenance: "synthetic_fixture", c_min_usd: "1.00", c_per_share_usd: "0.01", c_reg: "0.25", b_exec_usd: "0" },
+    targets: [],
+    evidence_ref: "kv:" + "//bucket/secret",
+  });
+  assert.ok(validateSchema(unsafeEvidence));
+  assert.equal(unsafeEvidence.status, "unavailable");
+  assert.equal(unsafeEvidence.reason, "unsafe_evidence_ref");
+  assert.equal(PRIVATE_LOCATOR_RE.test(JSON.stringify(unsafeEvidence)), false);
+}
+
 console.log("sa2_deployable_capital_validation: PASS (SA-A13)");

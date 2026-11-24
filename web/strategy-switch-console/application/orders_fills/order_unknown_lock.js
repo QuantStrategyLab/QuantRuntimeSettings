@@ -93,7 +93,12 @@ export function buildOrderUnknownQueryTarget({ broker, environment, account, cli
 
 function computeOrderUnknownKPendUsd(event) {
   const currency = event.currency ?? "USD";
-  if (typeof currency !== "string" || !CURRENCY_RE.test(currency)) {
+  if (
+    typeof currency !== "string"
+    || isRawAccountIdentifier(currency)
+    || isUnsafePrivateLocator(currency)
+    || !CURRENCY_RE.test(currency)
+  ) {
     throw new OrdersFillsError("invalid_order_currency", 400);
   }
   const usdQualified = currency === "USD" || event.usd_basis_qualified === true;
@@ -109,7 +114,8 @@ function computeOrderUnknownKPendUsd(event) {
   if (event.side === "SELL") {
     return usdQualified ? "0" : null;
   }
-  if (!usdQualified) return null;
+  // Never multiply non-USD qty * limit_price into USD even if usd_basis_qualified was set on another field.
+  if (currency !== "USD") return null;
 
   let qtyRemDec = null;
   if (event.qty_remaining !== undefined && event.qty_remaining !== null) {
@@ -130,7 +136,7 @@ function computeOrderUnknownKPendUsd(event) {
     return null;
   }
   if (qtyRemDec.num === 0n) {
-    const feeVal = event.estimated_fee_usd ?? event.reserved_fee_usd ?? event._estimated_fee_usd ?? null;
+    const feeVal = event.estimated_fee_usd ?? event.reserved_fee_usd ?? null;
     if (feeVal !== null && typeof feeVal === "string") {
       const fDec = parseDecimal(feeVal);
       if (fDec && fDec.num >= 0n) return formatUsdExact(fDec);
@@ -144,14 +150,14 @@ function computeOrderUnknownKPendUsd(event) {
   if (!limDec || limDec.num <= 0n) {
     throw new OrdersFillsError("invalid_limit_price", 400);
   }
-  let total = mulDecimal(qtyRemDec, limDec);
-  const feeRaw = event.estimated_fee_usd ?? event.reserved_fee_usd ?? event._estimated_fee_usd ?? event.fee_usd ?? null;
-  if (feeRaw !== null && feeRaw !== undefined) {
-    if (typeof feeRaw !== "string") throw new OrdersFillsError("invalid_estimated_fee_usd", 400);
-    const feeDec = parseDecimal(feeRaw);
-    if (!feeDec || feeDec.num < 0n) throw new OrdersFillsError("invalid_estimated_fee_usd", 400);
-    total = addDecimal(total, feeDec);
+  const feeRaw = event.estimated_fee_usd ?? event.reserved_fee_usd ?? event.fee_usd ?? null;
+  if (feeRaw === null || feeRaw === undefined) {
+    return null;
   }
+  if (typeof feeRaw !== "string") throw new OrdersFillsError("invalid_estimated_fee_usd", 400);
+  const feeDec = parseDecimal(feeRaw);
+  if (!feeDec || feeDec.num < 0n) throw new OrdersFillsError("invalid_estimated_fee_usd", 400);
+  const total = addDecimal(mulDecimal(qtyRemDec, limDec), feeDec);
   return formatUsdExact(total);
 }
 
@@ -219,16 +225,21 @@ function ensureLockStore(store) {
  */
 export function createOrderUnknownLockStore(initial = {}) {
   const locks = {};
-  if (Array.isArray(initial?.locks)) {
-    for (const item of initial.locks) {
-      const clean = validateLockRecord(item);
-      locks[lockEntryKey(clean.broker, clean.environment, clean.account, clean.client_order_id)] = clean;
+  const seenBrokerIds = new Set();
+  const items = Array.isArray(initial?.locks)
+    ? initial.locks
+    : (initial?.locks && typeof initial.locks === "object" ? Object.values(initial.locks) : []);
+  for (const item of items) {
+    const clean = validateLockRecord(item);
+    const key = lockEntryKey(clean.broker, clean.environment, clean.account, clean.client_order_id);
+    if (clean.broker_order_id !== null) {
+      const brkKey = `${clean.broker}|${clean.environment}|${clean.account}|${clean.broker_order_id}`;
+      if (seenBrokerIds.has(brkKey) && locks[key]?.broker_order_id !== clean.broker_order_id) {
+        throw new OrdersFillsError("conflicting_broker_order_id_on_lock", 409);
+      }
+      seenBrokerIds.add(brkKey);
     }
-  } else if (initial?.locks && typeof initial.locks === "object") {
-    for (const item of Object.values(initial.locks)) {
-      const clean = validateLockRecord(item);
-      locks[lockEntryKey(clean.broker, clean.environment, clean.account, clean.client_order_id)] = clean;
-    }
+    locks[key] = clean;
   }
   return {
     schema_version: ORDER_UNKNOWN_LOCK_STORE_SCHEMA,
@@ -269,7 +280,7 @@ export function deserializeOrderUnknownLockStore(raw) {
  * - Never clears on non-terminal follow-ups (SUBMITTED / ACCEPTED / PARTIAL_FILL / PARTIAL_CANCEL).
  * - Clears ONLY on definitive terminal broker evidence (FILLED / CANCELED / REJECTED).
  */
-export function applyOrderUnknownObservation(store, event) {
+export function applyOrderUnknownObservation(store, event, options = {}) {
   ensureLockStore(store);
   if (!event || typeof event !== "object" || Array.isArray(event)) {
     throw new OrdersFillsError("invalid_order_unknown_event", 400);
@@ -285,21 +296,43 @@ export function applyOrderUnknownObservation(store, event) {
   const clientOrderId = validateSafeLockId(event.client_order_id, "client_order_id");
   const brokerOrderId = validateSafeLockId(event.broker_order_id ?? null, "broker_order_id", { allowNull: true });
 
+  const evalAtRaw = options?.evaluatedAt ?? options?.evaluated_at ?? null;
+  const evalAtNs = evalAtRaw !== null && evalAtRaw !== undefined ? parseInstantNs(evalAtRaw) : null;
+  if (evalAtRaw !== null && evalAtRaw !== undefined && evalAtNs === null) {
+    throw new OrdersFillsError("invalid_evaluated_at", 400);
+  }
+  const eventTsCandidates = [
+    event.resolved_at,
+    event.canceled_at,
+    event.updated_at,
+    event.as_of,
+    event.executed_at,
+    event.submitted_at,
+    event.locked_at,
+  ];
+  let maxEventNs = null;
+  for (const ts of eventTsCandidates) {
+    if (ts !== undefined && ts !== null) {
+      const parsedIso = validateLockTimestamp(ts, "event_timestamp");
+      const ns = parseInstantNs(parsedIso);
+      if (maxEventNs === null || ns > maxEventNs) maxEventNs = ns;
+    }
+  }
+
   const nextLocks = structuredClone(store.locks);
   let targetKey = lockEntryKey(identity.broker, identity.environment, identity.account, clientOrderId);
   let existing = nextLocks[targetKey] ?? null;
 
-  if (!existing && brokerOrderId !== null) {
+  if (brokerOrderId !== null) {
     for (const [key, entry] of Object.entries(nextLocks)) {
       if (
         entry.broker === identity.broker
         && entry.environment === identity.environment
         && entry.account === identity.account
         && entry.broker_order_id === brokerOrderId
+        && key !== targetKey
       ) {
-        targetKey = key;
-        existing = entry;
-        break;
+        throw new OrdersFillsError("conflicting_broker_order_id_on_lock", 409);
       }
     }
   }
@@ -349,6 +382,9 @@ export function applyOrderUnknownObservation(store, event) {
   }
 
   if (TERMINAL_STATE_SET.has(event.state)) {
+    if (evalAtNs !== null && maxEventNs !== null && maxEventNs > evalAtNs) {
+      return { schema_version: ORDER_UNKNOWN_LOCK_STORE_SCHEMA, locks: nextLocks };
+    }
     delete nextLocks[targetKey];
     return { schema_version: ORDER_UNKNOWN_LOCK_STORE_SCHEMA, locks: nextLocks };
   }

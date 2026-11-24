@@ -32,10 +32,12 @@ import { buildOrderUnknownQueryTarget, listActiveOrderUnknownLocks } from "./ord
 const ZERO_DEC = { num: 0n, scale: 0 };
 
 function decEqNullable(aText, bText) {
-  if (aText === null && bText === null) return true;
-  if (aText === null || bText === null) return false;
-  const a = parseDecimal(aText);
-  const b = parseDecimal(bText);
+  const aNorm = aText ?? null;
+  const bNorm = bText ?? null;
+  if (aNorm === null && bNorm === null) return true;
+  if (aNorm === null || bNorm === null) return false;
+  const a = parseDecimal(aNorm);
+  const b = parseDecimal(bNorm);
   return Boolean(a && b && eqDecimal(a, b));
 }
 
@@ -56,6 +58,13 @@ function mergeTwoExecutions(prev, next) {
     || prev.currency !== next.currency
     || parseInstantNs(prev.executed_at) !== parseInstantNs(next.executed_at)
   ) {
+    throw new OrdersFillsError("conflicting_duplicate_execution", 409);
+  }
+
+  if ((prev.usd_basis_qualified ?? null) !== (next.usd_basis_qualified ?? null)) {
+    throw new OrdersFillsError("conflicting_duplicate_execution", 409);
+  }
+  if (!decEqNullable(prev.notional_usd, next.notional_usd)) {
     throw new OrdersFillsError("conflicting_duplicate_execution", 409);
   }
 
@@ -193,10 +202,16 @@ export function reconcileOrdersAndFills({
   cutoffCoverage = null,
   lockStore = null,
   priorKPendUsd = null,
+  priorKPendOrderIds = null,
   evaluatedAt,
 }) {
+  const evalNs = typeof evaluatedAt === "string" ? parseInstantNs(evaluatedAt) : null;
+  if (evaluatedAt !== undefined && evaluatedAt !== null && evalNs === null) {
+    throw new OrdersFillsError("invalid_evaluated_at", 400);
+  }
   const dedupedExecs = deduplicateExecutions(executions, []);
   const orderMap = new Map();
+  let hasFutureEvents = false;
 
   const ensureEntry = (clientOrderId, base) => {
     const key = `${identity.binding_key}|${clientOrderId}`;
@@ -214,6 +229,9 @@ export function reconcileOrdersAndFills({
         limit_price: base.limit_price ?? null,
         usd_basis_qualified: Boolean(base.usd_basis_qualified),
         submission: null,
+        terminalSub: null,
+        sawOrderUnknown: false,
+        sawFutureTransition: false,
         cutoff: null,
         executions: [],
       });
@@ -225,17 +243,53 @@ export function reconcileOrdersAndFills({
   };
 
   for (const sub of submissions) {
+    const meta = getSubmissionMeta(sub);
+    const subSubmittedNs = meta?.submitted_at_ns ?? parseInstantNs(sub.submitted_at);
+    const subEffectiveNs = meta?.effective_at_ns ?? subSubmittedNs;
+    const isFutureSub = evalNs !== null && subEffectiveNs !== null && subEffectiveNs > evalNs;
+    const isSubmittedAfterEval = evalNs !== null && subSubmittedNs !== null && subSubmittedNs > evalNs;
+
+    if (isFutureSub) {
+      hasFutureEvents = true;
+      if (isSubmittedAfterEval) {
+        continue;
+      }
+      const entry = ensureEntry(sub.client_order_id, sub);
+      entry.sawFutureTransition = true;
+      // Keep original WeakMap-tracked sub object when no prior submission exists,
+      // while sawFutureTransition prevents future cancel/terminal/filled state taking effect.
+      if (!entry.submission) {
+        entry.submission = sub;
+      }
+      if (sub.state === "ORDER_UNKNOWN") {
+        entry.sawOrderUnknown = true;
+      }
+      continue;
+    }
+
     const entry = ensureEntry(sub.client_order_id, sub);
+    if (sub.state === "ORDER_UNKNOWN") {
+      entry.sawOrderUnknown = true;
+    }
     if (entry.submission) {
-      // Allow idempotent repeat or progression from ORDER_UNKNOWN/SUBMITTED to later state,
-      // but reject conflicting immutable fields via mergeOrderSkeleton above.
       if (
         entry.submission.state !== sub.state
         && TERMINAL_STATE_SET.has(entry.submission.state)
         && !TERMINAL_STATE_SET.has(sub.state)
+        && !entry.sawFutureTransition
       ) {
         throw new OrdersFillsError("conflicting_duplicate_order", 409);
       }
+      if (
+        entry.terminalSub
+        && TERMINAL_STATE_SET.has(sub.state)
+        && entry.terminalSub.state !== sub.state
+      ) {
+        throw new OrdersFillsError("conflicting_duplicate_order", 409);
+      }
+    }
+    if (TERMINAL_STATE_SET.has(sub.state)) {
+      entry.terminalSub = sub;
     }
     entry.submission = sub;
   }
@@ -245,17 +299,31 @@ export function reconcileOrdersAndFills({
     if (entry.cutoff) {
       throw new OrdersFillsError("conflicting_duplicate_order", 409);
     }
+    const cutoffNs = parseInstantNs(open.as_of);
+    if (evalNs !== null && cutoffNs !== null && cutoffNs > evalNs) {
+      hasFutureEvents = true;
+      entry.sawFutureTransition = true;
+    }
     entry.cutoff = open;
   }
 
   // Link executions to orders by client_order_id or broker_order_id within the same account.
+  // Reject conflicting duplicate broker_order_id across distinct client_order_id values.
   const byBrokerOrderId = new Map();
   for (const entry of orderMap.values()) {
     if (entry.broker_order_id !== null) {
+      const existingOwner = byBrokerOrderId.get(entry.broker_order_id);
+      if (existingOwner && existingOwner.client_order_id !== entry.client_order_id) {
+        throw new OrdersFillsError("conflicting_duplicate_broker_order_id", 409);
+      }
       byBrokerOrderId.set(entry.broker_order_id, entry);
     }
   }
   for (const exec of dedupedExecs) {
+    const execNs = parseInstantNs(exec.executed_at);
+    if (evalNs !== null && execNs !== null && execNs > evalNs) {
+      hasFutureEvents = true;
+    }
     let target = null;
     if (exec.client_order_id !== null) {
       target = orderMap.get(`${identity.binding_key}|${exec.client_order_id}`) ?? null;
@@ -270,7 +338,12 @@ export function reconcileOrdersAndFills({
       throw new OrdersFillsError("execution_broker_order_id_mismatch", 409);
     }
     if (target.broker_order_id === null && exec.broker_order_id !== null) {
+      const existingOwner = byBrokerOrderId.get(exec.broker_order_id);
+      if (existingOwner && existingOwner.client_order_id !== target.client_order_id) {
+        throw new OrdersFillsError("conflicting_duplicate_broker_order_id", 409);
+      }
       target.broker_order_id = exec.broker_order_id;
+      byBrokerOrderId.set(exec.broker_order_id, target);
     }
     target.executions.push(exec);
   }
@@ -286,59 +359,77 @@ export function reconcileOrdersAndFills({
     const sub = entry.submission;
     const cutoff = entry.cutoff;
     const matchingExecs = entry.executions;
-    const activeLock = lockByClientId.get(entry.client_order_id)
-      ?? (entry.broker_order_id !== null ? lockByBrokerId.get(entry.broker_order_id) : undefined)
-      ?? null;
+    const effectiveExecs = evalNs === null
+      ? matchingExecs
+      : matchingExecs.filter((ex) => parseInstantNs(ex.executed_at) <= evalNs);
+    const lockFromClient = lockByClientId.get(entry.client_order_id) ?? null;
+    const lockFromBroker = entry.broker_order_id !== null ? (lockByBrokerId.get(entry.broker_order_id) ?? null) : null;
+    if (lockFromClient && lockFromBroker && lockFromClient.client_order_id !== lockFromBroker.client_order_id) {
+      throw new OrdersFillsError("conflicting_broker_order_id_on_lock", 409);
+    }
+    const activeLock = lockFromClient ?? lockFromBroker ?? null;
+    if (activeLock && activeLock.symbol !== entry.symbol) {
+      throw new OrdersFillsError("order_unknown_symbol_mismatch", 409);
+    }
 
     const subDec = parseDecimal(entry.qty_submitted);
     let filledFromExecs = ZERO_DEC;
-    for (const ex of matchingExecs) {
+    for (const ex of effectiveExecs) {
       filledFromExecs = addDecimal(filledFromExecs, parseDecimal(ex.qty));
     }
-    const cutoffFilled = cutoff ? parseDecimal(cutoff.qty_filled) : ZERO_DEC;
+    const cutoffNs = cutoff ? parseInstantNs(cutoff.as_of) : null;
+    const cutoffIsFuture = Boolean(cutoff && evalNs !== null && cutoffNs !== null && cutoffNs > evalNs);
+    const cutoffFilled = cutoff && !cutoffIsFuture ? parseDecimal(cutoff.qty_filled) : ZERO_DEC;
     const filledDec = maxDec(filledFromExecs, cutoffFilled);
 
     const subMeta = getSubmissionMeta(sub);
     let canceledDec = ZERO_DEC;
-    if (cutoff) {
-      canceledDec = parseDecimal(cutoff.qty_canceled);
-    } else if (subMeta?.qty_canceled !== undefined) {
-      canceledDec = parseDecimal(subMeta.qty_canceled);
-    } else if (sub && (sub.state === "CANCELED" || sub.state === "REJECTED")) {
-      canceledDec = subDecimal(subDec, filledDec);
+    if (!entry.sawFutureTransition && !cutoffIsFuture) {
+      if (cutoff) {
+        canceledDec = parseDecimal(cutoff.qty_canceled);
+      } else if (subMeta?.qty_canceled !== undefined) {
+        canceledDec = parseDecimal(subMeta.qty_canceled);
+      } else if (sub && (sub.state === "CANCELED" || sub.state === "REJECTED")) {
+        canceledDec = subDecimal(subDec, filledDec);
+      }
     }
 
     const remainingDec = subDecimal(subDecimal(subDec, filledDec), canceledDec);
     if (remainingDec.num < 0n) {
       throw new OrdersFillsError("order_quantities_exceed_submitted", 400);
     }
-    if (cutoff && !eqDecimal(remainingDec, parseDecimal(cutoff.qty_remaining))) {
+    if (cutoff && !cutoffIsFuture && !hasFutureEvents && !eqDecimal(remainingDec, parseDecimal(cutoff.qty_remaining))) {
       throw new OrdersFillsError("order_remaining_cutoff_mismatch", 409);
     }
 
-    let state = cutoff?.state ?? sub?.state ?? "SUBMITTED";
+    let state = (cutoff && !cutoffIsFuture ? cutoff.state : null) ?? (entry.sawFutureTransition ? (entry.sawOrderUnknown ? "ORDER_UNKNOWN" : "SUBMITTED") : sub?.state) ?? "SUBMITTED";
     if (!ORDER_STATE_SET.has(state)) {
       throw new OrdersFillsError("invalid_order_state", 400);
     }
-    const terminalObserved = TERMINAL_STATE_SET.has(sub?.state) || TERMINAL_STATE_SET.has(cutoff?.state);
-    if (activeLock && !terminalObserved) {
+    const subTerminal = !entry.sawFutureTransition && (Boolean(entry.terminalSub) || (sub && TERMINAL_STATE_SET.has(sub.state)));
+    const cutoffTerminal = Boolean(cutoff && !cutoffIsFuture && TERMINAL_STATE_SET.has(cutoff.state));
+    const terminalObserved = !entry.sawFutureTransition && (subTerminal || cutoffTerminal);
+
+    if ((activeLock || entry.sawOrderUnknown) && !terminalObserved) {
       state = "ORDER_UNKNOWN";
+    } else if (entry.sawFutureTransition && TERMINAL_STATE_SET.has(state)) {
+      state = activeLock || entry.sawOrderUnknown ? "ORDER_UNKNOWN" : "SUBMITTED";
     } else if (!terminalObserved && state !== "ORDER_UNKNOWN" && state !== "PARTIAL_CANCEL") {
-      if (remainingDec.num === 0n && eqDecimal(filledDec, subDec)) {
+      if (remainingDec.num === 0n && eqDecimal(filledDec, subDec) && !cutoffIsFuture) {
         state = "FILLED";
-      } else if (remainingDec.num === 0n && filledDec.num > 0n && canceledDec.num > 0n) {
+      } else if (remainingDec.num === 0n && filledDec.num > 0n && canceledDec.num > 0n && !cutoffIsFuture) {
         state = "PARTIAL_CANCEL";
       } else if (filledDec.num > 0n && remainingDec.num > 0n) {
         state = "PARTIAL_FILL";
       }
     }
 
-    // Avg fill price across matching executions
+    // Avg fill price across effective (<= evaluatedAt) executions
     let avgFillPrice = null;
-    if (matchingExecs.length > 0 && filledFromExecs.num > 0n) {
+    if (effectiveExecs.length > 0 && filledFromExecs.num > 0n) {
       let totalVal = { n: 0n, d: 1n };
       let totalQty = { n: 0n, d: 1n };
-      for (const ex of matchingExecs) {
+      for (const ex of effectiveExecs) {
         const q = parseDecimal(ex.qty);
         const p = parseDecimal(ex.price);
         const qRat = { n: q.num, d: 10n ** BigInt(q.scale) };
@@ -355,20 +446,20 @@ export function reconcileOrdersAndFills({
     let feeNative = null;
     let feeCurrency = null;
     let feeUsd = null;
-    if (matchingExecs.length > 0) {
-      const anyNullFee = matchingExecs.some((ex) => ex.fee_native === null);
-      const feeCurrencies = [...new Set(matchingExecs.map((ex) => ex.fee_currency).filter(Boolean))];
+    if (effectiveExecs.length > 0) {
+      const anyNullFee = effectiveExecs.some((ex) => ex.fee_native === null);
+      const feeCurrencies = [...new Set(effectiveExecs.map((ex) => ex.fee_currency).filter(Boolean))];
       if (!anyNullFee && feeCurrencies.length === 1) {
         let sumNative = ZERO_DEC;
-        for (const ex of matchingExecs) {
+        for (const ex of effectiveExecs) {
           sumNative = addDecimal(sumNative, parseDecimal(ex.fee_native));
         }
         feeCurrency = feeCurrencies[0];
         feeNative = feeCurrency === "USD" ? formatUsdExact(sumNative) : formatQtyExact(sumNative);
-        const allUsd = matchingExecs.every((ex) => ex.fee_usd !== null);
+        const allUsd = effectiveExecs.every((ex) => ex.fee_usd !== null);
         if (allUsd) {
           let sumUsd = ZERO_DEC;
-          for (const ex of matchingExecs) {
+          for (const ex of effectiveExecs) {
             sumUsd = addDecimal(sumUsd, parseDecimal(ex.fee_usd));
           }
           feeUsd = formatUsdExact(sumUsd);
@@ -385,16 +476,16 @@ export function reconcileOrdersAndFills({
     if (entry.currency === "USD") {
       if (filledFromExecs.num > 0n) {
         let sumNotional = ZERO_DEC;
-        for (const ex of matchingExecs) {
+        for (const ex of effectiveExecs) {
           sumNotional = addDecimal(sumNotional, parseDecimal(ex.notional_usd));
         }
         notionalUsd = formatUsdExact(sumNotional);
       } else if (entry.limit_price !== null) {
         notionalUsd = formatUsdExact(mulDecimal(subDec, parseDecimal(entry.limit_price)));
       }
-    } else if (matchingExecs.length > 0 && matchingExecs.every((ex) => ex.notional_usd !== null)) {
+    } else if (effectiveExecs.length > 0 && effectiveExecs.every((ex) => ex.notional_usd !== null)) {
       let sumNotional = ZERO_DEC;
-      for (const ex of matchingExecs) {
+      for (const ex of effectiveExecs) {
         sumNotional = addDecimal(sumNotional, parseDecimal(ex.notional_usd));
       }
       notionalUsd = formatUsdExact(sumNotional);
@@ -402,12 +493,15 @@ export function reconcileOrdersAndFills({
     }
 
     let kPendUsd = null;
-    const isTerminalZeroRemaining = TERMINAL_STATE_SET.has(state) || (state === "PARTIAL_CANCEL" && remainingDec.num === 0n);
+    const isTerminalZeroRemaining = (
+      (TERMINAL_STATE_SET.has(state) || (state === "PARTIAL_CANCEL" && remainingDec.num === 0n))
+      && !entry.sawFutureTransition
+    );
     if (entry.side === "SELL") {
       kPendUsd = usdBasisQualified ? "0" : null;
     } else if (isTerminalZeroRemaining) {
       kPendUsd = usdBasisQualified ? "0" : null;
-    } else if (cutoff && cutoff.k_pend_usd !== null) {
+    } else if (cutoff && !cutoffIsFuture && cutoff.k_pend_usd !== null) {
       kPendUsd = cutoff.k_pend_usd;
     } else if (activeLock && activeLock.k_pend_usd !== null) {
       kPendUsd = activeLock.k_pend_usd;
@@ -415,18 +509,21 @@ export function reconcileOrdersAndFills({
       if (remainingDec.num === 0n) {
         kPendUsd = "0";
       } else if (entry.limit_price !== null) {
-        const baseNotional = mulDecimal(remainingDec, parseDecimal(entry.limit_price));
         const feeReserveRaw = cutoff?.reserved_fee_usd ?? subMeta?.estimated_fee_usd ?? null;
-        const feeReserve = feeReserveRaw !== null ? parseDecimal(feeReserveRaw) : ZERO_DEC;
-        kPendUsd = formatUsdExact(addDecimal(baseNotional, feeReserve));
+        if (feeReserveRaw === null) {
+          kPendUsd = null;
+        } else {
+          const baseNotional = mulDecimal(remainingDec, parseDecimal(entry.limit_price));
+          kPendUsd = formatUsdExact(addDecimal(baseNotional, parseDecimal(feeReserveRaw)));
+        }
       } else {
         kPendUsd = null;
       }
     }
 
     const updatedAt = maxTimestampIso(
-      maxTimestampIso(sub?.submitted_at ?? null, cutoff?.as_of ?? null),
-      matchingExecs.length > 0 ? matchingExecs[matchingExecs.length - 1].executed_at : null,
+      maxTimestampIso(sub?.submitted_at ?? null, cutoff && !cutoffIsFuture ? cutoff.as_of : null),
+      effectiveExecs.length > 0 ? effectiveExecs[effectiveExecs.length - 1].executed_at : null,
     ) ?? evaluatedAt;
 
     const queryTarget = state === "ORDER_UNKNOWN"
@@ -438,8 +535,9 @@ export function reconcileOrdersAndFills({
       : null;
 
     const evidenceRef = cutoff?.evidence_ref
-      ?? (matchingExecs.length > 0 ? matchingExecs[matchingExecs.length - 1].evidence_ref : null)
-      ?? sub?.evidence_ref;
+      ?? (effectiveExecs.length > 0 ? effectiveExecs[effectiveExecs.length - 1].evidence_ref : null)
+      ?? sub?.evidence_ref
+      ?? (matchingExecs.length > 0 ? matchingExecs[matchingExecs.length - 1].evidence_ref : "sa2:reconciled");
 
     if (state === "ORDER_UNKNOWN") {
       computedOrderLocks.set(entry.client_order_id, {
@@ -487,13 +585,24 @@ export function reconcileOrdersAndFills({
     });
   }
 
-  // Merge active locks from external persistent lockStore that may not appear in current domain poll.
+  // Merge active locks from external persistent lockStore that were NOT terminated on exact symbol & identity.
   for (const lock of activeLocks) {
     if (!computedOrderLocks.has(lock.client_order_id)) {
-      const alreadyTerminated = reconciledOrders.some(
-        (o) => o.client_order_id === lock.client_order_id && TERMINAL_STATE_SET.has(o.state),
-      );
-      if (!alreadyTerminated) {
+      const terminatedOnMatchingOrder = reconciledOrders.some((o) => {
+        const ordMeta = orderMap.get(`${identity.binding_key}|${o.client_order_id}`);
+        if (ordMeta?.sawFutureTransition) return false;
+        const idMatches = o.client_order_id === lock.client_order_id
+          || (lock.broker_order_id !== null && o.broker_order_id === lock.broker_order_id);
+        return (
+          idMatches
+          && o.broker === lock.broker
+          && o.environment === lock.environment
+          && o.account === lock.account
+          && o.symbol === lock.symbol
+          && TERMINAL_STATE_SET.has(o.state)
+        );
+      });
+      if (!terminatedOnMatchingOrder) {
         computedOrderLocks.set(lock.client_order_id, lock);
       }
     }
@@ -504,19 +613,38 @@ export function reconcileOrdersAndFills({
   ));
   const orderUnknownSymbols = [...new Set(orderUnknownLocks.map((l) => l.symbol))].sort();
 
-  // Compute aggregate K_pend in USD across working orders + any unrepresented external locks.
-  let totalKPendDec = ZERO_DEC;
+  const priorOrderIdSet = new Set();
+  if (Array.isArray(priorKPendOrderIds)) {
+    for (const id of priorKPendOrderIds) {
+      if (typeof id === "string" && id.length > 0) priorOrderIdSet.add(id);
+    }
+  }
+
+  // Compute aggregate K_pend in USD across working orders + any unrepresented external locks,
+  // partitioning any overlapping prior-accounted IDs from non-overlapping new orders/submissions.
+  let overlapVisibleDec = ZERO_DEC;
+  let newNonOverlappingDec = ZERO_DEC;
   let kPendUnavailable = false;
   const accountedLockClientIds = new Set();
 
   for (const ord of reconciledOrders) {
     if (ord.state === "ORDER_UNKNOWN") accountedLockClientIds.add(ord.client_order_id);
+    const isWorkingBuy = ord.side === "BUY"
+      && !TERMINAL_STATE_SET.has(ord.state)
+      && !(ord.state === "PARTIAL_CANCEL" && ord.qty_remaining === "0");
     if (ord.k_pend_usd === null) {
-      if (ord.side === "BUY" && (!TERMINAL_STATE_SET.has(ord.state) && !(ord.state === "PARTIAL_CANCEL" && ord.qty_remaining === "0"))) {
+      if (isWorkingBuy) {
         kPendUnavailable = true;
       }
     } else {
-      totalKPendDec = addDecimal(totalKPendDec, parseDecimal(ord.k_pend_usd));
+      const kDec = parseDecimal(ord.k_pend_usd);
+      const isPriorOverlap = priorOrderIdSet.has(ord.client_order_id)
+        || (ord.broker_order_id !== null && priorOrderIdSet.has(ord.broker_order_id));
+      if (isPriorOverlap) {
+        overlapVisibleDec = addDecimal(overlapVisibleDec, kDec);
+      } else {
+        newNonOverlappingDec = addDecimal(newNonOverlappingDec, kDec);
+      }
     }
   }
 
@@ -525,20 +653,40 @@ export function reconcileOrdersAndFills({
     if (lock.k_pend_usd === null) {
       kPendUnavailable = true;
     } else {
-      totalKPendDec = addDecimal(totalKPendDec, parseDecimal(lock.k_pend_usd));
+      const kDec = parseDecimal(lock.k_pend_usd);
+      const isPriorOverlap = priorOrderIdSet.has(lock.client_order_id)
+        || (lock.broker_order_id !== null && priorOrderIdSet.has(lock.broker_order_id));
+      if (isPriorOverlap) {
+        overlapVisibleDec = addDecimal(overlapVisibleDec, kDec);
+      } else {
+        newNonOverlappingDec = addDecimal(newNonOverlappingDec, kDec);
+      }
     }
   }
 
-  const coverageAllowsRelease = Boolean(cutoffCoverage?.k_pend_release_allowed) && orderUnknownLocks.length === 0;
-  let kPendUsdOut = kPendUnavailable ? null : formatUsdExact(totalKPendDec);
+  const cutoffDomainProvenComplete = Boolean(cutoffCoverage?.k_pend_release_allowed);
+  const coverageAllowsRelease = cutoffDomainProvenComplete && orderUnknownLocks.length === 0 && !hasFutureEvents;
 
-  if (!coverageAllowsRelease && priorKPendUsd !== null && priorKPendUsd !== undefined) {
+  if (!cutoffDomainProvenComplete && (priorKPendUsd === null || priorKPendUsd === undefined)) {
+    kPendUnavailable = true;
+  }
+
+  let kPendUsdOut = null;
+  if (!kPendUnavailable) {
+    if (!coverageAllowsRelease && priorKPendUsd !== null && priorKPendUsd !== undefined) {
+      const priorDec = typeof priorKPendUsd === "string" ? parseDecimal(priorKPendUsd) : null;
+      if (!priorDec || priorDec.num < 0n) {
+        throw new OrdersFillsError("invalid_prior_k_pend_usd", 400);
+      }
+      kPendUsdOut = formatUsdExact(addDecimal(newNonOverlappingDec, maxDec(overlapVisibleDec, priorDec)));
+    } else {
+      kPendUsdOut = formatUsdExact(addDecimal(overlapVisibleDec, newNonOverlappingDec));
+    }
+  } else if (!coverageAllowsRelease && priorKPendUsd !== null && priorKPendUsd !== undefined) {
+    // Still validate explicit priorKPendUsd type/sign even when unknown working order keeps total K_pend null
     const priorDec = typeof priorKPendUsd === "string" ? parseDecimal(priorKPendUsd) : null;
     if (!priorDec || priorDec.num < 0n) {
       throw new OrdersFillsError("invalid_prior_k_pend_usd", 400);
-    }
-    if (!kPendUnavailable) {
-      kPendUsdOut = formatUsdExact(maxDec(totalKPendDec, priorDec));
     }
   }
 
@@ -551,5 +699,6 @@ export function reconcileOrdersAndFills({
     order_unknown_symbols: orderUnknownSymbols,
     k_pend_usd: kPendUsdOut,
     k_pend_release_allowed: coverageAllowsRelease,
+    has_future_events: hasFutureEvents,
   };
 }
