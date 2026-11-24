@@ -60,10 +60,15 @@ const handlers = {
     const { evaluateTwrLedger, DESK_7A_LABELS } = await import(
       "../web/strategy-switch-console/application/sizing_unit/twr_ledger.js"
     );
+    const { createPinnedCalendarProvider } = await import(
+      "../web/strategy-switch-console/application/sizing_unit/freshness.js"
+    );
+    const provider = createPinnedCalendarProvider(pinnedCalendar);
     const spec = acceptanceFixture.cases["SA-A01"];
     const std = evaluateTwrLedger({
       initialState: spec.standard_deposit.initial_state,
       sessions: [spec.standard_deposit.session],
+      calendarProvider: provider,
     });
     const s = std.sessions[0];
     const e1 = spec.standard_deposit.expected;
@@ -83,6 +88,7 @@ const handlers = {
     const mid = evaluateTwrLedger({
       initialState: spec.mid_drawdown_deposit.initial_state,
       sessions: [spec.mid_drawdown_deposit.session],
+      calendarProvider: provider,
     });
     const m = mid.sessions[0];
     const e2 = spec.mid_drawdown_deposit.expected;
@@ -121,10 +127,15 @@ const handlers = {
     const { evaluateTwrLedger } = await import(
       "../web/strategy-switch-console/application/sizing_unit/twr_ledger.js"
     );
+    const { createPinnedCalendarProvider } = await import(
+      "../web/strategy-switch-console/application/sizing_unit/freshness.js"
+    );
+    const provider = createPinnedCalendarProvider(pinnedCalendar);
     const spec = acceptanceFixture.cases["SA-A02"];
     const res = evaluateTwrLedger({
       initialState: spec.initial_state,
       sessions: spec.sessions,
+      calendarProvider: provider,
     });
     const [w1, w2] = res.sessions;
     const e1 = spec.expected.after_withdrawal;
@@ -147,6 +158,7 @@ const handlers = {
     const hRes = evaluateTwrLedger({
       initialState: spec.nonzero_h_withdrawal.initial_state,
       sessions: [spec.nonzero_h_withdrawal.session],
+      calendarProvider: provider,
     });
     const wh = hRes.sessions[0];
     const eh = spec.expected.nonzero_h;
@@ -277,6 +289,49 @@ const handlers = {
     assert.equal(clearRecB.v2.state, "HALT");
     assert.equal(clearRecB.v2.human_rearm_required, true);
 
+    // R3-3 / S8-a: sequential mismatches on A then B persist both in halted_instruments across hydrate;
+    // reconciling only A leaves ledger halted on B until B also reconciles cleanly.
+    const seqExactEq = "23500.00";
+    const seqFailA = reconcileV2Broker(freshSplitLedger, "inst_tqqq", {
+      broker_reconciled: "mismatch",
+      broker_ledger: { adjusted_equity_usd: seqExactEq, shares: "999", hwm_usd: spec.initial_ledger.loss_memory.w_ref_usd },
+    });
+    const seqFailB = reconcileV2Broker(seqFailA.ledger, "inst_soxl", {
+      broker_reconciled: "mismatch",
+      broker_ledger: { adjusted_equity_usd: seqExactEq, shares: "99", hwm_usd: spec.initial_ledger.loss_memory.w_ref_usd },
+    });
+    const seqHydrated = hydrateCorporateActionLedger(serializeCorporateActionLedger(seqFailB.ledger));
+    assert.equal(seqHydrated.v2.halted_instruments.some((h) => h.instrument_id === "inst_tqqq"), true);
+    assert.equal(seqHydrated.v2.halted_instruments.some((h) => h.instrument_id === "inst_soxl"), true);
+    const seqClearA = reconcileV2Broker(seqHydrated, "inst_tqqq", {
+      broker_reconciled: "exact_match",
+      broker_ledger: { adjusted_equity_usd: seqExactEq, shares: "100", hwm_usd: spec.initial_ledger.loss_memory.w_ref_usd },
+    });
+    assert.equal(seqClearA.ok, false);
+    assert.equal(seqClearA.v2.state, "HALT");
+    assert.equal(seqClearA.v2.halted_instruments.some((h) => h.instrument_id === "inst_soxl"), true);
+    assert.equal(seqClearA.v2.halted_instruments.some((h) => h.instrument_id === "inst_tqqq"), false);
+    const seqClearB = reconcileV2Broker(seqClearA.ledger, "inst_soxl", {
+      broker_reconciled: "exact_match",
+      broker_ledger: { adjusted_equity_usd: seqExactEq, shares: "10", hwm_usd: spec.initial_ledger.loss_memory.w_ref_usd },
+    });
+    assert.equal(seqClearB.ok, true);
+    assert.equal(seqClearB.v2.state, "CLEAR");
+
+    // R3-4 / S8-b: announced split within 2 sessions failing pre_state_mismatch triggers V2 HALT
+    const preMismatchSplit = structuredClone(spec.subcases[0].event);
+    preMismatchSplit.event_id = "ca-a03-pre-mismatch-halt";
+    preMismatchSplit.pre_ref = "149.99";
+    preMismatchSplit.post_ref = "74.995";
+    preMismatchSplit.v2_control.announced_within_two_sessions = true;
+    const preMismatchRes = applyCorporateAction(freshSplitLedger, preMismatchSplit);
+    assert.equal(preMismatchRes.ok, false);
+    assert.equal(preMismatchRes.reason, "pre_state_mismatch");
+    assert.equal(preMismatchRes.v2.state, "HALT");
+    assert.equal(preMismatchRes.ledger.v2.state, "HALT");
+    assert.equal(preMismatchRes.ledger.v2.halted_instruments.some((h) => h.instrument_id === "inst_tqqq"), true);
+    assert.equal(preMismatchRes.ledger.positions.inst_tqqq.ref_price_usd, "150.00");
+
     // S9: accrue dividend on OLDT -> ticker_change OLDT->NEWT -> settle dividend on NEWT succeeds
     let renameLedger = createCorporateActionLedger(spec.initial_ledger);
     const renameExDiv = structuredClone(spec.subcases[2].event);
@@ -314,6 +369,21 @@ const handlers = {
     assert.equal(rStep3.ok, true, `S9 failed: ${rStep3.reason}`);
     assert.equal(rStep3.ledger.dividend_receivable_usd, "0");
     assert.equal(rStep3.ledger.settled_cash_usd, "1100.00");
+
+    // R3-5 / S9: dividend_payment carrying prior historical symbol OLDT settles NEWT receivable, while FAKE still fails
+    const fakePay = structuredClone(renamePay);
+    fakePay.event_id = "ca-a03-s9-div-fake";
+    fakePay.symbol = "FAKE";
+    const fakePayRes = applyCorporateAction(rStep2.ledger, fakePay);
+    assert.equal(fakePayRes.ok, false);
+    assert.equal(fakePayRes.reason, "instrument_symbol_mismatch");
+    const histPay = structuredClone(renamePay);
+    histPay.event_id = "ca-a03-s9-div-pay-hist";
+    histPay.symbol = "OLDT";
+    const histPayRes = applyCorporateAction(rStep2.ledger, histPay);
+    assert.equal(histPayRes.ok, true, `R3-5 historical symbol payment failed: ${histPayRes.reason}`);
+    assert.equal(histPayRes.ledger.dividend_receivable_usd, "0");
+    assert.equal(histPayRes.ledger.settled_cash_usd, "1100.00");
 
     // P1 regression: cross-symbol dividend settlement cannot clear inst_dist's receivable
     const exDiv = applyCorporateAction(freshSplitLedger, spec.subcases[2].event);
@@ -701,6 +771,24 @@ const handlers = {
     assert.equal(signedProjected.status, "unavailable");
     assert.equal(signedProjected.nav_usd, null);
     assert.equal(/storage\.example\.invalid|X-Goog-Signature/.test(JSON.stringify(signedProjected)), false);
+
+    // R3-6 / C-SA-14: empty positions array with nonzero etf_market_value_usd fails closed
+    const emptyPosEtfAcct = structuredClone(spec.accounts[0]);
+    emptyPosEtfAcct.positions = [];
+    const emptyPosEtfCohort = evaluateSizingUnitCohort([emptyPosEtfAcct], {
+      evaluated_at: spec.evaluated_at,
+      calendarProvider: provider,
+    });
+    assert.equal(emptyPosEtfCohort.status, "unavailable");
+    assert.equal(emptyPosEtfCohort.reason, "positions_etf_mismatch");
+    assert.equal(emptyPosEtfCohort.nav_usd, null);
+    const emptyPosEtfProjected = projectSizingUnitAccountFacts([emptyPosEtfAcct], {
+      evaluated_at: spec.evaluated_at,
+      calendarProvider: provider,
+    });
+    assert.equal(emptyPosEtfProjected.status, "unavailable");
+    assert.equal(emptyPosEtfProjected.reason, "positions_etf_mismatch");
+    assert.equal(emptyPosEtfProjected.nav_usd, null);
   },
 
   async "SA-A10"() {
@@ -914,7 +1002,43 @@ const handlers = {
     assert.equal(eurReturnRow.cashflow_method, "modified_dietz");
     assert.equal(eurReturnRow.approximate, true);
 
-    // S5: missing intermediate trading day (Jan 6 -> Jan 10, 100 -> 120) rejected with & without calendar
+    // R3-2 / S7: single-EUR top-level curve (empty returns.per_currency) preserved when USD native is applied
+    const topLevelEurBlocks = {
+      returns: {
+        status: "ok",
+        currency: "EUR",
+        value_kind: "pnl",
+        return_kind: "twr",
+        as_of: "2025-01-02",
+        points: [{ date: "2025-01-02", value: 10, daily_return_percent: 10 }],
+        cashflow_method: "modified_dietz",
+        approximate: true,
+        sizing_eligible: false,
+        per_currency: [],
+      },
+      summary: {
+        status: "ok",
+        currency: "EUR",
+        metric_reasons: {},
+        per_currency: [
+          { currency: "EUR", twr_return_percent: 10, max_drawdown: { percent: 0 } },
+          { currency: "USD", twr_return_percent: null, status: "no_data" },
+        ],
+      },
+      calendar: {
+        status: "ok",
+        cells: [{ date: "2025-01-02", status: "ok" }],
+      },
+    };
+    const appliedTopLevelEur = applyNativeDailyReturns(topLevelEurBlocks, nativeInput);
+    const preservedEurCurve = appliedTopLevelEur.returns.per_currency.find((r) => r.currency === "EUR");
+    const addedUsdCurve = appliedTopLevelEur.returns.per_currency.find((r) => r.currency === "USD");
+    assert.ok(preservedEurCurve && addedUsdCurve, "top-level EUR curve preserved alongside USD native curve");
+    assert.equal(preservedEurCurve.points[0].value, 10);
+    assert.equal(preservedEurCurve.approximate, true);
+    assert.equal(addedUsdCurve.points[0].daily_return_percent, 2);
+
+    // S5: missing intermediate trading day rejected (including 48h Mon->Wed and pre-close Wed w/ calendar)
     const { createPinnedCalendarProvider } = await import(
       "../web/strategy-switch-console/application/sizing_unit/freshness.js"
     );
@@ -954,6 +1078,46 @@ const handlers = {
       });
       assert.equal(deskOvGap.cashflow_7a.adjusted_performance.return_pct, null);
       assert.equal(deskOvGap.cashflow_7a.adjusted_performance.sizing_eligible, false);
+    }
+
+    // R3-1 / S5 Repro 1 & 2: Mon Jan 6 -> Wed Jan 8 skipping Tue Jan 7 fails closed without calendar (48h)
+    // AND fails closed with pinned calendar even when end timestamp is moved to 1 min before Wed close
+    const jan6to8NoCal = [
+      { observed_at: "2025-01-06T21:00:00.000Z", equity_usd: "100.00" },
+      { observed_at: "2025-01-08T21:00:00.000Z", equity_usd: "120.00" },
+    ];
+    const jan6to8PreClose = [
+      { observed_at: "2025-01-06T21:00:00.000Z", equity_usd: "100.00" },
+      { observed_at: "2025-01-08T20:59:00.000Z", equity_usd: "120.00" },
+    ];
+    for (const [vals, calArg] of [[jan6to8NoCal, undefined], [jan6to8PreClose, calProv]]) {
+      const lGap = evaluateTwrLedger({
+        initialState: { e_prev_usd: "100.00", e_star_prev_usd: "100.00", h_usd: "0", tier_drawdown_limit_d: "0.30" },
+        valuations: vals,
+        flows: [],
+        calendarProvider: calArg,
+      });
+      assert.equal(lGap.status, "partial");
+      assert.equal(lGap.return_pct, null);
+      assert.equal(lGap.sizing_eligible, false);
+
+      const pGap = projectDesk7aPerformance({
+        initialState: { e_prev_usd: "100.00", e_star_prev_usd: "100.00", h_usd: "0", tier_drawdown_limit_d: "0.30" },
+        valuations: vals,
+        flows: [],
+        calendarProvider: calArg,
+      });
+      assert.equal(pGap.cashflow_7a.adjusted_performance.return_pct, null);
+      assert.equal(pGap.cashflow_7a.adjusted_performance.sizing_eligible, false);
+
+      const oGap = projectDesk7aOverview({
+        initialState: { e_prev_usd: "100.00", e_star_prev_usd: "100.00", h_usd: "0", tier_drawdown_limit_d: "0.30" },
+        valuations: vals,
+        flows: [],
+        calendarProvider: calArg,
+      });
+      assert.equal(oGap.cashflow_7a.adjusted_performance.return_pct, null);
+      assert.equal(oGap.cashflow_7a.adjusted_performance.sizing_eligible, false);
     }
 
     // S6: Dietz -64% period followed by exact 0% period never regains eligibility or dd_b="0"

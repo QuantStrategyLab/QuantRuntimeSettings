@@ -284,9 +284,21 @@ export function applyCorporateAction(ledgerState, event) {
   if (!pos) {
     return rejectAction(ledgerState, "unknown_instrument_id");
   }
-  if (pos.symbol !== event.symbol) {
+  const symbolInLineage = (sym) => sym === pos.symbol
+    || (Array.isArray(pos.ticker_history) && pos.ticker_history.includes(sym));
+  const isHistoricalDividendSymbol = event.action_type === "dividend_payment"
+    && symbolInLineage(event.symbol);
+  if (pos.symbol !== event.symbol && !isHistoricalDividendSymbol) {
     return rejectAction(ledgerState, "instrument_symbol_mismatch");
   }
+  const v2Triggered = Boolean(
+    event.v2_control?.announced_within_two_sessions || event.v2_control?.price_anomaly_detected,
+  );
+  const failAction = (reason) => (
+    v2Triggered
+      ? haltLedgerRejection(ledgerState, reason, event.instrument_id, pos.symbol)
+      : rejectAction(ledgerState, reason)
+  );
 
   const preUnits = ratFromText(event.pre_units);
   const postUnits = ratFromText(event.post_units);
@@ -296,10 +308,10 @@ export function applyCorporateAction(ledgerState, event) {
   const posUnits = ratFromText(pos.units);
   const posRef = ratFromText(pos.ref_price_usd);
   if (!preUnits || !postUnits || !preRef || !postRef || !ratio || !posUnits || !posRef) {
-    return rejectAction(ledgerState, "invalid_decimal_operands");
+    return failAction("invalid_decimal_operands");
   }
   if (ratCmp(posUnits, preUnits) !== 0 || ratCmp(posRef, preRef) !== 0) {
-    return rejectAction(ledgerState, "pre_state_mismatch");
+    return failAction("pre_state_mismatch");
   }
 
   const cilLeg = parseActionLeg(event.incremental_cash_in_lieu);
@@ -357,7 +369,7 @@ export function applyCorporateAction(ledgerState, event) {
     const lhs = preNotional;
     const rhs = ratAdd(postNotional, cilLeg.rat);
     if (ratCmp(lhs, rhs) !== 0) {
-      return rejectAction(ledgerState, "conservation_equation_violated");
+      return failAction("conservation_equation_violated");
     }
     nextSettled = ratAdd(settledBefore, cilLeg.rat);
   } else if (event.action_type === "cash_dividend") {
@@ -367,10 +379,10 @@ export function applyCorporateAction(ledgerState, event) {
     const eligible = ratFromText(event.eligible_units);
     const dpu = ratFromText(event.dividend_per_unit_usd);
     if (!eligible || !dpu || ratCmp(ratMul(eligible, dpu), divRecLeg.rat) !== 0) {
-      return rejectAction(ledgerState, "dividend_accrual_mismatch");
+      return failAction("dividend_accrual_mismatch");
     }
     if (ratCmp(preNotional, ratAdd(postNotional, divRecLeg.rat)) !== 0) {
-      return rejectAction(ledgerState, "conservation_equation_violated");
+      return failAction("conservation_equation_violated");
     }
     const curInst = nextLedger.receivables_by_instrument[event.instrument_id];
     const curAmt = curInst ? ratFromText(curInst.amount_usd) : ZERO;
@@ -392,7 +404,8 @@ export function applyCorporateAction(ledgerState, event) {
     const instRec = nextLedger.receivables_by_instrument[event.instrument_id];
     const instAmt = instRec ? ratFromText(instRec.amount_usd) : null;
     const lineageMatches = instRec
-      && (instRec.symbol === event.symbol || (Array.isArray(pos.ticker_history) && pos.ticker_history.includes(instRec.symbol)));
+      && symbolInLineage(instRec.symbol)
+      && symbolInLineage(event.symbol);
     if (
       !instRec
       || !lineageMatches
@@ -420,7 +433,7 @@ export function applyCorporateAction(ledgerState, event) {
       || event.ticker_lineage.prior_symbol !== pos.symbol
       || ratCmp(preNotional, postNotional) !== 0
     ) {
-      return rejectAction(ledgerState, "ticker_lineage_mismatch");
+      return failAction("ticker_lineage_mismatch");
     }
     nextLedger.positions[event.instrument_id].symbol = event.ticker_lineage.new_symbol;
     nextLedger.positions[event.instrument_id].ticker_history.push(event.ticker_lineage.new_symbol);
@@ -435,7 +448,7 @@ export function applyCorporateAction(ledgerState, event) {
       return rejectAction(ledgerState, "delisting_requires_v3_flag");
     }
     if (ratCmp(preNotional, postNotional) !== 0) {
-      return rejectAction(ledgerState, "delisting_conservation_mismatch");
+      return failAction("delisting_conservation_mismatch");
     }
     const unresolved = !event.delisting.resolved || event.delisting.terminal_valuation_usd === null;
     nextLedger.positions[event.instrument_id].unresolved_pending_evidence = unresolved;
@@ -452,9 +465,6 @@ export function applyCorporateAction(ledgerState, event) {
   nextLedger.positions[event.instrument_id].units = formatUnits(postUnits);
   nextLedger.positions[event.instrument_id].ref_price_usd = formatUsdAmount(postRef);
 
-  const v2Triggered = Boolean(
-    event.v2_control?.announced_within_two_sessions || event.v2_control?.price_anomaly_detected,
-  );
   if (v2Triggered) {
     const existingHalted = Array.isArray(nextLedger.v2?.halted_instruments)
       ? [...nextLedger.v2.halted_instruments]
@@ -544,8 +554,32 @@ export function reconcileV2Broker(ledgerState, instrumentId, reconcilePayload = 
     : rawHalted.some((h) => h.instrument_id === instrumentId && (!reconcilePayload?.symbol || h.symbol === reconcilePayload.symbol));
   const payloadSymbolValid = !reconcilePayload?.symbol || reconcilePayload.symbol === pos?.symbol;
 
-  if (!pos || !broker || reconcilePayload?.broker_reconciled !== "exact_match" || !haltedMatchesTarget || !payloadSymbolValid) {
-    const updatedHalted = !haltedMatchesTarget ? rawHalted : withFailedTarget();
+  const brokerEq = broker ? ratFromText(broker.adjusted_equity_usd) : null;
+  const brokerShares = broker ? ratFromText(broker.shares) : null;
+  const brokerHwm = broker ? ratFromText(broker.hwm_usd) : null;
+  const ledgerEq = pos ? computeTotalEquityRat(nextLedger) : null;
+  const ledgerShares = pos ? ratFromText(pos.units) : null;
+  const ledgerHwm = ratFromText(nextLedger.loss_memory?.w_ref_usd);
+
+  const ledgerExactMatch = Boolean(
+    pos
+    && broker
+    && payloadSymbolValid
+    && reconcilePayload?.broker_reconciled === "exact_match"
+    && brokerEq && brokerShares && brokerHwm && ledgerEq && ledgerShares && ledgerHwm
+    && ratCmp(brokerEq, ledgerEq) === 0
+    && ratCmp(brokerShares, ledgerShares) === 0
+    && ratCmp(brokerHwm, ledgerHwm) === 0,
+  );
+
+  if (!ledgerExactMatch || !haltedMatchesTarget) {
+    const updatedHalted = !haltedMatchesTarget && ledgerExactMatch ? rawHalted : withFailedTarget();
+    let failReason = "v2_reconcile_failed";
+    if (!payloadSymbolValid || (ledgerExactMatch && !haltedMatchesTarget)) {
+      failReason = "halted_instrument_mismatch";
+    } else if (pos && broker && reconcilePayload?.broker_reconciled === "exact_match") {
+      failReason = "v2_ledger_mismatch";
+    }
     nextLedger.v2 = {
       ...nextLedger.v2,
       halted: true,
@@ -556,49 +590,23 @@ export function reconcileV2Broker(ledgerState, instrumentId, reconcilePayload = 
     };
     return {
       ok: false,
-      reason: !haltedMatchesTarget || !payloadSymbolValid ? "halted_instrument_mismatch" : "v2_reconcile_failed",
+      reason: failReason,
       v2: structuredClone(nextLedger.v2),
       ledger: nextLedger,
     };
   }
 
-  const brokerEq = ratFromText(broker.adjusted_equity_usd);
-  const brokerShares = ratFromText(broker.shares);
-  const brokerHwm = ratFromText(broker.hwm_usd);
-  const ledgerEq = computeTotalEquityRat(nextLedger);
-  const ledgerShares = ratFromText(pos.units);
-  const ledgerHwm = ratFromText(nextLedger.loss_memory?.w_ref_usd);
-
-  const exactMatch = Boolean(
-    brokerEq && brokerShares && brokerHwm && ledgerShares && ledgerHwm
-    && ratCmp(brokerEq, ledgerEq) === 0
-    && ratCmp(brokerShares, ledgerShares) === 0
-    && ratCmp(brokerHwm, ledgerHwm) === 0,
-  );
-
-  if (exactMatch) {
-    const remainingHalted = rawHalted.filter((h) => h.instrument_id !== instrumentId);
-    const clearedAll = remainingHalted.length === 0;
-    nextLedger.v2 = {
-      ...nextLedger.v2,
-      halted: !clearedAll,
-      state: clearedAll ? "CLEAR" : "HALT",
-      auto_cleared: clearedAll,
-      human_rearm_required: !clearedAll,
-      halted_instruments: remainingHalted,
-    };
-    return { ok: clearedAll, v2: structuredClone(nextLedger.v2), ledger: nextLedger };
-  }
-
+  const remainingHalted = rawHalted.filter((h) => h.instrument_id !== instrumentId);
+  const clearedAll = remainingHalted.length === 0;
   nextLedger.v2 = {
     ...nextLedger.v2,
-    halted: true,
-    state: "HALT",
-    auto_cleared: false,
-    human_rearm_required: true,
-    halted_instruments: withFailedTarget(),
+    halted: !clearedAll,
+    state: clearedAll ? "CLEAR" : "HALT",
+    auto_cleared: clearedAll,
+    human_rearm_required: !clearedAll,
+    halted_instruments: remainingHalted,
   };
-  return { ok: false, reason: "v2_ledger_mismatch", v2: structuredClone(nextLedger.v2), ledger: nextLedger };
+  return { ok: clearedAll, v2: structuredClone(nextLedger.v2), ledger: nextLedger };
 }
 
 /**

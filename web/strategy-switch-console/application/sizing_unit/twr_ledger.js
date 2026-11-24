@@ -7,7 +7,10 @@
  * interpolates missing prices, and never converts empty/reported flows to zero.
  */
 
-import { countXnysSessionCloses } from "./freshness.js";
+import {
+  countWeekdayTouchedSessions,
+  countXnysTouchedSessions,
+} from "./freshness.js";
 import {
   parseDecimal,
   parseInstantMs,
@@ -472,24 +475,7 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
         };
       }
     }
-    if (calendarProvider && sStartMs !== null && sEndMs !== null) {
-      const span = countXnysSessionCloses(sStartMs, sEndMs, calendarProvider);
-      if (!span.covered || span.age_sessions > 1) {
-        return {
-          labels: DESK_7A_LABELS,
-          status: "partial",
-          return_pct: null,
-          interpolated: false,
-          empty_as_zero: false,
-          sizing_eligible: false,
-          breaker_eligible: false,
-          verdict_eligible: false,
-          method_version: null,
-          unavailable_reason: !span.covered ? span.reason : "missing_intermediate_trading_sessions",
-          sessions: outSessions,
-        };
-      }
-    } else if (sStartMs !== null && sEndMs !== null) {
+    if (sStartMs !== null && sEndMs !== null) {
       const subMs = Array.isArray(session?.intraday_subvaluations)
         ? session.intraday_subvaluations
           .map((sv) => parseInstantMs(sv?.effective_at))
@@ -499,20 +485,46 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
       const pointsMs = [sStartMs, ...subMs, sEndMs];
       const MAX_UNVERIFIED_CALENDAR_SPAN_MS = 3 * 86_400_000;
       for (let idx = 1; idx < pointsMs.length; idx++) {
-        if (pointsMs[idx] - pointsMs[idx - 1] > MAX_UNVERIFIED_CALENDAR_SPAN_MS) {
-          return {
-            labels: DESK_7A_LABELS,
-            status: "partial",
-            return_pct: null,
-            interpolated: false,
-            empty_as_zero: false,
-            sizing_eligible: false,
-            breaker_eligible: false,
-            verdict_eligible: false,
-            method_version: null,
-            unavailable_reason: "calendar_provider_required_for_multiday_span",
-            sessions: outSessions,
-          };
+        const segStart = pointsMs[idx - 1];
+        const segEnd = pointsMs[idx];
+        if (calendarProvider) {
+          const span = countXnysTouchedSessions(segStart, segEnd, calendarProvider);
+          if (!span.covered || span.touched_sessions > 1) {
+            return {
+              labels: DESK_7A_LABELS,
+              status: "partial",
+              return_pct: null,
+              interpolated: false,
+              empty_as_zero: false,
+              sizing_eligible: false,
+              breaker_eligible: false,
+              verdict_eligible: false,
+              method_version: null,
+              unavailable_reason: !span.covered ? span.reason : "missing_intermediate_trading_sessions",
+              sessions: outSessions,
+            };
+          }
+        } else {
+          const weekdayCount = countWeekdayTouchedSessions(segStart, segEnd);
+          if (
+            segEnd - segStart > MAX_UNVERIFIED_CALENDAR_SPAN_MS
+            || weekdayCount === null
+            || weekdayCount > 1
+          ) {
+            return {
+              labels: DESK_7A_LABELS,
+              status: "partial",
+              return_pct: null,
+              interpolated: false,
+              empty_as_zero: false,
+              sizing_eligible: false,
+              breaker_eligible: false,
+              verdict_eligible: false,
+              method_version: null,
+              unavailable_reason: "calendar_provider_required_for_multiday_span",
+              sessions: outSessions,
+            };
+          }
         }
       }
     }

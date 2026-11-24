@@ -123,10 +123,37 @@ export function applyNativeDailyReturns(blocks, input) {
   const nativePoints = gaps ? daily.map((row, i) => ({ date: row.date, value: row.value * 100,
     daily_return_percent: row.value * 100, breakBefore: i > 0 && hasGap(daily[i - 1], row) }))
     : index.map((row, i) => ({ date: row.date, value: (row.value - 1) * 100, daily_return_percent: daily[i].value * 100 }));
-  const priorReturnCurrencies = Array.isArray(blocks.returns.per_currency) ? blocks.returns.per_currency : [];
+  const rawPriorReturnCurrencies = Array.isArray(blocks.returns.per_currency) ? blocks.returns.per_currency : [];
+  const priorTopReturnCurrency = blocks.returns.currency;
+  const shouldPreserveTopReturn = Boolean(
+    priorTopReturnCurrency
+    && priorTopReturnCurrency !== currency
+    && !rawPriorReturnCurrencies.some(row => row.currency === priorTopReturnCurrency)
+    && (blocks.returns.status === "ok" || (Array.isArray(blocks.returns.points) && blocks.returns.points.length > 0)),
+  );
+  const priorReturnCurrencies = shouldPreserveTopReturn
+    ? (() => {
+      const { per_currency: _pc, per_account: _pa, cashflow_per_currency: _cpc, ...rest } = blocks.returns;
+      return [{ ...rest, currency: priorTopReturnCurrency }, ...rawPriorReturnCurrencies];
+    })()
+    : rawPriorReturnCurrencies;
+  const rawPriorSummaryCurrencies = Array.isArray(blocks.summary.per_currency) ? blocks.summary.per_currency : [];
+  const priorTopSummaryCurrency = blocks.summary.currency;
+  const shouldPreserveTopSummary = Boolean(
+    priorTopSummaryCurrency
+    && priorTopSummaryCurrency !== currency
+    && !rawPriorSummaryCurrencies.some(row => row.currency === priorTopSummaryCurrency)
+    && (blocks.summary.status === "ok" || blocks.summary.twr_return_percent != null),
+  );
+  const priorSummaryCurrencies = shouldPreserveTopSummary
+    ? (() => {
+      const { per_currency: _pc, per_account: _pa, cashflow_per_currency: _cpc, ...rest } = blocks.summary;
+      return [{ ...rest, currency: priorTopSummaryCurrency }, ...rawPriorSummaryCurrencies];
+    })()
+    : rawPriorSummaryCurrencies;
   const otherReturnCurrencies = priorReturnCurrencies.filter(row => row.currency !== currency);
   const hasOtherCurrencies = otherReturnCurrencies.length > 0
-    || (Array.isArray(blocks.summary.per_currency) && blocks.summary.per_currency.some(row => row.currency !== currency));
+    || priorSummaryCurrencies.some(row => row.currency !== currency);
   let nextReturnPerCurrency = [];
   if (hasOtherCurrencies) {
     const existingEntry = priorReturnCurrencies.find(row => row.currency === currency) || {};
@@ -174,10 +201,10 @@ export function applyNativeDailyReturns(blocks, input) {
       start: daily[0].date, end: comparison.points.at(-1).date,
       percentage_points: incomplete ? null : (growth - 1) * 100 - comparison.points.at(-1).value,
       unavailable_reason: metricReason })) });
-  const currencySummary = blocks.summary.per_currency.find(item => item.currency === currency) || {
+  const currencySummary = priorSummaryCurrencies.find(item => item.currency === currency) || {
     currency, total: null, account_count: 0, expected_account_count: 1, as_of: null,
     stale: null, status: "no_data", unavailable_reason: "no_snapshot" };
-  blocks.summary.per_currency = [...blocks.summary.per_currency.filter(item => item.currency !== currency),
+  blocks.summary.per_currency = [...priorSummaryCurrencies.filter(item => item.currency !== currency),
     { ...currencySummary, max_drawdown: blocks.summary.max_drawdown,
       twr_return_percent: blocks.summary.twr_return_percent, cashflow_method: undefined, approximate: undefined,
       sizing_eligible: undefined, breaker_eligible: undefined, verdict_eligible: undefined, method_version: undefined }];

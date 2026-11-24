@@ -24,6 +24,12 @@ const NY_DATE_FORMAT = new Intl.DateTimeFormat("en-CA", {
   month: "2-digit",
   day: "2-digit",
 });
+const NY_TIME_FORMAT = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "America/New_York",
+  hourCycle: "h23",
+  hour: "2-digit",
+  minute: "2-digit",
+});
 
 function parseInstantNs(value) {
   if (typeof value === "number") {
@@ -89,6 +95,17 @@ function toUtcDateFromNs(ns) {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
+function toNyTimeFromNs(ns) {
+  const ms = Number(ns / 1_000_000n);
+  return NY_TIME_FORMAT.format(new Date(ms));
+}
+
+function isIsoWeekday(isoDate) {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return dow >= 1 && dow <= 5;
+}
+
 function nextIsoDate(isoDate) {
   const [y, m, d] = isoDate.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d + 1));
@@ -146,19 +163,14 @@ export function createPinnedCalendarProvider(pinnedVectors) {
   };
 }
 
-/**
- * Counts XNYS trading session closes in half-open interval (startExclusive, endInclusive].
- * Fails closed when calendarProvider is missing/unpinned, dates are uncovered,
- * or any day returns an empty `{}` or malformed session object.
- */
-export function countXnysSessionCloses(startExclusiveInput, endInclusiveInput, calendarProvider) {
+function evaluateXnysInterval(startExclusiveInput, endInclusiveInput, calendarProvider) {
   if (
     !calendarProvider
     || typeof calendarProvider.getSession !== "function"
     || typeof calendarProvider.coverage !== "function"
     || calendarProvider.is_pinned === false
   ) {
-    return { covered: false, age_sessions: null, reason: "calendar_provider_unavailable" };
+    return { covered: false, age_sessions: null, touched_sessions: null, reason: "calendar_provider_unavailable" };
   }
   const expectedDigest = typeof calendarProvider.calendar_version === "string"
     && Object.hasOwn(PINNED_CALENDAR_DIGESTS, calendarProvider.calendar_version)
@@ -169,7 +181,7 @@ export function countXnysSessionCloses(startExclusiveInput, endInclusiveInput, c
     || expectedDigest === null
     || calendarProvider.spec_digest !== expectedDigest
   ) {
-    return { covered: false, age_sessions: null, reason: "calendar_unpinned" };
+    return { covered: false, age_sessions: null, touched_sessions: null, reason: "calendar_unpinned" };
   }
 
   const cov = calendarProvider.coverage();
@@ -180,7 +192,7 @@ export function countXnysSessionCloses(startExclusiveInput, endInclusiveInput, c
     || typeof cov.end_date !== "string"
     || !ISO_DATE_RE.test(cov.end_date)
   ) {
-    return { covered: false, age_sessions: null, reason: "calendar_coverage_missing" };
+    return { covered: false, age_sessions: null, touched_sessions: null, reason: "calendar_coverage_missing" };
   }
 
   const loRaw = typeof startExclusiveInput === "bigint"
@@ -190,7 +202,7 @@ export function countXnysSessionCloses(startExclusiveInput, endInclusiveInput, c
     ? endInclusiveInput
     : parseInstantNs(endInclusiveInput);
   if (loRaw === null || hiRaw === null) {
-    return { covered: false, age_sessions: null, reason: "calendar_interval_invalid" };
+    return { covered: false, age_sessions: null, touched_sessions: null, reason: "calendar_interval_invalid" };
   }
   const loNs = loRaw <= hiRaw ? loRaw : hiRaw;
   const hiNs = hiRaw;
@@ -199,15 +211,16 @@ export function countXnysSessionCloses(startExclusiveInput, endInclusiveInput, c
   const endUtc = toUtcDateFromNs(hiNs);
 
   if (startNy < cov.start_date || endNy > cov.end_date || endUtc > cov.end_date) {
-    return { covered: false, age_sessions: null, reason: "calendar_coverage_out_of_range" };
+    return { covered: false, age_sessions: null, touched_sessions: null, reason: "calendar_coverage_out_of_range" };
   }
 
   let count = 0;
+  let touched = 0;
   let cursor = startNy;
   let guard = 0;
   while (cursor <= endNy) {
     if (++guard > 2000) {
-      return { covered: false, age_sessions: null, reason: "calendar_span_exceeded" };
+      return { covered: false, age_sessions: null, touched_sessions: null, reason: "calendar_span_exceeded" };
     }
     const session = calendarProvider.getSession(cursor);
     if (
@@ -220,22 +233,83 @@ export function countXnysSessionCloses(startExclusiveInput, endInclusiveInput, c
       || session.spec_digest !== calendarProvider.spec_digest
       || (session.trade_date !== undefined && session.trade_date !== cursor)
     ) {
-      return { covered: false, age_sessions: null, reason: "calendar_session_malformed_or_unpinned" };
+      return {
+        covered: false,
+        age_sessions: null,
+        touched_sessions: null,
+        reason: "calendar_session_malformed_or_unpinned",
+      };
     }
     const isTrading = session.is_trading_day === true && session.blocks_eligibility !== true;
     if (isTrading) {
       const closeNs = parseInstantNs(session.close_utc);
       if (closeNs === null) {
-        return { covered: false, age_sessions: null, reason: "calendar_close_utc_missing" };
+        return { covered: false, age_sessions: null, touched_sessions: null, reason: "calendar_close_utc_missing" };
       }
-      if (closeNs > loNs && closeNs <= hiNs) {
+      const openNs = typeof session.open_utc === "string" ? parseInstantNs(session.open_utc) : null;
+      const closedInInterval = closeNs > loNs && closeNs <= hiNs;
+      const openedInInterval = openNs !== null && openNs > loNs && openNs <= hiNs;
+      if (closedInInterval) {
         count += 1;
+      }
+      if (closedInInterval || openedInInterval) {
+        touched += 1;
       }
     }
     cursor = nextIsoDate(cursor);
   }
 
-  return { covered: true, age_sessions: count, reason: null };
+  return { covered: true, age_sessions: count, touched_sessions: touched, reason: null };
+}
+
+/**
+ * Counts XNYS trading session closes in half-open interval (startExclusive, endInclusive].
+ * Fails closed when calendarProvider is missing/unpinned, dates are uncovered,
+ * or any day returns an empty `{}` or malformed session object.
+ */
+export function countXnysSessionCloses(startExclusiveInput, endInclusiveInput, calendarProvider) {
+  const res = evaluateXnysInterval(startExclusiveInput, endInclusiveInput, calendarProvider);
+  return { covered: res.covered, age_sessions: res.age_sessions, reason: res.reason };
+}
+
+/**
+ * Counts XNYS trading sessions touched (opened or closed) inside (startExclusive, endInclusive],
+ * catching missing intermediate trading days even when the ending valuation precedes close.
+ */
+export function countXnysTouchedSessions(startExclusiveInput, endInclusiveInput, calendarProvider) {
+  const res = evaluateXnysInterval(startExclusiveInput, endInclusiveInput, calendarProvider);
+  return { covered: res.covered, touched_sessions: res.touched_sessions, reason: res.reason };
+}
+
+/**
+ * Counts potential Mon-Fri weekday sessions touched in (startMs, endMs] when
+ * no calendarProvider is available (fails closed on multi-weekday spans).
+ */
+export function countWeekdayTouchedSessions(startMs, endMs) {
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return null;
+  const loNs = parseInstantNs(startMs);
+  const hiNs = parseInstantNs(endMs);
+  if (loNs === null || hiNs === null) return null;
+  const startNy = toNyDateFromNs(loNs);
+  const endNy = toNyDateFromNs(hiNs);
+  if (startNy === endNy) {
+    return isIsoWeekday(startNy) ? 1 : 0;
+  }
+  let count = 0;
+  if (isIsoWeekday(startNy) && toNyTimeFromNs(loNs) < "16:00") {
+    count += 1;
+  }
+  let cursor = nextIsoDate(startNy);
+  let guard = 0;
+  while (cursor < endNy) {
+    if (++guard > 2000) return null;
+    if (isIsoWeekday(cursor)) count += 1;
+    cursor = nextIsoDate(cursor);
+  }
+  if (isIsoWeekday(endNy)) {
+    count += 1;
+  }
+  return count;
 }
 
 function buildResult({

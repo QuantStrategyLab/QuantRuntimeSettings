@@ -47,10 +47,15 @@ const handlers = {
     const { evaluateTwrLedger, DESK_7A_LABELS } = await import(
       "../web/strategy-switch-console/application/sizing_unit/twr_ledger.js"
     );
+    const { createPinnedCalendarProvider } = await import(
+      "../web/strategy-switch-console/application/sizing_unit/freshness.js"
+    );
+    const provider = createPinnedCalendarProvider(pinnedCalendar);
     const spec = demoFixture.cases["SA1-D1"];
     const depRes = evaluateTwrLedger({
       initialState: spec.deposit_case.initial_state,
       sessions: [spec.deposit_case.session],
+      calendarProvider: provider,
     });
     const dep = depRes.sessions[0];
     assert.equal(dep.raw_asset_change_usd, spec.deposit_case.expected.raw_asset_change_usd);
@@ -69,6 +74,7 @@ const handlers = {
     const wRes = evaluateTwrLedger({
       initialState: spec.withdrawal_case.initial_state,
       sessions: spec.withdrawal_case.sessions,
+      calendarProvider: provider,
     });
     const [w1, w2] = wRes.sessions;
     const expW1 = spec.withdrawal_case.expected.after_withdrawal;
@@ -278,10 +284,12 @@ const handlers = {
     projectDesk7aPerformance({
       initialState: demoFixture.cases["SA1-D1"].deposit_case.initial_state,
       sessions: [demoFixture.cases["SA1-D1"].deposit_case.session],
+      calendarProvider: provider,
     });
     projectDesk7aOverview({
       initialState: demoFixture.cases["SA1-D1"].deposit_case.initial_state,
       session: demoFixture.cases["SA1-D1"].deposit_case.session,
+      calendarProvider: provider,
     });
     assert.equal(storageWrites, demoFixture.cases["SA1-D8"].expected.storage_writes);
     assert.equal(kvWrites, demoFixture.cases["SA1-D8"].expected.kv_writes);

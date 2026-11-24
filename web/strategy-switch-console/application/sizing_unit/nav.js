@@ -508,7 +508,7 @@ export function evaluateSizingUnitNav(input, options = {}) {
       price_ref: pRef,
     });
   }
-  if (cleanPositions.length > 0 && !eqDecimal(posSum, etfDec)) {
+  if (!eqDecimal(posSum, etfDec)) {
     return failClosedResult({ account, eligibility, fresh, reason: "positions_etf_mismatch", currencies, observations, cohort });
   }
 
