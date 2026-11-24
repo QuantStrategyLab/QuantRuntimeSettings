@@ -13,12 +13,13 @@ import {
   FACTS_STALE_SECONDS, factsObservedAt, factsRowFor, maskedAccount, platformLabel, readConfig, readCredential, readFactsModel,
 } from "./accounts.js";
 import { DeskError } from "./http.js";
-import { readPerformanceSources } from "./performance.js";
+import { performanceProjection, readPerformanceSources } from "./performance.js";
 import { readbackTargets } from "./readback.js";
 import { configuredAccounts, runRowReadIncomplete, tapeOutcome } from "./ribbon.js";
 import {
   addDays, coverage, freshness, known, n1Response, n1Route, notSupported, partial, readOnce, stale, timeBasis, unknown, utcInstant, zonedDate,
 } from "./n1.js";
+import { buildCashflow7aSummary } from "../sizing_unit/twr_ledger.js";
 
 const OVERVIEW_RANGE = "6M";
 const nonPaper = (target, row) => target.config?.broker_environment !== "paper" && target.config?.account_scope !== "paper"
@@ -329,4 +330,34 @@ export async function deskOverviewResponse(request, env, deps) {
       ...overviewProjection({ config, facts, credential, summary, businessDate, performance, now, members, historyEnd: end }),
     }, { now });
   });
+}
+
+export function projectDesk7aOverview({ initialState, session, sessions, valuations, flows, calendarProvider, evaluatedAt } = {}) {
+  const list = Array.isArray(sessions) ? sessions : (session ? [session] : undefined);
+  const { last, cashflow_7a } = buildCashflow7aSummary({ initialState, sessions: list, valuations, flows, calendarProvider });
+  const endDate = last?.period_end_utc?.slice(0, 10) || "2025-01-08";
+  const nowMs = Date.parse(evaluatedAt || last?.period_end_utc || "2025-01-08T21:00:00Z");
+  const perfProj = performanceProjection({ members: [], range: "ALL", end: endDate, now: nowMs, readable: true });
+  const ovProj = overviewProjection({
+    config: { ok: false },
+    facts: { ok: false },
+    credential: { ok: false },
+    summary: null,
+    businessDate: endDate,
+    performance: perfProj,
+    now: nowMs,
+  });
+  return {
+    cashflow_7a,
+    n1_envelope: {
+      ok: true,
+      schema_version: "qsl.desk.overview.v2",
+      generated_at: utcInstant(new Date(nowMs)),
+      time_basis: timeBasis("UTC", [
+        ["account_facts", "UTC"], ["account_facts_history", "Asia/Shanghai"], ["runtime_daily", RUNTIME_DAILY_TIMEZONE],
+      ]),
+      ...ovProj,
+      cashflow_7a,
+    },
+  };
 }

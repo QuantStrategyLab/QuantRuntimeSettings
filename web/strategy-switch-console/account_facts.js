@@ -1,5 +1,6 @@
 import { projectForwardReconciliation } from "./forward_reconciliation.js";
 import { MANAGEMENT_SCOPE, managementCounts, resolveCohortDispositions, scopeConflict } from "./application/account_mapping/management_cohort.js";
+import { evaluateSizingUnitCohort, stripPrivateLocators } from "./application/sizing_unit/nav.js";
 
 // Pure account-facts projection helpers. Keeps broker snapshot history out of
 // runtime-daily and never invents FX totals, returns, or historical backfill.
@@ -1453,4 +1454,26 @@ export function publicIbkrPeriodReturn(raw) {
     unit: raw.unit, value: raw.value, source: raw.source, source_unit: raw.source_unit,
     source_value: raw.source_value, observed_at: raw.observed_at,
     ...(raw.nav_change ? { nav_change: structuredClone(raw.nav_change) } : {}) };
+}
+
+export function projectSizingUnitAccountFacts(accountsOrReadModel, options = {}) {
+  const rawList = Array.isArray(accountsOrReadModel)
+    ? accountsOrReadModel
+    : Array.isArray(accountsOrReadModel?.accounts)
+      ? accountsOrReadModel.accounts
+      : [];
+  const normalized = rawList.map((entry) => stripPrivateLocators({
+    ...entry,
+    account_id: entry?.account_id ?? entry?.account_key ?? null,
+    account_key: entry?.account_key ?? entry?.account_id ?? null,
+    broker_environment: Object.prototype.hasOwnProperty.call(entry ?? {}, "broker_environment")
+      ? entry.broker_environment
+      : (entry?.paper === true ? "paper" : null),
+    observed_at: entry?.observed_at ?? entry?.observed_finished_at ?? null,
+    fetched_at: entry?.fetched_at ?? null,
+  }));
+  return evaluateSizingUnitCohort(normalized, {
+    require_live_cohort: options.require_live_cohort ?? true,
+    ...options,
+  });
 }

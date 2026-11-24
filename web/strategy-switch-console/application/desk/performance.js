@@ -19,6 +19,7 @@ import { readbackTargets } from "./readback.js";
 import {
   coverage, known, n1Response, n1Route, notSupported, partial, readOnce, stale, timeBasis, unknown, utcInstant, zonedDate,
 } from "./n1.js";
+import { buildCashflow7aSummary } from "../sizing_unit/twr_ledger.js";
 
 export const PERFORMANCE_TIMEZONE = "Asia/Shanghai";
 export const N1_RANGES = Object.freeze(["1M", "3M", "6M", "YTD", "1Y", "ALL"]);
@@ -270,4 +271,22 @@ export async function deskPerformanceResponse(request, env, deps) {
       ...body,
     }, { now });
   });
+}
+
+export function projectDesk7aPerformance({ initialState, sessions, valuations, flows, calendarProvider, evaluatedAt } = {}) {
+  const { last, cashflow_7a } = buildCashflow7aSummary({ initialState, sessions, valuations, flows, calendarProvider });
+  const endDate = last?.period_end_utc?.slice(0, 10) || "2025-01-08";
+  const nowMs = Date.parse(evaluatedAt || last?.period_end_utc || "2025-01-08T21:00:00Z");
+  const proj = performanceProjection({ members: [], range: "ALL", end: endDate, now: nowMs, readable: true });
+  return {
+    cashflow_7a,
+    n1_envelope: {
+      ok: true,
+      schema_version: "qsl.desk.performance.v2",
+      generated_at: utcInstant(new Date(nowMs)),
+      time_basis: timeBasis(PERFORMANCE_TIMEZONE, [["account_facts_history", PERFORMANCE_TIMEZONE]]),
+      ...proj,
+      cashflow_7a,
+    },
+  };
 }

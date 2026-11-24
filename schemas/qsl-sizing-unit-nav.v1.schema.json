@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.github.io/QuantRuntimeSettings/schemas/qsl-sizing-unit-nav.v1.schema.json",
+  "title": "QSL Sizing Unit NAV v1 (C-SA-14)",
+  "description": "Single-USD sizing-unit NAV and cash breakdown contract (C-SA-14). Strictly excludes mixed-currency FX invention, margin debt, non-eligible D2 B2 cohort accounts, and private storage locators.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "reason",
+    "account_id",
+    "platform",
+    "broker_environment",
+    "management_status",
+    "processing_eligible",
+    "currency",
+    "currencies_present",
+    "currency_coercion",
+    "fx_inferred",
+    "margin_enabled",
+    "nav_usd",
+    "settled_cash_usd",
+    "unsettled_cash_usd",
+    "tbill_nav_usd",
+    "etf_market_value_usd",
+    "accrued_fees_usd",
+    "margin_debt_usd",
+    "positions",
+    "observed_at",
+    "fetched_at",
+    "evaluated_at",
+    "data_status",
+    "freshness",
+    "observations",
+    "cohort",
+    "origin",
+    "source_class",
+    "native_precision",
+    "coverage_window",
+    "evidence_ref"
+  ],
+  "properties": {
+    "schema_version": { "const": "qsl.sizing_unit_nav.v1" },
+    "status": { "enum": ["available", "unavailable"] },
+    "reason": { "type": ["string", "null"], "maxLength": 128 },
+    "account_id": { "type": ["string", "null"], "pattern": "^[A-Za-z0-9._:/-]{1,128}$" },
+    "platform": { "type": ["string", "null"], "pattern": "^[a-z][a-z0-9_]{0,31}$" },
+    "broker_environment": { "enum": ["live", "paper", null] },
+    "management_status": { "enum": ["managed", "management_disabled", "not_under_management", "unknown"] },
+    "processing_eligible": { "type": "boolean" },
+    "currency": { "const": "USD" },
+    "currencies_present": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[A-Z]{3,4}$" }
+    },
+    "currency_coercion": { "const": "prohibited" },
+    "fx_inferred": { "const": false },
+    "margin_enabled": { "const": false },
+    "nav_usd": { "$ref": "#/$defs/nullableDecimal" },
+    "settled_cash_usd": { "$ref": "#/$defs/nullableDecimal" },
+    "unsettled_cash_usd": { "$ref": "#/$defs/nullableDecimal" },
+    "tbill_nav_usd": { "$ref": "#/$defs/nullableDecimal" },
+    "etf_market_value_usd": { "$ref": "#/$defs/nullableDecimal" },
+    "accrued_fees_usd": { "$ref": "#/$defs/nullableDecimal" },
+    "margin_debt_usd": { "anyOf": [{ "const": "0" }, { "type": "null" }] },
+    "positions": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["symbol", "qty", "market_value_usd", "price_ref"],
+        "properties": {
+          "symbol": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9./-]{0,31}$" },
+          "qty": { "$ref": "#/$defs/decimal" },
+          "market_value_usd": { "$ref": "#/$defs/decimal" },
+          "price_ref": { "type": "string", "minLength": 1, "maxLength": 128 }
+        }
+      }
+    },
+    "observed_at": { "$ref": "#/$defs/nullableUtcTime" },
+    "fetched_at": { "$ref": "#/$defs/nullableUtcTime" },
+    "evaluated_at": { "$ref": "#/$defs/utcTime" },
+    "data_status": { "enum": ["fresh", "stale", "missing", "invalid_future_skew", "unavailable"] },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["data_status", "age_seconds", "age_sessions", "observed_at", "fetched_at", "evaluated_at", "reason"],
+      "properties": {
+        "data_status": { "enum": ["fresh", "stale", "missing", "invalid_future_skew", "unavailable"] },
+        "age_seconds": { "type": ["number", "null"] },
+        "age_sessions": { "type": ["integer", "null"], "minimum": 0 },
+        "observed_at": { "$ref": "#/$defs/nullableUtcTime" },
+        "fetched_at": { "$ref": "#/$defs/nullableUtcTime" },
+        "evaluated_at": { "$ref": "#/$defs/utcTime" },
+        "reason": { "type": ["string", "null"], "maxLength": 128 }
+      }
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["account_id", "platform", "broker_environment", "currency", "observed_at", "data_status", "age_seconds"],
+        "properties": {
+          "account_id": { "type": ["string", "null"], "maxLength": 128 },
+          "platform": { "type": ["string", "null"], "maxLength": 32 },
+          "broker_environment": { "enum": ["live", "paper", null] },
+          "currency": { "type": ["string", "null"], "pattern": "^[A-Z]{3,4}$" },
+          "observed_at": { "$ref": "#/$defs/nullableUtcTime" },
+          "data_status": { "enum": ["fresh", "stale", "missing", "invalid_future_skew", "unavailable"] },
+          "age_seconds": { "type": ["number", "null"] }
+        }
+      }
+    },
+    "cohort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total_accounts", "included_count", "excluded_count", "excluded_accounts"],
+      "properties": {
+        "total_accounts": { "type": "integer", "minimum": 0 },
+        "included_count": { "type": "integer", "minimum": 0 },
+        "excluded_count": { "type": "integer", "minimum": 0 },
+        "excluded_accounts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["account_id", "platform", "broker_environment", "management_status", "disposition", "reason"],
+            "properties": {
+              "account_id": { "type": ["string", "null"], "maxLength": 128 },
+              "platform": { "type": ["string", "null"], "maxLength": 32 },
+              "broker_environment": { "enum": ["live", "paper", null] },
+              "management_status": { "enum": ["managed", "management_disabled", "not_under_management", "unknown"] },
+              "disposition": { "type": "string", "maxLength": 64 },
+              "reason": { "type": "string", "maxLength": 128 }
+            }
+          }
+        }
+      }
+    },
+    "origin": { "enum": ["synthetic", "production"] },
+    "source_class": {
+      "enum": [
+        "synthetic",
+        "historical_reconstruction",
+        "decision_time_market",
+        "operator_declared",
+        "authorized_operational",
+        "paper_broker",
+        "authorized_live_broker"
+      ]
+    },
+    "native_precision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exact_decimal", "money_scale_max"],
+      "properties": {
+        "exact_decimal": { "const": true },
+        "money_scale_max": { "type": "integer", "minimum": 0, "maximum": 28 }
+      }
+    },
+    "coverage_window": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["start_utc", "end_utc"],
+          "properties": {
+            "start_utc": { "$ref": "#/$defs/utcTime" },
+            "end_utc": { "$ref": "#/$defs/utcTime" }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "evidence_ref": { "type": "string", "minLength": 1, "maxLength": 128 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "available" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "processing_eligible": { "const": true },
+          "nav_usd": { "$ref": "#/$defs/decimal" },
+          "settled_cash_usd": { "$ref": "#/$defs/decimal" },
+          "unsettled_cash_usd": { "$ref": "#/$defs/decimal" },
+          "tbill_nav_usd": { "$ref": "#/$defs/decimal" },
+          "etf_market_value_usd": { "$ref": "#/$defs/decimal" },
+          "accrued_fees_usd": { "$ref": "#/$defs/decimal" },
+          "margin_debt_usd": { "const": "0" },
+          "observed_at": { "$ref": "#/$defs/utcTime" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "unavailable" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "nav_usd": { "type": "null" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "decimal": { "type": "string", "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$" },
+    "nullableDecimal": { "anyOf": [{ "$ref": "#/$defs/decimal" }, { "type": "null" }] },
+    "utcTime": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "nullableUtcTime": { "anyOf": [{ "$ref": "#/$defs/utcTime" }, { "type": "null" }] }
+  }
+}

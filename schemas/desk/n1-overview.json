@@ -509,6 +509,44 @@
           }
         }
       ]
+    },
+    "cashflow_7a": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["raw_asset_change", "adjusted_performance"],
+      "properties": {
+        "raw_asset_change": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label", "amount_usd"],
+          "properties": {
+            "label": { "type": "string", "minLength": 1 },
+            "amount_usd": { "type": ["string", "null"] }
+          }
+        },
+        "adjusted_performance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "label",
+            "pnl_usd",
+            "return_pct",
+            "return_method",
+            "approximate",
+            "sizing_eligible",
+            "method_version"
+          ],
+          "properties": {
+            "label": { "type": "string", "minLength": 1 },
+            "pnl_usd": { "type": ["string", "null"] },
+            "return_pct": { "type": ["string", "null"] },
+            "return_method": { "enum": ["daily_linked_twr", "modified_dietz", null] },
+            "approximate": { "type": "boolean" },
+            "sizing_eligible": { "type": "boolean" },
+            "method_version": { "const": null }
+          }
+        }
+      }
     }
   },
   "required": [

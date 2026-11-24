@@ -119,38 +119,119 @@ export function applyNativeDailyReturns(blocks, input) {
   // Native daily returns already have a starting capital boundary. Rebasing the
   // first close to zero would silently remove the first day's actual return.
   const comparisons = nativeBenchmarks(index, input, gaps);
-  Object.assign(blocks.returns, { status, unavailable_reason: reason, currency, value_kind: "pnl",
-    return_kind: "twr", cashflow_method: undefined, approximate: undefined,
-    as_of: daily.at(-1).date, coverage, aligned_start: daily[0].date, no_common_date: false,
-    points: gaps ? daily.map((row, i) => ({ date: row.date, value: row.value * 100,
-      daily_return_percent: row.value * 100, breakBefore: i > 0 && hasGap(daily[i - 1], row) }))
-      : index.map((row, i) => ({ date: row.date, value: (row.value - 1) * 100, daily_return_percent: daily[i].value * 100 })),
-    ...comparisons, per_currency: [] });
+  const stripDietzKeys = [
+    "cashflow_method", "approximate", "sizing_eligible", "breaker_eligible",
+    "verdict_eligible", "method_version", "multi_day_intervals", "twr_return_percent", "max_drawdown",
+  ];
   let peak = 1, peakDate = daily[0].date, worst = 0, lossPeakDate = peakDate, troughDate = peakDate;
   for (const point of index) {
     const loss = peak > 0 ? (1 - point.value / peak) * 100 : 0;
     if (loss > worst) { worst = loss; lossPeakDate = peakDate; troughDate = point.date; }
     if (point.value > peak) { peak = point.value; peakDate = point.date; }
   }
+  const nativeTwrPercent = incomplete ? null : (growth - 1) * 100;
+  const nativeMaxDrawdown = incomplete
+    ? { percent: null, peak_date: null, trough_date: null, unavailable_reason: reason }
+    : { percent: worst, peak_date: lossPeakDate, trough_date: troughDate, unavailable_reason: null };
+  const nativePoints = gaps ? daily.map((row, i) => ({ date: row.date, value: row.value * 100,
+    daily_return_percent: row.value * 100, breakBefore: i > 0 && hasGap(daily[i - 1], row) }))
+    : index.map((row, i) => ({ date: row.date, value: (row.value - 1) * 100, daily_return_percent: daily[i].value * 100 }));
+  const rawPriorReturnCurrencies = Array.isArray(blocks.returns.per_currency) ? blocks.returns.per_currency : [];
+  const priorTopReturnCurrency = blocks.returns.currency;
+  const shouldPreserveTopReturn = Boolean(
+    priorTopReturnCurrency
+    && priorTopReturnCurrency !== currency
+    && !rawPriorReturnCurrencies.some(row => row.currency === priorTopReturnCurrency)
+    && (blocks.returns.status === "ok" || (Array.isArray(blocks.returns.points) && blocks.returns.points.length > 0)),
+  );
+  const priorReturnCurrencies = shouldPreserveTopReturn
+    ? (() => {
+      const { per_currency: _pc, per_account: _pa, cashflow_per_currency: _cpc, ...rest } = blocks.returns;
+      return [{ ...rest, currency: priorTopReturnCurrency }, ...rawPriorReturnCurrencies];
+    })()
+    : rawPriorReturnCurrencies;
+  const rawPriorSummaryCurrencies = Array.isArray(blocks.summary.per_currency) ? blocks.summary.per_currency : [];
+  const priorTopSummaryCurrency = blocks.summary.currency;
+  const shouldPreserveTopSummary = Boolean(
+    priorTopSummaryCurrency
+    && priorTopSummaryCurrency !== currency
+    && !rawPriorSummaryCurrencies.some(row => row.currency === priorTopSummaryCurrency)
+    && (blocks.summary.status === "ok" || blocks.summary.twr_return_percent != null),
+  );
+  const priorSummaryCurrencies = shouldPreserveTopSummary
+    ? (() => {
+      const { per_currency: _pc, per_account: _pa, cashflow_per_currency: _cpc, ...rest } = blocks.summary;
+      return [{ ...rest, currency: priorTopSummaryCurrency }, ...rawPriorSummaryCurrencies];
+    })()
+    : rawPriorSummaryCurrencies;
+  const otherReturnCurrencies = priorReturnCurrencies.filter(row => row.currency !== currency);
+  const hasOtherCurrencies = otherReturnCurrencies.length > 0
+    || priorSummaryCurrencies.some(row => row.currency !== currency);
+  let nextReturnPerCurrency = [];
+  if (hasOtherCurrencies) {
+    const existingEntry = priorReturnCurrencies.find(row => row.currency === currency) || {};
+    const cleanEntry = { ...existingEntry };
+    for (const key of stripDietzKeys) delete cleanEntry[key];
+    const nativeEntry = {
+      ...cleanEntry,
+      currency,
+      status,
+      unavailable_reason: reason,
+      value_kind: "pnl",
+      return_kind: "twr",
+      as_of: daily.at(-1).date,
+      coverage,
+      aligned_start: daily[0].date,
+      no_common_date: false,
+      twr_return_percent: nativeTwrPercent,
+      max_drawdown: nativeMaxDrawdown,
+      points: nativePoints,
+      ...comparisons,
+    };
+    nextReturnPerCurrency = priorReturnCurrencies.some(row => row.currency === currency)
+      ? priorReturnCurrencies.map(row => row.currency === currency ? nativeEntry : row)
+      : [...priorReturnCurrencies, nativeEntry];
+  }
+  Object.assign(blocks.returns, { status, unavailable_reason: reason, currency, value_kind: "pnl",
+    return_kind: "twr", cashflow_method: undefined, approximate: undefined,
+    sizing_eligible: undefined, breaker_eligible: undefined, verdict_eligible: undefined, method_version: undefined,
+    as_of: daily.at(-1).date, coverage, aligned_start: daily[0].date, no_common_date: false,
+    points: nativePoints,
+    ...comparisons, per_currency: nextReturnPerCurrency });
   Object.assign(blocks.summary, { status, unavailable_reason: reason, currency, value_kind: "pnl",
     cashflow_method: undefined, approximate: undefined,
-    as_of: daily.at(-1).date, coverage, twr_return_percent: incomplete ? null : (growth - 1) * 100,
+    sizing_eligible: undefined, breaker_eligible: undefined, verdict_eligible: undefined, method_version: undefined,
+    as_of: daily.at(-1).date, coverage, twr_return_percent: nativeTwrPercent,
     amount, simple_weighted_return_percent: null, best_day: null, worst_day: null,
-    max_drawdown: incomplete ? { percent: null, peak_date: null, trough_date: null, unavailable_reason: reason }
-      : { percent: worst, peak_date: lossPeakDate, trough_date: troughDate, unavailable_reason: null },
+    max_drawdown: nativeMaxDrawdown,
     metric_reasons: { ...blocks.summary.metric_reasons, twr: metricReason },
     excess_returns: comparisons.benchmarks.map(comparison => ({ benchmark: comparison.id,
       start: daily[0].date, end: comparison.points.at(-1).date,
       percentage_points: incomplete ? null : (growth - 1) * 100 - comparison.points.at(-1).value,
       unavailable_reason: metricReason })) });
-  const currencySummary = blocks.summary.per_currency.find(item => item.currency === currency) || {
+  const currencySummary = priorSummaryCurrencies.find(item => item.currency === currency) || {
     currency, total: null, account_count: 0, expected_account_count: 1, as_of: null,
     stale: null, status: "no_data", unavailable_reason: "no_snapshot" };
-  blocks.summary.per_currency = [...blocks.summary.per_currency.filter(item => item.currency !== currency),
+  blocks.summary.per_currency = [...priorSummaryCurrencies.filter(item => item.currency !== currency),
     { ...currencySummary, max_drawdown: blocks.summary.max_drawdown,
-      twr_return_percent: blocks.summary.twr_return_percent, cashflow_method: undefined, approximate: undefined }];
-  delete blocks.summary.cashflow_per_currency;
-  delete blocks.returns.cashflow_per_currency;
+      twr_return_percent: blocks.summary.twr_return_percent, cashflow_method: undefined, approximate: undefined,
+      sizing_eligible: undefined, breaker_eligible: undefined, verdict_eligible: undefined, method_version: undefined }];
+  for (const key of ["cashflow_method", "approximate", "sizing_eligible", "breaker_eligible", "verdict_eligible", "method_version"]) {
+    delete blocks.returns[key];
+    delete blocks.summary[key];
+    for (const row of blocks.summary.per_currency) {
+      if (row.currency === currency) delete row[key];
+    }
+  }
+  for (const holder of [blocks.summary, blocks.returns]) {
+    if (Array.isArray(holder.cashflow_per_currency)) {
+      const remaining = holder.cashflow_per_currency.filter(item => item.currency !== currency);
+      if (remaining.length) holder.cashflow_per_currency = remaining;
+      else delete holder.cashflow_per_currency;
+    } else {
+      delete holder.cashflow_per_currency;
+    }
+  }
   // A native percentage alone never supplies money P/L. The optional, separately
   // qualified NAV reconciliation can fill only the exact native days it covers.
   const byDate = new Map(daily.map(row => [row.date, row]));

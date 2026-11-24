@@ -20,7 +20,8 @@ import {
   projectAccountFactsHistoryPositions,
 } from "../../account_facts.js";
 import { managementCohort } from "../account_mapping/management_cohort.js";
-import { externalFlowEnabled, instant } from "./external_flow.js";
+import { evaluateHistoryContinuity } from "../sizing_unit/history_continuity.js";
+import { externalFlowContinuityIntervals, externalFlowEnabled, instant } from "./external_flow.js";
 
 // Rebuild the small fixed projection at the HTTP boundary; never spread DO data.
 function externalFlowCoverageResponse(raw, enabled) {
@@ -379,5 +380,20 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
     enabled: true,
     retention_days: ACCOUNT_FACTS_HISTORY_MAX_DAYS,
     ...(externalFlow ? { externalFlow } : {}),
+  });
+}
+
+export function buildAccountFactsContinuityReadModel(input = {}, _deps = {}) {
+  const flowIntervals = Array.isArray(input.flow_intervals)
+    ? input.flow_intervals
+    : externalFlowContinuityIntervals(input.externalFlow, {
+      account_id: input.account_id,
+      broker_environment: input.broker_environment,
+      binding_id: input.current_flow_binding_id,
+      source_class: input.source_class,
+    });
+  return evaluateHistoryContinuity({
+    ...input,
+    flow_intervals: flowIntervals,
   });
 }

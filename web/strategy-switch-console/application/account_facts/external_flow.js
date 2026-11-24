@@ -164,3 +164,26 @@ export function putExternalFlow(sql, context, raw) {
     context.platform, context.account_key, identity(context), stable(merged));
   return { unchanged: false };
 }
+
+export function externalFlowContinuityIntervals(flow, context = {}) {
+  const windows = Array.isArray(flow?.windows) ? flow.windows : [];
+  const accountId = context.account_id ?? context.account_key ?? null;
+  const brokerEnv = context.broker_environment === "live" || context.broker_environment === "paper"
+    ? context.broker_environment
+    : null;
+  const bindingId = context.binding_id ?? context.source_binding_id ?? null;
+  const sourceClass = context.source_class || "synthetic";
+  return windows
+    .filter((w) => typeof w?.period_start === "string" && typeof w?.period_end === "string")
+    .map((w) => ({
+      start_utc: w.period_start,
+      end_utc: w.period_end,
+      account_id: accountId,
+      broker_environment: brokerEnv,
+      binding_id: w.binding_id ?? bindingId,
+      currency: typeof w.currency === "string" && w.currency.length > 0 ? w.currency : null,
+      coverage: w.coverage || "incomplete",
+      precision: w.time_precision === "date" ? "date" : "exact",
+      source_class: w.source_class || sourceClass,
+    }));
+}
