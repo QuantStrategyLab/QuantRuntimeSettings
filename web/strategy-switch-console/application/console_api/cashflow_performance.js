@@ -111,7 +111,15 @@ export function cashflowCurrencyResult(histories, { range, today, failed = [] })
   }
   return { currency, status: "ok", unavailable_reason: null, twr_return_percent: (growth - 1) * 100,
     max_drawdown: maxDrawdown(index), index, points: withDailyReturns(alignReturns(index, []).primary, periods, index),
-    return_kind: "twr", ...(approximate ? { cashflow_method: "modified_dietz", approximate: true } : {}),
+    return_kind: "twr",
+    ...(approximate ? {
+      cashflow_method: "modified_dietz",
+      approximate: true,
+      sizing_eligible: false,
+      breaker_eligible: false,
+      verdict_eligible: false,
+      method_version: null,
+    } : {}),
     periods, multi_day_intervals: multiDay };
 }
 
@@ -128,7 +136,8 @@ export function applyCashflowPerformance(blocks, input, env) {
   if (blocks.summary.per_currency) blocks.summary.per_currency = blocks.summary.per_currency.map(old => {
     const r = results.find(x => x.currency === old.currency);
     return r ? { ...old, max_drawdown: r.max_drawdown, twr_return_percent: r.twr_return_percent,
-      cashflow_method: r.cashflow_method, approximate: r.approximate } : old;
+      cashflow_method: r.cashflow_method, approximate: r.approximate,
+      ...(r.approximate ? { sizing_eligible: false, breaker_eligible: false, verdict_eligible: false, method_version: null } : {}) } : old;
   });
   if (currencies.length > 1) {
     blocks.returns.per_currency = (blocks.returns.per_currency || []).map(old => {
@@ -163,7 +172,8 @@ export function applyCashflowPerformance(blocks, input, env) {
   const aligned = alignReturns(r.index, benchmarks);
   Object.assign(blocks.summary, { twr_return_percent: r.twr_return_percent, max_drawdown: r.max_drawdown,
     amount: r.periods.reduce((sum, period) => sum + period.amount, 0), value_kind: "pnl",
-    cashflow_method: r.cashflow_method, approximate: r.approximate });
+    cashflow_method: r.cashflow_method, approximate: r.approximate,
+    ...(r.approximate ? { sizing_eligible: false, breaker_eligible: false, verdict_eligible: false, method_version: null } : {}) });
   if (blocks.summary.metric_reasons) blocks.summary.metric_reasons.twr = null;
   const crypto = input.accounts.every(account => account.platform === "binance");
   const daily = r.periods.flatMap(({ date }) => {
@@ -209,6 +219,7 @@ export function applyCashflowPerformance(blocks, input, env) {
     status: comparisonTruncated && blocks.returns.status !== "stale" ? "partial" : blocks.returns.status,
     unavailable_reason: comparisonTruncated ? "benchmark_history_missing" : null,
     aligned_start: aligned.start, no_common_date: aligned.noCommonDate, return_kind: "twr",
-    value_kind: "pnl", cashflow_method: r.cashflow_method, approximate: r.approximate });
+    value_kind: "pnl", cashflow_method: r.cashflow_method, approximate: r.approximate,
+    ...(r.approximate ? { sizing_eligible: false, breaker_eligible: false, verdict_eligible: false, method_version: null } : {}) });
   return blocks;
 }

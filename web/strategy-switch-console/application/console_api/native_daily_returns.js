@@ -121,6 +121,7 @@ export function applyNativeDailyReturns(blocks, input) {
   const comparisons = nativeBenchmarks(index, input, gaps);
   Object.assign(blocks.returns, { status, unavailable_reason: reason, currency, value_kind: "pnl",
     return_kind: "twr", cashflow_method: undefined, approximate: undefined,
+    sizing_eligible: undefined, breaker_eligible: undefined, verdict_eligible: undefined, method_version: undefined,
     as_of: daily.at(-1).date, coverage, aligned_start: daily[0].date, no_common_date: false,
     points: gaps ? daily.map((row, i) => ({ date: row.date, value: row.value * 100,
       daily_return_percent: row.value * 100, breakBefore: i > 0 && hasGap(daily[i - 1], row) }))
@@ -134,6 +135,7 @@ export function applyNativeDailyReturns(blocks, input) {
   }
   Object.assign(blocks.summary, { status, unavailable_reason: reason, currency, value_kind: "pnl",
     cashflow_method: undefined, approximate: undefined,
+    sizing_eligible: undefined, breaker_eligible: undefined, verdict_eligible: undefined, method_version: undefined,
     as_of: daily.at(-1).date, coverage, twr_return_percent: incomplete ? null : (growth - 1) * 100,
     amount, simple_weighted_return_percent: null, best_day: null, worst_day: null,
     max_drawdown: incomplete ? { percent: null, peak_date: null, trough_date: null, unavailable_reason: reason }
@@ -148,7 +150,13 @@ export function applyNativeDailyReturns(blocks, input) {
     stale: null, status: "no_data", unavailable_reason: "no_snapshot" };
   blocks.summary.per_currency = [...blocks.summary.per_currency.filter(item => item.currency !== currency),
     { ...currencySummary, max_drawdown: blocks.summary.max_drawdown,
-      twr_return_percent: blocks.summary.twr_return_percent, cashflow_method: undefined, approximate: undefined }];
+      twr_return_percent: blocks.summary.twr_return_percent, cashflow_method: undefined, approximate: undefined,
+      sizing_eligible: undefined, breaker_eligible: undefined, verdict_eligible: undefined, method_version: undefined }];
+  for (const key of ["cashflow_method", "approximate", "sizing_eligible", "breaker_eligible", "verdict_eligible", "method_version"]) {
+    delete blocks.returns[key];
+    delete blocks.summary[key];
+    for (const row of blocks.summary.per_currency) delete row[key];
+  }
   delete blocks.summary.cashflow_per_currency;
   delete blocks.returns.cashflow_per_currency;
   // A native percentage alone never supplies money P/L. The optional, separately
