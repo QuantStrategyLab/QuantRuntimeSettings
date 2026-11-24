@@ -8,6 +8,7 @@
 
 import { MANAGEMENT_STATUS, processingEligible } from "../account_mapping/policy.js";
 import { managementDisposition, scopeConflict } from "../account_mapping/management_cohort.js";
+import { evaluateFreshness as evaluateSessionFreshness } from "./freshness.js";
 
 export const SIZING_UNIT_NAV_SCHEMA = "qsl.sizing_unit_nav.v1";
 export const FUTURE_SKEW_LIMIT_MS = 60_000;
@@ -220,54 +221,7 @@ function safePriceRef(ref) {
   return ref;
 }
 
-// ------------------------------------------------------------ freshness fallback (used until SA1-W3)
-
-function inlineFreshnessFallback({ observed_at, fetched_at, evaluated_at, last_observed_value = null }) {
-  const eMs = parseInstantMs(observed_at);
-  const fMs = parseInstantMs(fetched_at);
-  const gMs = parseInstantMs(evaluated_at);
-  const eIso = toUtcIso(eMs);
-  const fIso = toUtcIso(fMs);
-  const gIso = toUtcIso(gMs) || new Date().toISOString();
-  if (eMs === null || fMs === null || gMs === null) {
-    return {
-      data_status: "missing",
-      age_seconds: null,
-      age_sessions: null,
-      observed_at: eIso,
-      fetched_at: fIso,
-      evaluated_at: gIso,
-      sizing_eligible: false,
-      reason: "missing_timestamp",
-      display: { last_observed_value, last_observed_at: eIso, age_seconds: null, age_sessions: null },
-    };
-  }
-  const ageSeconds = (gMs - eMs) / 1000;
-  if (fMs > gMs + FUTURE_SKEW_LIMIT_MS || eMs > fMs + FUTURE_SKEW_LIMIT_MS || eMs > gMs + FUTURE_SKEW_LIMIT_MS) {
-    return {
-      data_status: "invalid_future_skew",
-      age_seconds: ageSeconds,
-      age_sessions: null,
-      observed_at: eIso,
-      fetched_at: fIso,
-      evaluated_at: gIso,
-      sizing_eligible: false,
-      reason: "invalid_future_skew",
-      display: { last_observed_value, last_observed_at: eIso, age_seconds: ageSeconds, age_sessions: null },
-    };
-  }
-  return {
-    data_status: "fresh",
-    age_seconds: ageSeconds,
-    age_sessions: 0,
-    observed_at: eIso,
-    fetched_at: fIso,
-    evaluated_at: gIso,
-    sizing_eligible: true,
-    reason: null,
-    display: { last_observed_value, last_observed_at: eIso, age_seconds: ageSeconds, age_sessions: 0 },
-  };
-}
+// ------------------------------------------------------------ C-SA-15 freshness wiring
 
 function runFreshnessCheck(account, options = {}) {
   const evaluatedAt = options.evaluated_at ?? account.evaluated_at ?? new Date().toISOString();
@@ -277,10 +231,10 @@ function runFreshnessCheck(account, options = {}) {
     evaluated_at: evaluatedAt,
     last_observed_value: account.nav_usd ?? account.balances?.[0]?.net_assets ?? null,
   };
-  if (typeof options.evaluateFreshness === "function") {
-    return options.evaluateFreshness(payload, { calendarProvider: options.calendarProvider ?? null });
-  }
-  return inlineFreshnessFallback(payload);
+  const fn = typeof options.evaluateFreshness === "function"
+    ? options.evaluateFreshness
+    : evaluateSessionFreshness;
+  return fn(payload, { calendarProvider: options.calendarProvider ?? null });
 }
 
 // ------------------------------------------------------------ B2 cohort & currency classification
