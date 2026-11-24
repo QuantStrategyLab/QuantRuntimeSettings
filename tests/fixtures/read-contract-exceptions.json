@@ -378,7 +378,7 @@
         }
       ],
       "work_item": "impl-d1 bounded presentation correction (adoption step 2, IBKR landed in PR #1172); non-IBKR fallback and schema defaults aligned with canonical identity (R3)",
-      "acceptance_test": "UI rendering tests reject raw technical aliases as IBKR account titles; label changes cannot change selection, requests or fingerprints",
+      "acceptance_test": "Retain PR #1172 IBKR title and typed-confirmation isolation (tests/account_config_label_validation.mjs) and ensure label changes cannot alter selection, requests or fingerprints; retire all three remaining sites by removing raw technical-key fallback from non-IBKR display resolution (useDisplayNames.ts) and decoupling account_options_schema.js label and target_name defaults from raw technical keys under canonical identity (R3) while preserving compatibility for stored account-options payloads and backend target_name lookups.",
       "expires_on": "2027-01-13",
       "expiry_basis": "Owner-approved bounded 60-day re-date from 2026-12-14 to 2027-01-13 (within ADR 0002's 60-day window from 2026-11-14): IBKR display and typed-confirmation isolation landed in PR #1172 and is verified by tests/account_config_label_validation.mjs; the remaining three sites govern non-IBKR fallback labels (pinned by tests/account_config_label_validation.mjs) and account-options schema defaults relied on by existing stored payloads and backend target_name lookups, deferred to align with the 2027-01-13 R3/I2 checkpoint."
     },
