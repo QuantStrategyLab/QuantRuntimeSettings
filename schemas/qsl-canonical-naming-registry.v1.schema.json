@@ -291,7 +291,7 @@
       "not": {
         "anyOf": [
           { "pattern": "(?:^|[^A-Za-z0-9])[dD]?[uU][0-9]{5,}(?:$|[^A-Za-z0-9])" },
-          { "pattern": "[0-9](?:[-_ ]*[0-9]){5}" },
+          { "pattern": "[0-9](?:[-_. ]*[0-9]){5}" },
           { "pattern": "(?:://|^[A-Za-z][A-Za-z0-9+.-]*:/|(?:^|[\\s:(\\[\"'（])(?:[A-Za-z]:\\\\|~/|/(?:[Uu]sers|[Hh]ome|[Tt]mp|[Vv]ar|[Ee]tc|[Oo]pt|[Mm]nt)/)|\\.\\.[/\\\\]|[?#]|&(?:[Xx]-[Gg]oog-|[Ss]ignature|[Ee]xpires|[Aa][Ww][Ss][Aa]ccess[Kk]ey[Ii]d|token|sig|auth)=)" }
         ]
       }

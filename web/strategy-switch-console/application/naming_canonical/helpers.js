@@ -132,7 +132,7 @@ export function engineTierToConsoleTier(engineTier) {
 }
 
 function hasNonEmptyHumanLabel(value) {
-  return typeof value === "string" && value.trim().length > 0 && !isUnsafePrivateLocator(value) && !isRawAccountIdentifier(value);
+  return typeof value === "string" && value.trim().length > 0 && value.length <= 128;
 }
 
 function scanSafetyViolations(value, path, errors) {
@@ -525,6 +525,12 @@ export function validateNamingRegistry(registry) {
       const seenExact = new Set();
       const seenNormTarget = new Map();
       const targets = targetSets[kind];
+      const normCanonicalTargets = new Map();
+      for (const cid of targets) {
+        const normCid = cid.toLowerCase();
+        if (!normCanonicalTargets.has(normCid)) normCanonicalTargets.set(normCid, new Set());
+        normCanonicalTargets.get(normCid).add(cid);
+      }
       for (let i = 0; i < list.length; i++) {
         const item = list[i];
         const prefix = `legacy_aliases.${kind}[${i}]`;
@@ -539,14 +545,16 @@ export function validateNamingRegistry(registry) {
         if (typeof item.canonical_id !== "string" || !targets.has(item.canonical_id) || !isValidCanonicalTargetForKind(kind, item.canonical_id)) {
           errors.push(`${prefix}:invalid_canonical_target`);
         }
-        if (targets.has(item.legacy_id) && item.canonical_id !== item.legacy_id) {
+        const norm = item.legacy_id.toLowerCase();
+        const normCanonSet = normCanonicalTargets.get(norm);
+        if ((targets.has(item.legacy_id) && item.canonical_id !== item.legacy_id)
+          || (normCanonSet && [...normCanonSet].some((cid) => cid !== item.canonical_id))) {
           errors.push(`${prefix}:shadows_canonical_id`);
         }
         if (seenExact.has(item.legacy_id)) {
           errors.push(`${prefix}:duplicate_legacy_id`);
         }
         seenExact.add(item.legacy_id);
-        const norm = item.legacy_id.toLowerCase();
         if (seenNormTarget.has(norm) && seenNormTarget.get(norm) !== item.canonical_id) {
           errors.push(`${prefix}:ambiguous_normalized_alias`);
         }

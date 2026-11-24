@@ -94,7 +94,7 @@ export const PRIVATE_VALUE_RE = new RegExp(
 );
 
 export const RAW_U_DU_ACCOUNT_RE = /(?:^|[^A-Za-z0-9])d?u\d{5,}(?:$|[^A-Za-z0-9])/i;
-export const RAW_SPLIT_DIGITS_RE = /[0-9](?:[-_. ]?[0-9]){5}/;
+export const RAW_SPLIT_DIGITS_RE = /[0-9](?:[-_. ]*[0-9]){5}/;
 export const RAW_GROUPED_CANDIDATE_RE = /\d+(?:[-_.\s]+\d+)+/g;
 
 export const CANONICAL_NAMING_REGISTRY = deepFreeze({

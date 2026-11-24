@@ -453,6 +453,16 @@ assert.equal(unsafeAlias.reason, "unsafe_private_locator");
     canonical_id: "us_phantom_trend_daily",
   });
   assert.equal(validateNamingRegistry(badTargetReg).ok, false);
+
+  // Case-normalized canonical ID collision must fail both validateNamingRegistry and resolveCanonicalAlias.
+  const caseShadowReg = cloneRegistry();
+  caseShadowReg.legacy_aliases.platforms.push({ legacy_id: "Schwab", canonical_id: "ibkr" });
+  const caseShadowValidation = validateNamingRegistry(caseShadowReg);
+  assert.equal(caseShadowValidation.ok, false);
+  assert.ok(caseShadowValidation.errors.some((err) => err.endsWith(":shadows_canonical_id")));
+  const caseShadowResolve = resolveCanonicalAlias("platforms", "schwab", caseShadowReg);
+  assert.equal(caseShadowResolve.ok, false);
+  assert.equal(caseShadowResolve.reason, "ambiguous_alias");
 }
 
 // 9. Human label decoupling: changing label_zh / label_en never alters machine IDs or tier mapping.
@@ -480,33 +490,48 @@ assert.equal(unsafeAlias.reason, "unsafe_private_locator");
   assert.equal(relabeled.plugins[0].plugin_id, CANONICAL_NAMING_REGISTRY.plugins[0].plugin_id);
   assert.equal(relabeled.risk_tiers.CAPITAL_PRESERVATION.engine_tier, "conservative");
 
-  // Empty human labels must fail.
+  // Empty or oversized (>128) human labels must fail.
   const emptyLabel = cloneRegistry();
   emptyLabel.strategies[0].label_zh = "   ";
   assert.equal(validateSchema(emptyLabel), false);
   assert.equal(validateNamingRegistry(emptyLabel).ok, false);
 
-  // Raw account IDs and workstation paths inside human labels must fail BOTH Ajv schema and validator.
+  const longLabel = cloneRegistry();
+  longLabel.strategies[0].label_en = "a".repeat(129);
+  assert.equal(validateSchema(longLabel), false);
+  assert.equal(validateNamingRegistry(longLabel).ok, false);
+
+  // Raw account IDs and workstation paths inside human labels must fail BOTH Ajv schema and validator
+  // with safety errors only (no spurious labels_required).
   const fullWidthAcctLabel = cloneRegistry();
   fullWidthAcctLabel.account_slots[0].label_zh = "账户（U12345）";
   assert.equal(validateSchema(fullWidthAcctLabel), false, "schema must reject 账户（U12345）");
-  assert.equal(validateNamingRegistry(fullWidthAcctLabel).ok, false, "validator must reject 账户（U12345）");
+  assert.deepEqual(
+    validateNamingRegistry(fullWidthAcctLabel),
+    { ok: false, errors: ["registry.account_slots[0].label_zh:raw_account_id_prohibited"] },
+  );
 
   const rawAcctLabelEn = cloneRegistry();
   rawAcctLabelEn.account_slots[0].label_en = "U1234567";
   assert.equal(validateSchema(rawAcctLabelEn), false, "schema must reject U1234567 in label_en");
-  assert.equal(validateNamingRegistry(rawAcctLabelEn).ok, false, "validator must reject U1234567 in label_en");
+  assert.deepEqual(
+    validateNamingRegistry(rawAcctLabelEn),
+    { ok: false, errors: ["registry.account_slots[0].label_en:raw_account_id_prohibited"] },
+  );
 
   const groupedDigitsLabel = cloneRegistry();
   groupedDigitsLabel.account_slots[0].label_en = "Acct 0000-0099";
   assert.equal(validateSchema(groupedDigitsLabel), false, "schema must reject grouped account digits in label_en");
   assert.equal(validateNamingRegistry(groupedDigitsLabel).ok, false, "validator must reject grouped account digits");
 
-  for (const splitLabel of ["账号 12-34-56", "Account 12 34 56", "Acct 1-2-3-4-5-6"]) {
+  for (const splitLabel of ["账号 12-34-56", "Account 12 34 56", "Account 12.34.56", "Acct 1-2-3-4-5-6"]) {
     const splitDigitReg = cloneRegistry();
     splitDigitReg.account_slots[0].label_zh = splitLabel;
     assert.equal(validateSchema(splitDigitReg), false, `schema must reject split digits in label: ${splitLabel}`);
-    assert.equal(validateNamingRegistry(splitDigitReg).ok, false, `validator must reject split digits: ${splitLabel}`);
+    assert.deepEqual(
+      validateNamingRegistry(splitDigitReg),
+      { ok: false, errors: ["registry.account_slots[0].label_zh:raw_account_id_prohibited"] },
+    );
   }
 
   for (const legacySplit of ["ibkr:12-34-56", "12.34.56"]) {
@@ -534,7 +559,10 @@ assert.equal(unsafeAlias.reason, "unsafe_private_locator");
   const workstationPathLabel = cloneRegistry();
   workstationPathLabel.account_slots[0].label_en = unsafeEmbeddedUserPath;
   assert.equal(validateSchema(workstationPathLabel), false, "schema must reject embedded workstation path in label_en");
-  assert.equal(validateNamingRegistry(workstationPathLabel).ok, false, "validator must reject embedded workstation path");
+  assert.deepEqual(
+    validateNamingRegistry(workstationPathLabel),
+    { ok: false, errors: ["registry.account_slots[0].label_en:unsafe_private_locator"] },
+  );
 }
 
 // 10. Raw account & unsafe private locator detector sanity check.
