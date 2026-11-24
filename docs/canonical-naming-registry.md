@@ -67,7 +67,7 @@ Canonical account slots use the three-part tuple `{platform}:{env}:{slot}`:
 - Allowed `env` values: `live`, `paper`, `research`.
 - Synthetic examples: `ibkr:live:a1`..`ibkr:live:a4`, `longbridge:paper:pilot`,
   `longbridge:live:sg`, `longbridge:live:hk`, `schwab:live:main`,
-  `firstrade:live:main`, `binance:research:archive`.
+  `firstrade:live:main`, `binance:live:dormant`, `binance:research:archive`.
 - Raw brokerage account IDs and unqualified bare keys (such as `live` without a
   platform prefix when multiple platforms share that suffix) are rejected.
 

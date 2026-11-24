@@ -48,7 +48,7 @@ Schema（[`qsl-canonical-naming-registry.v1.schema.json`](../schemas/qsl-canonic
 - 环境取值：`live`、`paper`、`research`。
 - 合成示例：`ibkr:live:a1`~`ibkr:live:a4`、`longbridge:paper:pilot`、
   `longbridge:live:sg`、`longbridge:live:hk`、`schwab:live:main`、
-  `firstrade:live:main`、`binance:research:archive`。
+  `firstrade:live:main`、`binance:live:dormant`、`binance:research:archive`。
 - 拒绝原始券商账号以及缺少平台前缀且存在多平台歧义的裸键（如单独的 `live`）。
 
 ## 3. 策略画像 ID

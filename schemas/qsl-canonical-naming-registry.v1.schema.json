@@ -287,7 +287,15 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 128,
-      "pattern": "\\S"
+      "pattern": "\\S",
+      "not": {
+        "anyOf": [
+          { "pattern": "(?:^|[^A-Za-z0-9])[dD]?[uU][0-9]{5,}(?:$|[^A-Za-z0-9])" },
+          { "pattern": "[0-9]{6,}" },
+          { "pattern": "[0-9]{3,}[-_ ][0-9]{3,}" },
+          { "pattern": "(?:://|^[A-Za-z][A-Za-z0-9+.-]*:/|(?:^|[\\s:(\\[\"'（])(?:[A-Za-z]:\\\\|~/|/(?:[Uu]sers|[Hh]ome|[Tt]mp|[Vv]ar|[Ee]tc|[Oo]pt|[Mm]nt)/)|\\.\\.[/\\\\]|[?#]|&(?:[Xx]-[Gg]oog-|[Ss]ignature|[Ee]xpires|[Aa][Ww][Ss][Aa]ccess[Kk]ey[Ii]d|token|sig|auth)=)" }
+        ]
+      }
     },
     "activeOrDormantPlatformEntry": {
       "type": "object",
@@ -315,14 +323,22 @@
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
       "not": {
-        "pattern": "(?:^|[_-])(?:d?u[0-9]{5,}|[0-9]{6,})(?:$|[_-])"
+        "anyOf": [
+          { "pattern": "(?:^|[^a-z0-9])d?u[0-9]{5,}(?:$|[^a-z0-9])" },
+          { "pattern": "[0-9]{6,}" },
+          { "pattern": "[0-9]{3,}[-_][0-9]{3,}" }
+        ]
       }
     },
     "accountSlotKey": {
       "type": "string",
       "pattern": "^(schwab|firstrade|ibkr|longbridge|binance):(live|paper|research):[a-z0-9][a-z0-9_-]{0,31}$",
       "not": {
-        "pattern": ":(?:[^:]*[_-])?(?:d?u[0-9]{5,}|[0-9]{6,})(?:$|[_-])"
+        "anyOf": [
+          { "pattern": ":(?:[^:]*[^a-z0-9])?d?u[0-9]{5,}(?:$|[^a-z0-9])" },
+          { "pattern": ":[^:]*[0-9]{6,}" },
+          { "pattern": ":[^:]*[0-9]{3,}[-_][0-9]{3,}" }
+        ]
       }
     },
     "strategySegment": {
@@ -355,7 +371,11 @@
       "maxLength": 128,
       "pattern": "^[a-z0-9][a-z0-9_:.-]{0,127}$",
       "not": {
-        "pattern": "(?:^|[_:.-])(?:d?u[0-9]{5,}|[0-9]{6,})(?:$|[_:.-])"
+        "anyOf": [
+          { "pattern": "(?:^|[^a-z0-9])d?u[0-9]{5,}(?:$|[^a-z0-9])" },
+          { "pattern": "[0-9]{6,}" },
+          { "pattern": "[0-9]{3,}[-_.][0-9]{3,}" }
+        ]
       }
     }
   }

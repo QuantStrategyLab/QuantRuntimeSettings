@@ -116,6 +116,7 @@ for (const validSlot of [
   "longbridge:paper:pilot",
   "schwab:live:main",
   "firstrade:live:main",
+  "binance:live:dormant",
   "binance:research:archive",
 ]) {
   const parsed = parseAccountSlotKey(validSlot);
@@ -125,12 +126,14 @@ for (const validSlot of [
 
 const unsafeUserPath = "/" + "Users/alice/account";
 const unsafeHomePath = "/" + "home/alice/account";
+const unsafeEmbeddedUserPath = "Source: /" + "Users/example/account";
 const invalidSlots = [
   "ibkr:live:U1234567",
   "ibkr:live:DU987654",
   "ibkr:live:u1234567",
   "ibkr:live:du987654",
   "schwab:live:12345678",
+  "schwab:live:0000-0099",
   "ibkr:live:acct_123456",
   "ibkr:live:acct123456",
   "https://broker.example/ibkr:live:a1",
@@ -138,6 +141,7 @@ const invalidSlots = [
   "do://ibkr/live/a1",
   unsafeUserPath,
   unsafeHomePath,
+  unsafeEmbeddedUserPath,
   "../secret/slot",
   "ibkr:live:a1?token=secret",
   "ibkr:prod:a1",
@@ -155,12 +159,20 @@ for (const badSlot of invalidSlots) {
 assert.equal(formatAccountSlotKey("ibkr", "live", "U1234567"), null);
 assert.equal(formatAccountSlotKey("ibkr", "live", "DU987654"), null);
 assert.equal(formatAccountSlotKey("schwab", "live", "12345678"), null);
+assert.equal(formatAccountSlotKey("schwab", "live", "0000-0099"), null);
+assert.equal(formatAccountSlotKey("ibkr", "live", "acct123456"), null);
 assert.equal(formatAccountSlotKey("alpaca", "live", "a1"), null);
 assert.equal(formatAccountSlotKey("ibkr", "prod", "a1"), null);
 assert.equal(formatAccountSlotKey("ibkr", "live", unsafeUserPath), null);
 
 {
-  for (const rawKey of ["ibkr:live:U1234567", "ibkr:live:DU987654", "schwab:live:12345678"]) {
+  for (const rawKey of [
+    "ibkr:live:U1234567",
+    "ibkr:live:DU987654",
+    "schwab:live:12345678",
+    "schwab:live:0000-0099",
+    "ibkr:live:acct123456",
+  ]) {
     const badReg = cloneRegistry();
     badReg.account_slots.push({
       slot_key: rawKey,
@@ -309,6 +321,9 @@ const aliasCases = [
   ["platforms", "ibkr", "ibkr", false],
   ["accounts", "ibkr:tqqq", "ibkr:live:a1", true],
   ["accounts", "longbridge:paper", "longbridge:paper:pilot", true],
+  ["accounts", "binance:live", "binance:live:dormant", true],
+  ["accounts", "binance:research:legacy", "binance:research:archive", true],
+  ["accounts", "binance:crypto_combo", "binance:research:archive", true],
   ["accounts", "ibkr:live:a1", "ibkr:live:a1", false],
   ["strategies", "tqqq_growth_income", "us_tqqq_trend_daily", true],
   ["strategies", "soxl_soxx_trend_income", "us_soxl_trend_daily", true],
@@ -398,14 +413,48 @@ assert.equal(unsafeAlias.reason, "unsafe_private_locator");
   emptyLabel.strategies[0].label_zh = "   ";
   assert.equal(validateSchema(emptyLabel), false);
   assert.equal(validateNamingRegistry(emptyLabel).ok, false);
+
+  // Raw account IDs and workstation paths inside human labels must fail BOTH Ajv schema and validator.
+  const fullWidthAcctLabel = cloneRegistry();
+  fullWidthAcctLabel.account_slots[0].label_zh = "账户（U12345）";
+  assert.equal(validateSchema(fullWidthAcctLabel), false, "schema must reject 账户（U12345）");
+  assert.equal(validateNamingRegistry(fullWidthAcctLabel).ok, false, "validator must reject 账户（U12345）");
+
+  const rawAcctLabelEn = cloneRegistry();
+  rawAcctLabelEn.account_slots[0].label_en = "U1234567";
+  assert.equal(validateSchema(rawAcctLabelEn), false, "schema must reject U1234567 in label_en");
+  assert.equal(validateNamingRegistry(rawAcctLabelEn).ok, false, "validator must reject U1234567 in label_en");
+
+  const groupedDigitsLabel = cloneRegistry();
+  groupedDigitsLabel.account_slots[0].label_en = "Acct 0000-0099";
+  assert.equal(validateSchema(groupedDigitsLabel), false, "schema must reject grouped account digits in label_en");
+  assert.equal(validateNamingRegistry(groupedDigitsLabel).ok, false, "validator must reject grouped account digits");
+
+  const workstationPathLabel = cloneRegistry();
+  workstationPathLabel.account_slots[0].label_en = unsafeEmbeddedUserPath;
+  assert.equal(validateSchema(workstationPathLabel), false, "schema must reject embedded workstation path in label_en");
+  assert.equal(validateNamingRegistry(workstationPathLabel).ok, false, "validator must reject embedded workstation path");
 }
 
-// 10. Raw account detector sanity check.
+// 10. Raw account & unsafe private locator detector sanity check.
 assert.equal(isRawAccountIdentifier("U1234567"), true);
 assert.equal(isRawAccountIdentifier("DU987654"), true);
 assert.equal(isRawAccountIdentifier("12345678"), true);
+assert.equal(isRawAccountIdentifier("0000-0099"), true);
+assert.equal(isRawAccountIdentifier("0000 0099"), true);
+assert.equal(isRawAccountIdentifier("acct123456"), true);
+assert.equal(isRawAccountIdentifier("账户（U12345）"), true);
 assert.equal(isRawAccountIdentifier("a1"), false);
+assert.equal(isRawAccountIdentifier("us_russell50_rot_weekly"), false);
 assert.equal(isUnsafePrivateLocator("https://example.com"), true);
+assert.equal(isUnsafePrivateLocator(unsafeEmbeddedUserPath), true);
 assert.equal(isUnsafePrivateLocator("ibkr:live:a1"), false);
+assert.equal(isUnsafePrivateLocator("SOXL/SOXX Core Compounding (Cash Reserve)"), false);
+
+// Assert ADR 0002 R3 environment isolation for binance:live vs binance:research:archive.
+const binanceLiveAlias = resolveCanonicalAlias("accounts", "binance:live");
+assert.equal(binanceLiveAlias.ok, true);
+assert.equal(binanceLiveAlias.canonical, "binance:live:dormant");
+assert.notEqual(binanceLiveAlias.canonical, "binance:research:archive");
 
 console.log("naming_canonical_validation: PASS");

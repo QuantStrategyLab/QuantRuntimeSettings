@@ -75,12 +75,18 @@ const PRIVATE_LOCATOR_KEYS = new Set([
 ]);
 
 const URI_SCHEME_PREFIX_RE = /^(?:https?|ftp|file|kv|do|gs|s3|r2|blob|data):/i;
+const EMBEDDED_PRIVATE_PATH_RE = new RegExp(
+  "(?:^|[\\s:(\\[\"'（])(?:/(?:tmp|var|etc|opt|mnt|" + "Users|" + "home)/|[A-Za-z]:\\\\|~/)" ,
+  "i",
+);
 const PRIVATE_VALUE_RE = new RegExp(
-  "(?:://|^[a-z][a-z0-9+.-]*:/|^~[/\\\\]|^/(?:tmp|var|etc|opt|mnt|" + "Users|" + "home)/|[A-Za-z]:\\\\|\\.\\.[/\\\\]|[?#]|&(?:X-Goog-|Signature|Expires|AWSAccessKeyId|token|sig|auth)=)",
+  "(?:://|^[a-z][a-z0-9+.-]*:/|^~[/\\\\]|\\.\\.[/\\\\]|[?#]|&(?:X-Goog-|Signature|Expires|AWSAccessKeyId|token|sig|auth)=)",
   "i",
 );
 
-const RAW_ACCOUNT_ID_RE = /(?:^|[\s_:.-])(?:d?u\d{5,}|\d{6,})(?:$|[\s_:.-])/i;
+const RAW_U_DU_ACCOUNT_RE = /(?:^|[^A-Za-z0-9])d?u\d{5,}(?:$|[^A-Za-z0-9])/i;
+const RAW_GROUPED_DIGITS_RE = /\d{3,}[-\s_]\d{3,}/;
+const RAW_GROUPED_CANDIDATE_RE = /\d+(?:[-\s_]\d+)+/g;
 
 function deepFreeze(value) {
   if (!value || typeof value !== "object") return value;
@@ -94,12 +100,29 @@ function deepFreeze(value) {
 
 export function isUnsafePrivateLocator(value) {
   if (typeof value !== "string") return false;
-  return URI_SCHEME_PREFIX_RE.test(value) || PRIVATE_VALUE_RE.test(value);
+  return (
+    URI_SCHEME_PREFIX_RE.test(value)
+    || EMBEDDED_PRIVATE_PATH_RE.test(value)
+    || PRIVATE_VALUE_RE.test(value)
+  );
 }
 
 export function isRawAccountIdentifier(value) {
   if (typeof value !== "string") return false;
-  return RAW_ACCOUNT_ID_RE.test(value) || /\d{6,}/.test(value);
+  if (
+    RAW_U_DU_ACCOUNT_RE.test(value)
+    || /\d{6,}/.test(value)
+    || RAW_GROUPED_DIGITS_RE.test(value)
+  ) {
+    return true;
+  }
+  const matches = value.match(RAW_GROUPED_CANDIDATE_RE);
+  if (matches) {
+    for (const group of matches) {
+      if (group.replace(/[-\s_]/g, "").length >= 6) return true;
+    }
+  }
+  return false;
 }
 
 export function isValidPlatformSlug(slug) {
@@ -298,6 +321,15 @@ export const CANONICAL_NAMING_REGISTRY = deepFreeze({
       synthetic: true,
       label_zh: "第一证券实盘主槽位",
       label_en: "Firstrade Live Main Slot",
+    },
+    {
+      slot_key: "binance:live:dormant",
+      platform: "binance",
+      env: "live",
+      slot: "dormant",
+      synthetic: true,
+      label_zh: "币安实盘休眠槽位",
+      label_en: "Binance Live Dormant Slot",
     },
     {
       slot_key: "binance:research:archive",
@@ -610,7 +642,8 @@ export const CANONICAL_NAMING_REGISTRY = deepFreeze({
       { legacy_id: "longbridge:hk", canonical_id: "longbridge:live:hk" },
       { legacy_id: "schwab:live", canonical_id: "schwab:live:main" },
       { legacy_id: "firstrade:live", canonical_id: "firstrade:live:main" },
-      { legacy_id: "binance:live", canonical_id: "binance:research:archive" },
+      { legacy_id: "binance:live", canonical_id: "binance:live:dormant" },
+      { legacy_id: "binance:research:legacy", canonical_id: "binance:research:archive" },
       { legacy_id: "binance:crypto_combo", canonical_id: "binance:research:archive" },
     ],
     strategies: [
