@@ -5,8 +5,10 @@
 Status: proposed. This document defines the QuantStrategyLab canonical naming
 registry, Draft 2020-12 schema
 ([`qsl-canonical-naming-registry.v1.schema.json`](../schemas/qsl-canonical-naming-registry.v1.schema.json)),
-and pure leaf validator
-([`naming_canonical/registry.js`](../web/strategy-switch-console/application/naming_canonical/registry.js)),
+domain constants
+([`naming_canonical/constants.js`](../web/strategy-switch-console/application/naming_canonical/constants.js)),
+and pure leaf helpers
+([`naming_canonical/helpers.js`](../web/strategy-switch-console/application/naming_canonical/helpers.js)),
 aligned with Roadmap v2.0 Item 14, Item 16 (`NAMING-CANONICAL`), and Item 17.
 It defines naming conventions and non-breaking alias mappings only. It does not
 authorize any rename, migration, deletion, deployment, runtime behavior change,

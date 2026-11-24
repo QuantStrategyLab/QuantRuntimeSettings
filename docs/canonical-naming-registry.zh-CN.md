@@ -3,8 +3,9 @@
 [English](canonical-naming-registry.md)
 
 状态：提议中。本文规定 QuantStrategyLab 的规范命名注册表、Draft 2020-12
-Schema（[`qsl-canonical-naming-registry.v1.schema.json`](../schemas/qsl-canonical-naming-registry.v1.schema.json)）
-以及纯叶子校验模块（[`naming_canonical/registry.js`](../web/strategy-switch-console/application/naming_canonical/registry.js)），
+Schema（[`qsl-canonical-naming-registry.v1.schema.json`](../schemas/qsl-canonical-naming-registry.v1.schema.json)）、
+领域常量（[`naming_canonical/constants.js`](../web/strategy-switch-console/application/naming_canonical/constants.js)）
+以及纯叶子校验助手（[`naming_canonical/helpers.js`](../web/strategy-switch-console/application/naming_canonical/helpers.js)），
 对应 Roadmap v2.0 第 14、16（`NAMING-CANONICAL`）与 17 项。本文仅定义命名规范与非破坏性别名映射，不授权任何改名、迁移、删除、部署、运行时行为修改或交易/下单权限。
 
 文中示例均为合成值。既有历史账本哈希、Durable Object 键、KV 目录键与已签名回执通过

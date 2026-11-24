@@ -11,6 +11,8 @@ import {
   CANONICAL_RISK_TIER_MAP,
   CANONICAL_STRATEGY_DISPOSITIONS,
   NAMING_REGISTRY_SCHEMA,
+} from "../web/strategy-switch-console/application/naming_canonical/constants.js";
+import {
   consoleTierToEngineTier,
   engineTierToConsoleTier,
   formatAccountSlotKey,
@@ -23,7 +25,7 @@ import {
   pluginCapabilityClass,
   resolveCanonicalAlias,
   validateNamingRegistry,
-} from "../web/strategy-switch-console/application/naming_canonical/registry.js";
+} from "../web/strategy-switch-console/application/naming_canonical/helpers.js";
 
 const require = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
 const Ajv2020 = require("ajv/dist/2020").default;
@@ -60,12 +62,26 @@ assert.ok(
 const semanticCheck = validateNamingRegistry(CANONICAL_NAMING_REGISTRY);
 assert.deepEqual(semanticCheck, { ok: true, errors: [] });
 
-// Verify pure leaf invariant (no external imports, no Worker/DO/storage/network access).
-const registrySource = readFileSync(
-  new URL("../web/strategy-switch-console/application/naming_canonical/registry.js", import.meta.url),
+// Verify pure leaf boundary (constants.js has zero imports; helpers.js imports only ./constants.js).
+const stripJsComments = (source) => source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+const constantsSource = readFileSync(
+  new URL("../web/strategy-switch-console/application/naming_canonical/constants.js", import.meta.url),
   "utf8",
 );
-assert.equal(/\bimport\s+/.test(registrySource), false, "registry.js must remain a zero-import leaf module");
+const constantsCode = stripJsComments(constantsSource);
+assert.equal(/\bimport\b|\brequire\s*\(/.test(constantsCode), false, "constants.js must have zero imports");
+
+const helpersSource = readFileSync(
+  new URL("../web/strategy-switch-console/application/naming_canonical/helpers.js", import.meta.url),
+  "utf8",
+);
+const helpersCode = stripJsComments(helpersSource);
+assert.equal(/\bimport\s*\(|\brequire\s*\(/.test(helpersCode), false, "helpers.js must not use dynamic import/require");
+const helperImportSpecifiers = [...helpersCode.matchAll(/\bimport\b[\s\S]*?\bfrom\s+["']([^"']+)["']/g)].map(
+  (match) => match[1],
+);
+assert.deepEqual(helperImportSpecifiers, ["./constants.js"], "helpers.js must import only inward from ./constants.js");
+assert.equal(/runtime_support|worker\.js|\bhttp\b|storage/i.test(helpersCode), false);
 assert.equal(
   PRIVATE_LOCATOR_RE.test(JSON.stringify(CANONICAL_NAMING_REGISTRY)),
   false,
@@ -134,6 +150,9 @@ const invalidSlots = [
   "ibkr:live:du987654",
   "schwab:live:12345678",
   "schwab:live:0000-0099",
+  "ibkr:live:12-34-56",
+  "ibkr:live:1-2-3-4-5-6",
+  "ibkr:live:12_34_56",
   "ibkr:live:acct_123456",
   "ibkr:live:acct123456",
   "https://broker.example/ibkr:live:a1",
@@ -160,6 +179,9 @@ assert.equal(formatAccountSlotKey("ibkr", "live", "U1234567"), null);
 assert.equal(formatAccountSlotKey("ibkr", "live", "DU987654"), null);
 assert.equal(formatAccountSlotKey("schwab", "live", "12345678"), null);
 assert.equal(formatAccountSlotKey("schwab", "live", "0000-0099"), null);
+assert.equal(formatAccountSlotKey("ibkr", "live", "12-34-56"), null);
+assert.equal(formatAccountSlotKey("ibkr", "live", "1-2-3-4-5-6"), null);
+assert.equal(formatAccountSlotKey("ibkr", "live", "12_34_56"), null);
 assert.equal(formatAccountSlotKey("ibkr", "live", "acct123456"), null);
 assert.equal(formatAccountSlotKey("alpaca", "live", "a1"), null);
 assert.equal(formatAccountSlotKey("ibkr", "prod", "a1"), null);
@@ -171,6 +193,9 @@ assert.equal(formatAccountSlotKey("ibkr", "live", unsafeUserPath), null);
     "ibkr:live:DU987654",
     "schwab:live:12345678",
     "schwab:live:0000-0099",
+    "ibkr:live:12-34-56",
+    "ibkr:live:1-2-3-4-5-6",
+    "ibkr:live:12_34_56",
     "ibkr:live:acct123456",
   ]) {
     const badReg = cloneRegistry();
@@ -430,6 +455,21 @@ assert.equal(unsafeAlias.reason, "unsafe_private_locator");
   assert.equal(validateSchema(groupedDigitsLabel), false, "schema must reject grouped account digits in label_en");
   assert.equal(validateNamingRegistry(groupedDigitsLabel).ok, false, "validator must reject grouped account digits");
 
+  for (const splitLabel of ["账号 12-34-56", "Account 12 34 56", "Acct 1-2-3-4-5-6"]) {
+    const splitDigitReg = cloneRegistry();
+    splitDigitReg.account_slots[0].label_zh = splitLabel;
+    assert.equal(validateSchema(splitDigitReg), false, `schema must reject split digits in label: ${splitLabel}`);
+    assert.equal(validateNamingRegistry(splitDigitReg).ok, false, `validator must reject split digits: ${splitLabel}`);
+  }
+
+  for (const legacySplit of ["ibkr:12-34-56", "12.34.56"]) {
+    const splitLegacyReg = cloneRegistry();
+    splitLegacyReg.legacy_aliases.accounts.push({ legacy_id: legacySplit, canonical_id: "ibkr:live:a1" });
+    assert.equal(validateSchema(splitLegacyReg), false, `schema must reject legacy split account: ${legacySplit}`);
+    assert.equal(validateNamingRegistry(splitLegacyReg).ok, false, `validator must reject legacy split: ${legacySplit}`);
+    assert.equal(resolveCanonicalAlias("accounts", legacySplit).reason, "raw_account_id_prohibited");
+  }
+
   const workstationPathLabel = cloneRegistry();
   workstationPathLabel.account_slots[0].label_en = unsafeEmbeddedUserPath;
   assert.equal(validateSchema(workstationPathLabel), false, "schema must reject embedded workstation path in label_en");
@@ -442,6 +482,10 @@ assert.equal(isRawAccountIdentifier("DU987654"), true);
 assert.equal(isRawAccountIdentifier("12345678"), true);
 assert.equal(isRawAccountIdentifier("0000-0099"), true);
 assert.equal(isRawAccountIdentifier("0000 0099"), true);
+assert.equal(isRawAccountIdentifier("12-34-56"), true);
+assert.equal(isRawAccountIdentifier("1-2-3-4-5-6"), true);
+assert.equal(isRawAccountIdentifier("12_34_56"), true);
+assert.equal(isRawAccountIdentifier("12.34.56"), true);
 assert.equal(isRawAccountIdentifier("acct123456"), true);
 assert.equal(isRawAccountIdentifier("账户（U12345）"), true);
 assert.equal(isRawAccountIdentifier("a1"), false);
