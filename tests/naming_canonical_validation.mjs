@@ -454,15 +454,38 @@ assert.equal(unsafeAlias.reason, "unsafe_private_locator");
   });
   assert.equal(validateNamingRegistry(badTargetReg).ok, false);
 
-  // Case-normalized canonical ID collision must fail both validateNamingRegistry and resolveCanonicalAlias.
+  // Case-normalized canonical ID collision must fail both validateNamingRegistry and resolveCanonicalAlias
+  // regardless of whether queried via canonical ID ("schwab") or exact alias ("Schwab").
   const caseShadowReg = cloneRegistry();
   caseShadowReg.legacy_aliases.platforms.push({ legacy_id: "Schwab", canonical_id: "ibkr" });
   const caseShadowValidation = validateNamingRegistry(caseShadowReg);
   assert.equal(caseShadowValidation.ok, false);
   assert.ok(caseShadowValidation.errors.some((err) => err.endsWith(":shadows_canonical_id")));
-  const caseShadowResolve = resolveCanonicalAlias("platforms", "schwab", caseShadowReg);
-  assert.equal(caseShadowResolve.ok, false);
-  assert.equal(caseShadowResolve.reason, "ambiguous_alias");
+  const caseShadowResolveLower = resolveCanonicalAlias("platforms", "schwab", caseShadowReg);
+  assert.equal(caseShadowResolveLower.ok, false);
+  assert.equal(caseShadowResolveLower.reason, "ambiguous_alias");
+  const caseShadowResolveExact = resolveCanonicalAlias("platforms", "Schwab", caseShadowReg);
+  assert.equal(caseShadowResolveExact.ok, false);
+  assert.equal(caseShadowResolveExact.reason, "ambiguous_alias");
+
+  // Case-normalized alias pointing to the SAME canonical ID remains valid and non-destructive.
+  const sameTargetCasingReg = cloneRegistry();
+  sameTargetCasingReg.legacy_aliases.platforms.push({ legacy_id: "Schwab", canonical_id: "schwab" });
+  assert.deepEqual(validateNamingRegistry(sameTargetCasingReg), { ok: true, errors: [] });
+  assert.deepEqual(resolveCanonicalAlias("platforms", "Schwab", sameTargetCasingReg), {
+    ok: true,
+    kind: "platforms",
+    input: "Schwab",
+    canonical: "schwab",
+    aliased: true,
+  });
+  assert.deepEqual(resolveCanonicalAlias("platforms", "schwab", sameTargetCasingReg), {
+    ok: true,
+    kind: "platforms",
+    input: "schwab",
+    canonical: "schwab",
+    aliased: false,
+  });
 }
 
 // 9. Human label decoupling: changing label_zh / label_en never alters machine IDs or tier mapping.

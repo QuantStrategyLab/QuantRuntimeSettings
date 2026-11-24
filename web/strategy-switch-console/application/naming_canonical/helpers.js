@@ -198,6 +198,16 @@ function isValidCanonicalTargetForKind(kind, id) {
   return false;
 }
 
+function buildNormalizedTargetIndex(ids) {
+  const index = new Map();
+  for (const id of ids) {
+    const norm = id.toLowerCase();
+    if (!index.has(norm)) index.set(norm, new Set());
+    index.get(norm).add(id);
+  }
+  return index;
+}
+
 export function resolveCanonicalAlias(kind, name, registry = CANONICAL_NAMING_REGISTRY) {
   if (!ALIAS_KIND_SET.has(kind)) {
     return { ok: false, kind, input: name, canonical: null, aliased: false, reason: "invalid_alias_kind" };
@@ -213,6 +223,7 @@ export function resolveCanonicalAlias(kind, name, registry = CANONICAL_NAMING_RE
   }
 
   const canonicalSet = canonicalIdSetForKind(registry, kind);
+  const normCanonicalTargets = buildNormalizedTargetIndex(canonicalSet);
   const entries = Array.isArray(registry?.legacy_aliases?.[kind]) ? registry.legacy_aliases[kind] : [];
   const exactTargets = new Map();
   const normalizedTargets = new Map();
@@ -230,11 +241,13 @@ export function resolveCanonicalAlias(kind, name, registry = CANONICAL_NAMING_RE
 
   const normInput = name.toLowerCase();
   const normConflictSet = normalizedTargets.get(normInput);
+  const normCanonConflictSet = normCanonicalTargets.get(normInput);
 
   if (canonicalSet.has(name)) {
     const selfExact = exactTargets.get(name);
     if ((selfExact && ([...selfExact].some((target) => target !== name) || selfExact.size > 1))
-      || (normConflictSet && [...normConflictSet].some((target) => target !== name))) {
+      || (normConflictSet && [...normConflictSet].some((target) => target !== name))
+      || (normCanonConflictSet && [...normCanonConflictSet].some((cid) => cid !== name))) {
       return { ok: false, kind, input: name, canonical: null, aliased: false, reason: "ambiguous_alias" };
     }
     if (!isValidCanonicalTargetForKind(kind, name)) {
@@ -249,13 +262,18 @@ export function resolveCanonicalAlias(kind, name, registry = CANONICAL_NAMING_RE
       return { ok: false, kind, input: name, canonical: null, aliased: false, reason: "ambiguous_alias" };
     }
     const target = [...exactMatchSet][0];
+    if (normCanonConflictSet && [...normCanonConflictSet].some((cid) => cid !== target)) {
+      return { ok: false, kind, input: name, canonical: null, aliased: false, reason: "ambiguous_alias" };
+    }
     if (!canonicalSet.has(target) || !isValidCanonicalTargetForKind(kind, target)) {
       return { ok: false, kind, input: name, canonical: null, aliased: false, reason: "invalid_alias_target" };
     }
     return { ok: true, kind, input: name, canonical: target, aliased: true };
   }
 
-  if (normConflictSet && normConflictSet.size > 1) {
+  if ((normConflictSet && normConflictSet.size > 1)
+    || (normCanonConflictSet && normCanonConflictSet.size > 1)
+    || (normCanonConflictSet && normConflictSet && [...normCanonConflictSet].some((cid) => ![...normConflictSet].includes(cid)))) {
     return { ok: false, kind, input: name, canonical: null, aliased: false, reason: "ambiguous_alias" };
   }
 
@@ -264,13 +282,13 @@ export function resolveCanonicalAlias(kind, name, registry = CANONICAL_NAMING_RE
     for (const entry of entries) {
       if (typeof entry?.legacy_id !== "string" || typeof entry?.canonical_id !== "string") continue;
       const idx = entry.legacy_id.indexOf(":");
-      if (idx > 0 && entry.legacy_id.slice(idx + 1) === name) {
+      if (idx > 0 && entry.legacy_id.slice(idx + 1).toLowerCase() === normInput) {
         suffixMatches.add(entry.canonical_id);
       }
     }
     if (Array.isArray(registry?.account_slots)) {
       for (const slotItem of registry.account_slots) {
-        if (slotItem?.slot === name && typeof slotItem?.slot_key === "string") {
+        if (typeof slotItem?.slot === "string" && slotItem.slot.toLowerCase() === normInput && typeof slotItem?.slot_key === "string") {
           suffixMatches.add(slotItem.slot_key);
         }
       }
@@ -525,12 +543,7 @@ export function validateNamingRegistry(registry) {
       const seenExact = new Set();
       const seenNormTarget = new Map();
       const targets = targetSets[kind];
-      const normCanonicalTargets = new Map();
-      for (const cid of targets) {
-        const normCid = cid.toLowerCase();
-        if (!normCanonicalTargets.has(normCid)) normCanonicalTargets.set(normCid, new Set());
-        normCanonicalTargets.get(normCid).add(cid);
-      }
+      const normCanonicalTargets = buildNormalizedTargetIndex(targets);
       for (let i = 0; i < list.length; i++) {
         const item = list[i];
         const prefix = `legacy_aliases.${kind}[${i}]`;
