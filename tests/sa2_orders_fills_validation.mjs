@@ -31,7 +31,7 @@ const { evaluateDomainCoverage } = await import(
 const { adaptLegacyBrokerExecutionPayload, normalizeBrokerIdentity } = await import(
   "../web/strategy-switch-console/application/orders_fills/normalize.js"
 );
-const { deduplicateExecutions } = await import(
+const { deduplicateExecutions, reconcileOrdersAndFills } = await import(
   "../web/strategy-switch-console/application/orders_fills/dedup_state.js"
 );
 const {
@@ -1049,6 +1049,347 @@ assert.ok(ORDER_LIFECYCLE_STATES.includes("ORDER_UNKNOWN"));
       records: [],
     }),
   );
+}
+
+// 7. Codex review regressions (#1 future empty cutoff domain, #2 post-cutoff executions, #4 count>0 omitted records)
+{
+  // Codex #1 (PRRT_kwDOSZeN-M67n_nW): empty complete cutoff snapshot with as_of > evaluated_at cannot release K_pend.
+  const futureEmptyCutoffInput = {
+    broker: "longbridge",
+    environment: "paper",
+    account: "longbridge:paper:pilot",
+    as_of: "2026-11-24T15:02:00.000Z",
+    evaluated_at: "2026-11-24T15:02:00.000Z",
+    origin: "synthetic",
+    source_class: "paper_broker",
+    evidence_ref: "sa2:codex:future-empty-cutoff",
+    domains: {
+      submissions: { domain_capability: "unsupported", as_of: null, source: "omitted", scope: "account_submissions" },
+      executions: { domain_capability: "unsupported", as_of: null, source: "omitted", scope: "account_executions" },
+      cutoff_open_orders: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T16:00:00.000Z",
+        source: "lb_open",
+        scope: "cutoff_open_orders",
+        cap: 256,
+        count: 0,
+        truncated: false,
+        completeness: "complete",
+        records: [],
+      },
+    },
+  };
+  const futureWithPrior = evaluateAuthoritativeOrdersAndFills(futureEmptyCutoffInput, { priorKPendUsd: "1000.00" });
+  assert.ok(validateSchema(futureWithPrior), ajv.errorsText(validateSchema.errors));
+  assert.equal(futureWithPrior.summary.k_pend_release_allowed, false);
+  assert.equal(futureWithPrior.summary.k_pend_usd, "1000.00");
+  assert.equal(futureWithPrior.domains.cutoff_open_orders.empty_domain_proven, false);
+  assert.equal(futureWithPrior.domains.cutoff_open_orders.k_pend_release_allowed, false);
+
+  const futureNoPrior = evaluateAuthoritativeOrdersAndFills(futureEmptyCutoffInput);
+  assert.ok(validateSchema(futureNoPrior));
+  assert.equal(futureNoPrior.summary.k_pend_release_allowed, false);
+  assert.equal(futureNoPrior.summary.k_pend_usd, null);
+
+  const directFutureCutoff = reconcileOrdersAndFills({
+    identity: { broker: "longbridge", environment: "paper", account: "longbridge:paper:pilot", binding_key: "longbridge|paper|longbridge:paper:pilot" },
+    cutoffCoverage: { as_of: "2026-11-24T16:00:00.000Z", k_pend_release_allowed: true },
+    priorKPendUsd: "1000.00",
+    evaluatedAt: "2026-11-24T15:02:00.000Z",
+  });
+  assert.equal(directFutureCutoff.k_pend_release_allowed, false);
+  assert.equal(directFutureCutoff.k_pend_usd, "1000.00");
+
+  // Codex #2 (PRRT_kwDOSZeN-M67n_ne): executions after cutoff.as_of and <= evaluated_at advance remaining qty cleanly.
+  const asyncCutoffWithFill = evaluateAuthoritativeOrdersAndFills({
+    broker: "longbridge",
+    environment: "paper",
+    account: "longbridge:paper:pilot",
+    as_of: "2026-11-24T15:02:00.000Z",
+    evaluated_at: "2026-11-24T15:02:00.000Z",
+    origin: "synthetic",
+    source_class: "paper_broker",
+    evidence_ref: "sa2:codex:async-cutoff-exec",
+    domains: {
+      submissions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "lb_orders",
+        scope: "account_submissions",
+        cap: 512,
+        completeness: "complete",
+        truncated: false,
+        records: [
+          {
+            client_order_id: "ord-async-1",
+            broker_order_id: "brk-async-1",
+            symbol: "TQQQ",
+            side: "BUY",
+            state: "ACCEPTED",
+            qty_submitted: "10",
+            limit_price: "50.00",
+            currency: "USD",
+            estimated_fee_usd: "1.25",
+            submitted_at: "2026-11-24T14:59:00.000Z",
+            evidence_ref: "sa2:codex:async-sub",
+          },
+        ],
+      },
+      executions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "lb_fills",
+        scope: "account_executions",
+        cap: 512,
+        completeness: "complete",
+        truncated: false,
+        records: [
+          {
+            execution_ref: "abababababababababababababababababababababababababababababababab",
+            report_ref: "1111111111111111111111111111111111111111111111111111111111111111",
+            client_order_id: "ord-async-1",
+            broker_order_id: "brk-async-1",
+            symbol: "TQQQ",
+            side: "BUY",
+            qty: "2",
+            price: "49.50",
+            currency: "USD",
+            fee_native: "0.25",
+            fee_currency: "USD",
+            executed_at: "2026-11-24T15:01:00.000Z",
+            evidence_ref: "sa2:codex:async-exec-1",
+          },
+        ],
+      },
+      cutoff_open_orders: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:00:00.000Z",
+        source: "lb_open",
+        scope: "cutoff_open_orders",
+        cap: 512,
+        completeness: "complete",
+        truncated: false,
+        records: [
+          {
+            client_order_id: "ord-async-1",
+            broker_order_id: "brk-async-1",
+            symbol: "TQQQ",
+            side: "BUY",
+            state: "ACCEPTED",
+            qty_submitted: "10",
+            qty_filled: "0",
+            qty_canceled: "0",
+            qty_remaining: "10",
+            limit_price: "50.00",
+            currency: "USD",
+            reserved_fee_usd: "1.25",
+            as_of: "2026-11-24T15:00:00.000Z",
+            evidence_ref: "sa2:codex:async-open",
+          },
+        ],
+      },
+    },
+  });
+  assert.ok(validateSchema(asyncCutoffWithFill), ajv.errorsText(validateSchema.errors));
+  assert.equal(asyncCutoffWithFill.orders[0].qty_filled, "2");
+  assert.equal(asyncCutoffWithFill.orders[0].qty_remaining, "8");
+  assert.equal(asyncCutoffWithFill.orders[0].state, "PARTIAL_FILL");
+  assert.equal(asyncCutoffWithFill.orders[0].k_pend_usd, "401.25");
+  assert.equal(asyncCutoffWithFill.summary.k_pend_usd, "401.25");
+
+  // Full fill after cutoff completes cleanly with zero remaining K_pend.
+  const asyncFullFill = evaluateAuthoritativeOrdersAndFills({
+    broker: "longbridge",
+    environment: "paper",
+    account: "longbridge:paper:pilot",
+    as_of: "2026-11-24T15:02:00.000Z",
+    evaluated_at: "2026-11-24T15:02:00.000Z",
+    origin: "synthetic",
+    source_class: "paper_broker",
+    evidence_ref: "sa2:codex:async-full-fill",
+    domains: {
+      submissions: { domain_capability: "unsupported", as_of: null, source: "omitted", scope: "account_submissions" },
+      executions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "lb_fills",
+        scope: "account_executions",
+        cap: 512,
+        completeness: "complete",
+        truncated: false,
+        records: [
+          {
+            execution_ref: "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+            report_ref: "2222222222222222222222222222222222222222222222222222222222222222",
+            client_order_id: "ord-async-2",
+            broker_order_id: "brk-async-2",
+            symbol: "TQQQ",
+            side: "BUY",
+            qty: "10",
+            price: "50.00",
+            currency: "USD",
+            fee_native: "1.25",
+            fee_currency: "USD",
+            executed_at: "2026-11-24T15:01:00.000Z",
+            evidence_ref: "sa2:codex:async-full-exec",
+          },
+        ],
+      },
+      cutoff_open_orders: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:00:00.000Z",
+        source: "lb_open",
+        scope: "cutoff_open_orders",
+        cap: 512,
+        completeness: "complete",
+        truncated: false,
+        records: [
+          {
+            client_order_id: "ord-async-2",
+            broker_order_id: "brk-async-2",
+            symbol: "TQQQ",
+            side: "BUY",
+            state: "ACCEPTED",
+            qty_submitted: "10",
+            qty_filled: "0",
+            qty_canceled: "0",
+            qty_remaining: "10",
+            limit_price: "50.00",
+            currency: "USD",
+            reserved_fee_usd: "1.25",
+            as_of: "2026-11-24T15:00:00.000Z",
+            evidence_ref: "sa2:codex:async-open-2",
+          },
+        ],
+      },
+    },
+  });
+  assert.ok(validateSchema(asyncFullFill));
+  assert.equal(asyncFullFill.orders[0].state, "FILLED");
+  assert.equal(asyncFullFill.orders[0].qty_remaining, "0");
+  assert.equal(asyncFullFill.summary.k_pend_usd, "0");
+
+  // Genuine pre-cutoff execution mismatch AT cutoff.as_of still rejects 409; post-cutoff overfill still rejects 400.
+  assert.throws(
+    () => evaluateAuthoritativeOrdersAndFills({
+      broker: "longbridge",
+      environment: "paper",
+      account: "longbridge:paper:pilot",
+      as_of: "2026-11-24T15:02:00.000Z",
+      evaluated_at: "2026-11-24T15:02:00.000Z",
+      origin: "synthetic",
+      source_class: "paper_broker",
+      evidence_ref: "sa2:codex:precutoff-mismatch",
+      domains: {
+        submissions: { domain_capability: "unsupported", as_of: null, source: "omitted", scope: "account_submissions" },
+        executions: {
+          domain_capability: "supported",
+          as_of: "2026-11-24T15:02:00.000Z",
+          source: "lb_fills",
+          scope: "account_executions",
+          cap: 512,
+          completeness: "complete",
+          truncated: false,
+          records: [
+            {
+              execution_ref: "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+              report_ref: "3333333333333333333333333333333333333333333333333333333333333333",
+              client_order_id: "ord-pre-mismatch",
+              broker_order_id: "brk-pre-mismatch",
+              symbol: "TQQQ",
+              side: "BUY",
+              qty: "2",
+              price: "50.00",
+              currency: "USD",
+              fee_native: "0",
+              fee_currency: "USD",
+              executed_at: "2026-11-24T14:59:00.000Z",
+              evidence_ref: "sa2:codex:pre-exec",
+            },
+          ],
+        },
+        cutoff_open_orders: {
+          domain_capability: "supported",
+          as_of: "2026-11-24T15:00:00.000Z",
+          source: "lb_open",
+          scope: "cutoff_open_orders",
+          cap: 512,
+          completeness: "complete",
+          truncated: false,
+          records: [
+            {
+              client_order_id: "ord-pre-mismatch",
+              broker_order_id: "brk-pre-mismatch",
+              symbol: "TQQQ",
+              side: "BUY",
+              state: "ACCEPTED",
+              qty_submitted: "10",
+              qty_filled: "0",
+              qty_canceled: "0",
+              qty_remaining: "10",
+              limit_price: "50.00",
+              currency: "USD",
+              reserved_fee_usd: "1.25",
+              as_of: "2026-11-24T15:00:00.000Z",
+              evidence_ref: "sa2:codex:pre-open",
+            },
+          ],
+        },
+      },
+    }),
+    /order_remaining_cutoff_mismatch/,
+  );
+
+  // Codex #4 (PRRT_kwDOSZeN-M67n_nv): positive count without records array cannot stay complete or release K_pend.
+  const positiveCountNoRecordsCov = evaluateDomainCoverage({
+    domain: "cutoff_open_orders",
+    domain_capability: "supported",
+    as_of: "2026-11-24T15:00:00.000Z",
+    source: "lb_open",
+    scope: "cutoff_open_orders",
+    cap: 256,
+    count: 1,
+    truncated: false,
+    completeness: "complete",
+  });
+  assert.equal(positiveCountNoRecordsCov.completeness, "incomplete");
+  assert.equal(positiveCountNoRecordsCov.empty_domain_proven, false);
+  assert.equal(positiveCountNoRecordsCov.k_pend_release_allowed, false);
+
+  const positiveCountOmittedInput = {
+    broker: "longbridge",
+    environment: "paper",
+    account: "longbridge:paper:pilot",
+    as_of: "2026-11-24T15:00:00.000Z",
+    evaluated_at: "2026-11-24T15:00:05.000Z",
+    origin: "synthetic",
+    source_class: "paper_broker",
+    evidence_ref: "sa2:codex:count1-no-records",
+    domains: {
+      submissions: { domain_capability: "unsupported", as_of: null, source: "omitted", scope: "account_submissions" },
+      executions: { domain_capability: "unsupported", as_of: null, source: "omitted", scope: "account_executions" },
+      cutoff_open_orders: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:00:00.000Z",
+        source: "lb_open",
+        scope: "cutoff_open_orders",
+        cap: 256,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+      },
+    },
+  };
+  const omittedWithPrior = evaluateAuthoritativeOrdersAndFills(positiveCountOmittedInput, { priorKPendUsd: "1000.00" });
+  assert.ok(validateSchema(omittedWithPrior), ajv.errorsText(validateSchema.errors));
+  assert.equal(omittedWithPrior.domains.cutoff_open_orders.completeness, "incomplete");
+  assert.equal(omittedWithPrior.summary.k_pend_release_allowed, false);
+  assert.equal(omittedWithPrior.summary.k_pend_usd, "1000.00");
+
+  const omittedNoPrior = evaluateAuthoritativeOrdersAndFills(positiveCountOmittedInput);
+  assert.ok(validateSchema(omittedNoPrior));
+  assert.equal(omittedNoPrior.summary.k_pend_release_allowed, false);
+  assert.equal(omittedNoPrior.summary.k_pend_usd, null);
 }
 
 console.log("sa2_orders_fills_validation: PASS (SA-A12)");

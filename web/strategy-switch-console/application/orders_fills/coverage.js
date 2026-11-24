@@ -154,8 +154,24 @@ export function evaluateDomainCoverage(rawDomain, options = {}) {
     throw new OrdersFillsError("domain_count_exceeds_cap", 400);
   }
 
-  if (normalizedRecords !== null && count !== normalizedRecords.length && !truncated) {
+  if (
+    !truncated
+    && ((normalizedRecords === null && count > 0) || (normalizedRecords !== null && count !== normalizedRecords.length))
+  ) {
     completeness = "incomplete";
+  }
+
+  const evalAtRaw = options.evaluatedAt ?? options.evaluated_at ?? null;
+  let domainAsOfInFuture = false;
+  if (evalAtRaw !== null && evalAtRaw !== undefined) {
+    const evalNs = typeof evalAtRaw === "string" ? parseInstantNs(evalAtRaw) : null;
+    if (evalNs === null) {
+      throw new OrdersFillsError("invalid_evaluated_at", 400);
+    }
+    const asOfNs = parseInstantNs(asOf);
+    if (asOfNs !== null && asOfNs > evalNs) {
+      domainAsOfInFuture = true;
+    }
   }
 
   const currencies = new Set();
@@ -175,9 +191,13 @@ export function evaluateDomainCoverage(rawDomain, options = {}) {
   const currenciesPresent = [...currencies].sort();
   const nativeCurrency = currenciesPresent.length === 1 ? currenciesPresent[0] : null;
 
-  const emptyDomainProven = truncated === false && completeness === "complete" && count === 0;
+  const emptyDomainProven = !domainAsOfInFuture
+    && truncated === false
+    && completeness === "complete"
+    && count === 0;
   const hasOrderUnknownLocks = Boolean(options.hasOrderUnknownLocks);
-  const kPendReleaseAllowed = truncated === false
+  const kPendReleaseAllowed = !domainAsOfInFuture
+    && truncated === false
     && completeness === "complete"
     && count < cap
     && !hasOrderUnknownLocks;

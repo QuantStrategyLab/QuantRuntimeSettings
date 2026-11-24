@@ -378,19 +378,64 @@ export function reconcileOrdersAndFills({
       filledFromExecs = addDecimal(filledFromExecs, parseDecimal(ex.qty));
     }
     const cutoffNs = cutoff ? parseInstantNs(cutoff.as_of) : null;
+    if (cutoff && cutoffNs === null) {
+      throw new OrdersFillsError("invalid_cutoff_as_of", 400);
+    }
     const cutoffIsFuture = Boolean(cutoff && evalNs !== null && cutoffNs !== null && cutoffNs > evalNs);
-    const cutoffFilled = cutoff && !cutoffIsFuture ? parseDecimal(cutoff.qty_filled) : ZERO_DEC;
-    const filledDec = maxDec(filledFromExecs, cutoffFilled);
-
     const subMeta = getSubmissionMeta(sub);
+
+    let filledDec = ZERO_DEC;
+    let filledAfterCutoff = ZERO_DEC;
     let canceledDec = ZERO_DEC;
-    if (!entry.sawFutureTransition && !cutoffIsFuture) {
-      if (cutoff) {
-        canceledDec = parseDecimal(cutoff.qty_canceled);
-      } else if (subMeta?.qty_canceled !== undefined) {
-        canceledDec = parseDecimal(subMeta.qty_canceled);
-      } else if (sub && (sub.state === "CANCELED" || sub.state === "REJECTED")) {
-        canceledDec = subDecimal(subDec, filledDec);
+    let postCutoffSubTerminal = false;
+
+    if (cutoff && !cutoffIsFuture) {
+      let filledUpToCutoffFromExecs = ZERO_DEC;
+      for (const ex of effectiveExecs) {
+        const exNs = parseInstantNs(ex.executed_at);
+        if (exNs !== null && exNs <= cutoffNs) {
+          filledUpToCutoffFromExecs = addDecimal(filledUpToCutoffFromExecs, parseDecimal(ex.qty));
+        } else {
+          filledAfterCutoff = addDecimal(filledAfterCutoff, parseDecimal(ex.qty));
+        }
+      }
+      const cutoffFilled = parseDecimal(cutoff.qty_filled);
+      const filledAtCutoffDec = maxDec(filledUpToCutoffFromExecs, cutoffFilled);
+      const canceledAtCutoffDec = parseDecimal(cutoff.qty_canceled);
+      const remainingAtCutoffDec = subDecimal(subDecimal(subDec, filledAtCutoffDec), canceledAtCutoffDec);
+      if (remainingAtCutoffDec.num < 0n) {
+        throw new OrdersFillsError("order_quantities_exceed_submitted", 400);
+      }
+      if (!eqDecimal(remainingAtCutoffDec, parseDecimal(cutoff.qty_remaining))) {
+        throw new OrdersFillsError("order_remaining_cutoff_mismatch", 409);
+      }
+
+      filledDec = addDecimal(filledAtCutoffDec, filledAfterCutoff);
+      canceledDec = canceledAtCutoffDec;
+      if (
+        !entry.sawFutureTransition
+        && sub
+        && subMeta?.resolved_at_ns !== null
+        && subMeta.resolved_at_ns !== undefined
+        && subMeta.resolved_at_ns > cutoffNs
+      ) {
+        if (subMeta?.qty_canceled !== undefined) {
+          canceledDec = maxDec(canceledAtCutoffDec, parseDecimal(subMeta.qty_canceled));
+        } else if (sub.state === "CANCELED" || sub.state === "REJECTED") {
+          canceledDec = maxDec(canceledAtCutoffDec, subDecimal(subDec, filledDec));
+        }
+        if (TERMINAL_STATE_SET.has(sub.state)) {
+          postCutoffSubTerminal = true;
+        }
+      }
+    } else {
+      filledDec = filledFromExecs;
+      if (!entry.sawFutureTransition && !cutoffIsFuture) {
+        if (subMeta?.qty_canceled !== undefined) {
+          canceledDec = parseDecimal(subMeta.qty_canceled);
+        } else if (sub && (sub.state === "CANCELED" || sub.state === "REJECTED")) {
+          canceledDec = subDecimal(subDec, filledDec);
+        }
       }
     }
 
@@ -398,11 +443,11 @@ export function reconcileOrdersAndFills({
     if (remainingDec.num < 0n) {
       throw new OrdersFillsError("order_quantities_exceed_submitted", 400);
     }
-    if (cutoff && !cutoffIsFuture && !hasFutureEvents && !eqDecimal(remainingDec, parseDecimal(cutoff.qty_remaining))) {
-      throw new OrdersFillsError("order_remaining_cutoff_mismatch", 409);
-    }
 
-    let state = (cutoff && !cutoffIsFuture ? cutoff.state : null) ?? (entry.sawFutureTransition ? (entry.sawOrderUnknown ? "ORDER_UNKNOWN" : "SUBMITTED") : sub?.state) ?? "SUBMITTED";
+    let state = (postCutoffSubTerminal ? sub.state : null)
+      ?? (cutoff && !cutoffIsFuture ? cutoff.state : null)
+      ?? (entry.sawFutureTransition ? (entry.sawOrderUnknown ? "ORDER_UNKNOWN" : "SUBMITTED") : sub?.state)
+      ?? "SUBMITTED";
     if (!ORDER_STATE_SET.has(state)) {
       throw new OrdersFillsError("invalid_order_state", 400);
     }
@@ -501,10 +546,10 @@ export function reconcileOrdersAndFills({
       kPendUsd = usdBasisQualified ? "0" : null;
     } else if (isTerminalZeroRemaining) {
       kPendUsd = usdBasisQualified ? "0" : null;
-    } else if (cutoff && !cutoffIsFuture && cutoff.k_pend_usd !== null) {
-      kPendUsd = cutoff.k_pend_usd;
     } else if (activeLock && activeLock.k_pend_usd !== null) {
       kPendUsd = activeLock.k_pend_usd;
+    } else if (cutoff && !cutoffIsFuture && cutoff.k_pend_usd !== null && filledAfterCutoff.num === 0n) {
+      kPendUsd = cutoff.k_pend_usd;
     } else if (entry.currency === "USD") {
       if (remainingDec.num === 0n) {
         kPendUsd = "0";
@@ -664,7 +709,14 @@ export function reconcileOrdersAndFills({
     }
   }
 
-  const cutoffDomainProvenComplete = Boolean(cutoffCoverage?.k_pend_release_allowed);
+  const cutoffCoverageAsOfNs = cutoffCoverage?.as_of ? parseInstantNs(cutoffCoverage.as_of) : null;
+  const cutoffCoverageIsFuture = Boolean(
+    evalNs !== null && cutoffCoverageAsOfNs !== null && cutoffCoverageAsOfNs > evalNs,
+  );
+  if (cutoffCoverageIsFuture) {
+    hasFutureEvents = true;
+  }
+  const cutoffDomainProvenComplete = Boolean(cutoffCoverage?.k_pend_release_allowed) && !cutoffCoverageIsFuture;
   const coverageAllowsRelease = cutoffDomainProvenComplete && orderUnknownLocks.length === 0 && !hasFutureEvents;
 
   if (!cutoffDomainProvenComplete && (priorKPendUsd === null || priorKPendUsd === undefined)) {

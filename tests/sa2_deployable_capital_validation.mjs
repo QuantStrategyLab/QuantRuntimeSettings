@@ -542,4 +542,72 @@ assert.equal(DEPLOYABLE_CAPITAL_SCHEMA, "qsl.deployable_capital_sizing.v1");
   assert.equal(PRIVATE_LOCATOR_RE.test(JSON.stringify(unsafeEvidence)), false);
 }
 
+// 11. Codex review regression (#3 PRRT_kwDOSZeN-M67n_nm: stale nonzero target q_pre absent from complete nav.positions)
+{
+  const provider = createPinnedCalendarProvider(pinnedCalendar);
+  const allCashNav = evaluateSizingUnitNav(
+    {
+      account_id: "ibkr:live:a1",
+      platform: "ibkr",
+      broker_environment: "live",
+      management_status: "managed",
+      evidence_state: "known",
+      currency: "USD",
+      nav_usd: "10000.00",
+      settled_cash_usd: "10000.00",
+      unsettled_cash_usd: "0",
+      tbill_nav_usd: "0",
+      etf_market_value_usd: "0",
+      accrued_fees_usd: "0",
+      margin_debt_usd: "0",
+      margin_enabled: false,
+      positions: [],
+      observed_at: "2025-01-08T21:00:00.000Z",
+      fetched_at: "2025-01-08T21:00:05.000Z",
+      evaluated_at: "2025-01-08T21:01:00.000Z",
+      origin: "synthetic",
+      source_class: "synthetic",
+      evidence_ref: "sa2:codex:all-cash-nav",
+    },
+    { calendarProvider: provider, require_live_cohort: true },
+  );
+  assert.equal(allCashNav.status, "available");
+
+  // Stale nonzero q_pre on symbol absent from nav.positions: [] must fail closed instead of selling unheld shares.
+  const oversellBlocked = evaluateDeployableCapitalSizing({
+    sizing_unit_nav: allCashNav,
+    r_cash_usd: "0",
+    proceeds_eligible_usd: "0",
+    k_pend_usd: "0",
+    fee_schedule: { provenance: "synthetic_fixture", c_min_usd: "1.00", c_per_share_usd: "0.01", c_reg: "0.25", b_exec_usd: "0" },
+    targets: [{ symbol: "ABC", q_pre: "10", price_ref: "50.00", price_lim: "50.50", w_target: "0" }],
+    evaluated_at: "2025-01-08T21:01:00.000Z",
+    origin: "synthetic",
+    source_class: "synthetic",
+    evidence_ref: "sa2:codex:oversell-blocked",
+  });
+  assert.ok(validateSchema(oversellBlocked), ajv.errorsText(validateSchema.errors));
+  assert.equal(oversellBlocked.status, "unavailable");
+  assert.equal(oversellBlocked.reason, "positions_target_q_pre_mismatch");
+  assert.equal(oversellBlocked.orders.length, 0);
+
+  // Target absent from nav.positions: [] with q_pre === "0" is genuinely zero-held and allowed to BUY cleanly.
+  const freshBuyAllowed = evaluateDeployableCapitalSizing({
+    sizing_unit_nav: allCashNav,
+    r_cash_usd: "0",
+    proceeds_eligible_usd: "0",
+    k_pend_usd: "0",
+    fee_schedule: { provenance: "synthetic_fixture", c_min_usd: "1.00", c_per_share_usd: "0.01", c_reg: "0.25", b_exec_usd: "0" },
+    targets: [{ symbol: "ABC", q_pre: "0", price_ref: "50.00", price_lim: "50.50", w_target: "0.05" }],
+    evaluated_at: "2025-01-08T21:01:00.000Z",
+    origin: "synthetic",
+    source_class: "synthetic",
+    evidence_ref: "sa2:codex:fresh-buy-ok",
+  });
+  assert.ok(validateSchema(freshBuyAllowed), ajv.errorsText(validateSchema.errors));
+  assert.equal(freshBuyAllowed.status, "available");
+  assert.equal(freshBuyAllowed.orders[0].action, "BUY");
+  assert.equal(freshBuyAllowed.orders[0].delta_q_buy, "10");
+}
+
 console.log("sa2_deployable_capital_validation: PASS (SA-A13)");

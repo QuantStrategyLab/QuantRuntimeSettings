@@ -99,9 +99,9 @@ export function evaluateAuthoritativeOrdersAndFills(input, options = {}) {
   }
 
   const lockStore = options.lockStore ?? null;
-  const submissions = normalizeOrderDomain("submissions", input.domains.submissions, identity);
-  const executions = normalizeOrderDomain("executions", input.domains.executions, identity);
-  const prelimCutoff = normalizeOrderDomain("cutoff_open_orders", input.domains.cutoff_open_orders, identity);
+  const submissions = normalizeOrderDomain("submissions", input.domains.submissions, identity, { evaluatedAt });
+  const executions = normalizeOrderDomain("executions", input.domains.executions, identity, { evaluatedAt });
+  const prelimCutoff = normalizeOrderDomain("cutoff_open_orders", input.domains.cutoff_open_orders, identity, { evaluatedAt });
 
   const priorOrdersFills = options.priorOrdersFills ?? input.prior_orders_fills ?? null;
   const priorKPendOrderIds = options.priorKPendOrderIds

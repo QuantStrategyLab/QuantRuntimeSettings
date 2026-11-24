@@ -1225,61 +1225,71 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
     });
   }
 
-  // Fold any held non-target positions into C_inv without double counting;
-  // reject unpriced or zero-valued held non-zero positions fail-closed.
+  // Reconcile targets & held positions against any complete positions lists (nav.positions / raw.positions),
+  // treating an absent symbol in a supplied positions list as zero holdings so stale q_pre cannot oversell.
   const targetBySymbol = new Map(preparedTargets.map((item) => [item.symbol, item]));
-  const nonTargetQtyBySymbol = new Map();
-  for (const extraPos of [raw.positions, nav?.positions].filter(Array.isArray).flat()) {
-    if (!extraPos || typeof extraPos !== "object" || Array.isArray(extraPos) || !validateSafeSymbol(extraPos.symbol)) {
-      return buildUnavailableResult({
-        reason: "invalid_position_entry",
-        accountId,
-        broker,
-        environment,
-        evaluatedAt,
-        feeScheduleView: feeParsed.view,
-        orderUnknownSymbols,
-        origin,
-        sourceClass,
-        evidenceRef,
-      });
-    }
-    const qtyInt = parseNonNegativeIntBigInt(extraPos.qty);
-    if (qtyInt === null) {
-      return buildUnavailableResult({
-        reason: "fractional_shares_prohibited",
-        accountId,
-        broker,
-        environment,
-        evaluatedAt,
-        feeScheduleView: feeParsed.view,
-        orderUnknownSymbols,
-        origin,
-        sourceClass,
-        evidenceRef,
-      });
-    }
-    const matchingTarget = targetBySymbol.get(extraPos.symbol);
-    if (matchingTarget) {
-      if (matchingTarget.qPreInt !== qtyInt) {
-        return buildUnavailableResult({
-          reason: "positions_target_q_pre_mismatch",
-          accountId,
-          broker,
-          environment,
-          evaluatedAt,
-          feeScheduleView: feeParsed.view,
-          orderUnknownSymbols,
-          origin,
-          sourceClass,
-          evidenceRef,
-        });
+  const hasRawPositions = Array.isArray(raw.positions);
+  const hasNavPositions = Array.isArray(nav?.positions);
+
+  const parsePositionsList = (list) => {
+    const map = new Map();
+    if (list === undefined || list === null) return { ok: true, map };
+    if (!Array.isArray(list)) return { ok: false, reason: "invalid_position_entry" };
+    for (const pos of list) {
+      if (!pos || typeof pos !== "object" || Array.isArray(pos) || !validateSafeSymbol(pos.symbol)) {
+        return { ok: false, reason: "invalid_position_entry" };
       }
-      continue;
+      const qtyInt = parseNonNegativeIntBigInt(pos.qty);
+      if (qtyInt === null) {
+        return { ok: false, reason: "fractional_shares_prohibited" };
+      }
+      const prev = map.get(pos.symbol);
+      if (prev && prev.qtyInt !== qtyInt) {
+        return { ok: false, reason: "positions_qty_mismatch" };
+      }
+      if (!prev) {
+        map.set(pos.symbol, { symbol: pos.symbol, qtyInt, pos });
+      }
     }
-    if (seenSymbols.has(extraPos.symbol)) {
-      const prevQty = nonTargetQtyBySymbol.get(extraPos.symbol);
-      if (prevQty !== undefined && prevQty !== qtyInt) {
+    return { ok: true, map };
+  };
+
+  const rawPosParsed = parsePositionsList(raw.positions);
+  if (!rawPosParsed.ok) {
+    return buildUnavailableResult({
+      reason: rawPosParsed.reason,
+      accountId,
+      broker,
+      environment,
+      evaluatedAt,
+      feeScheduleView: feeParsed.view,
+      orderUnknownSymbols,
+      origin,
+      sourceClass,
+      evidenceRef,
+    });
+  }
+  const navPosParsed = parsePositionsList(nav?.positions);
+  if (!navPosParsed.ok) {
+    return buildUnavailableResult({
+      reason: navPosParsed.reason,
+      accountId,
+      broker,
+      environment,
+      evaluatedAt,
+      feeScheduleView: feeParsed.view,
+      orderUnknownSymbols,
+      origin,
+      sourceClass,
+      evidenceRef,
+    });
+  }
+
+  if (hasRawPositions && hasNavPositions) {
+    for (const sym of new Set([...rawPosParsed.map.keys(), ...navPosParsed.map.keys()])) {
+      const rq = rawPosParsed.map.get(sym)?.qtyInt ?? 0n;
+      const nq = navPosParsed.map.get(sym)?.qtyInt ?? 0n;
+      if (rq !== nq) {
         return buildUnavailableResult({
           reason: "positions_qty_mismatch",
           accountId,
@@ -1293,8 +1303,51 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
           evidenceRef,
         });
       }
-      continue;
     }
+  }
+
+  for (const item of preparedTargets) {
+    if (hasNavPositions) {
+      const navQty = navPosParsed.map.get(item.symbol)?.qtyInt ?? 0n;
+      if (item.qPreInt !== navQty) {
+        return buildUnavailableResult({
+          reason: "positions_target_q_pre_mismatch",
+          accountId,
+          broker,
+          environment,
+          evaluatedAt,
+          feeScheduleView: feeParsed.view,
+          orderUnknownSymbols,
+          origin,
+          sourceClass,
+          evidenceRef,
+        });
+      }
+    }
+    if (hasRawPositions) {
+      const rawQty = rawPosParsed.map.get(item.symbol)?.qtyInt ?? 0n;
+      if (item.qPreInt !== rawQty) {
+        return buildUnavailableResult({
+          reason: "positions_target_q_pre_mismatch",
+          accountId,
+          broker,
+          environment,
+          evaluatedAt,
+          feeScheduleView: feeParsed.view,
+          orderUnknownSymbols,
+          origin,
+          sourceClass,
+          evidenceRef,
+        });
+      }
+    }
+  }
+
+  // Fold any held non-target positions into C_inv without double counting;
+  // reject unpriced or zero-valued held non-zero positions fail-closed.
+  const allNonTargetEntries = [...rawPosParsed.map.values(), ...navPosParsed.map.values()];
+  for (const { symbol, qtyInt, pos: extraPos } of allNonTargetEntries) {
+    if (targetBySymbol.has(symbol) || seenSymbols.has(symbol)) continue;
 
     let mvRat = null;
     if (extraPos.market_value_usd !== undefined && extraPos.market_value_usd !== null) {
@@ -1346,8 +1399,7 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
         evidenceRef,
       });
     }
-    seenSymbols.add(extraPos.symbol);
-    nonTargetQtyBySymbol.set(extraPos.symbol, qtyInt);
+    seenSymbols.add(symbol);
     cInvRat = ratAdd(cInvRat, mvRat);
   }
 
