@@ -96,7 +96,7 @@
           "asset": { "$ref": "#/$defs/strategySegment" },
           "family": { "$ref": "#/$defs/strategySegment" },
           "horizon": { "$ref": "#/$defs/strategySegment" },
-          "version": { "type": "string", "pattern": "^v[0-9]+(?:\\.[0-9]+)*$" },
+          "version": { "$ref": "#/$defs/strategyVersion" },
           "risk_tier": { "$ref": "#/$defs/consoleRiskTier" },
           "disposition": { "enum": ["active_pilot", "phase8_review", "archived"] },
           "label_zh": { "$ref": "#/$defs/humanLabel" },
@@ -291,7 +291,7 @@
       "not": {
         "anyOf": [
           { "pattern": "(?:^|[^A-Za-z0-9])[dD]?[uU][0-9]{5,}(?:$|[^A-Za-z0-9])" },
-          { "pattern": "[0-9](?:[-_ ]?[0-9]){5}" },
+          { "pattern": "[0-9](?:[-_ ]*[0-9]){5}" },
           { "pattern": "(?:://|^[A-Za-z][A-Za-z0-9+.-]*:/|(?:^|[\\s:(\\[\"'（])(?:[A-Za-z]:\\\\|~/|/(?:[Uu]sers|[Hh]ome|[Tt]mp|[Vv]ar|[Ee]tc|[Oo]pt|[Mm]nt)/)|\\.\\.[/\\\\]|[?#]|&(?:[Xx]-[Gg]oog-|[Ss]ignature|[Ee]xpires|[Aa][Ww][Ss][Aa]ccess[Kk]ey[Ii]d|token|sig|auth)=)" }
         ]
       }
@@ -324,7 +324,7 @@
       "not": {
         "anyOf": [
           { "pattern": "(?:^|[^a-z0-9])d?u[0-9]{5,}(?:$|[^a-z0-9])" },
-          { "pattern": "[0-9](?:[-_]?[0-9]){5}" }
+          { "pattern": "[0-9](?:[-_]*[0-9]){5}" }
         ]
       }
     },
@@ -334,33 +334,60 @@
       "not": {
         "anyOf": [
           { "pattern": ":(?:[^:]*[^a-z0-9])?d?u[0-9]{5,}(?:$|[^a-z0-9])" },
-          { "pattern": ":[^:]*[0-9](?:[-_]?[0-9]){5}" }
+          { "pattern": ":[^:]*[0-9](?:[-_]*[0-9]){5}" }
         ]
+      }
+    },
+    "strategyVersion": {
+      "type": "string",
+      "pattern": "^v[0-9]+(?:\\.[0-9]+)*$",
+      "not": {
+        "pattern": "[0-9](?:[-_.]*[0-9]){5}"
       }
     },
     "strategySegment": {
       "type": "string",
       "pattern": "^[a-z0-9]+$",
       "not": {
-        "pattern": "^(?:v[0-9]+|conservative|balanced|aggressive)$"
+        "anyOf": [
+          { "pattern": "^(?:v[0-9]+|conservative|balanced|aggressive)$" },
+          { "pattern": "(?:^|[^a-z0-9])d?u[0-9]{5,}(?:$|[^a-z0-9])" },
+          { "pattern": "[0-9]{6,}" }
+        ]
       }
     },
     "strategyProfileId": {
       "type": "string",
       "pattern": "^(us|hk|global|crypto)_[a-z0-9]+_[a-z0-9]+_[a-z0-9]+$",
       "not": {
-        "pattern": "(?:_v[0-9]+(?:_|$)|_(?:conservative|balanced|aggressive|capital_preservation|balanced_compounding|growth_compounding)(?:_|$))"
+        "anyOf": [
+          { "pattern": "(?:_v[0-9]+(?:_|$)|_(?:conservative|balanced|aggressive|capital_preservation|balanced_compounding|growth_compounding)(?:_|$))" },
+          { "pattern": "(?:^|[^a-z0-9])d?u[0-9]{5,}(?:$|[^a-z0-9])" },
+          { "pattern": "[0-9](?:[-_.]*[0-9]){5}" }
+        ]
       }
     },
     "pluginId": {
       "type": "string",
-      "pattern": "^(obs|risk)_[a-z0-9]+(?:_[a-z0-9]+)*$"
+      "pattern": "^(obs|risk)_[a-z0-9]+(?:_[a-z0-9]+)*$",
+      "not": {
+        "anyOf": [
+          { "pattern": "(?:^|[^a-z0-9])d?u[0-9]{5,}(?:$|[^a-z0-9])" },
+          { "pattern": "[0-9](?:[-_.]*[0-9]){5}" }
+        ]
+      }
     },
     "legacyIdentifier": {
       "type": "string",
       "minLength": 1,
       "maxLength": 128,
-      "pattern": "^[a-z0-9][a-z0-9_.-]{0,127}$"
+      "pattern": "^[a-z0-9][a-z0-9_.-]{0,127}$",
+      "not": {
+        "anyOf": [
+          { "pattern": "(?:^|[^a-z0-9])d?u[0-9]{5,}(?:$|[^a-z0-9])" },
+          { "pattern": "[0-9](?:[-_.]*[0-9]){5}" }
+        ]
+      }
     },
     "legacyAccountIdentifier": {
       "type": "string",
@@ -370,7 +397,7 @@
       "not": {
         "anyOf": [
           { "pattern": "(?:^|[^a-z0-9])d?u[0-9]{5,}(?:$|[^a-z0-9])" },
-          { "pattern": "[0-9](?:[-_.]?[0-9]){5}" }
+          { "pattern": "[0-9](?:[-_.]*[0-9]){5}" }
         ]
       }
     }

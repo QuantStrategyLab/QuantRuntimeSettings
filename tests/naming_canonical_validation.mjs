@@ -233,6 +233,10 @@ for (const badStrategy of [
   "us_tqqq_trend_conservative",
   "us_tqqq_trend_balanced",
   "us_tqqq_trend_daily_extra",
+  "us_u12345_trend_daily",
+  "us_du987654_trend_daily",
+  "us_123456_trend_daily",
+  "us_123_456_daily",
   "us_tqqq_trend",
   "cn_csi300_rot_daily",
   "US_TQQQ_TREND_DAILY",
@@ -245,22 +249,32 @@ for (const badStrategy of [
 }
 
 {
-  for (const badStrategyId of ["tqqq_growth_income_v7_aggressive", "us_soxl_trend_v2", "us_tqqq_trend_daily_extra"]) {
+  for (const [badStrategyId, asset, family, horizon, version] of [
+    ["tqqq_growth_income_v7_aggressive", "soxl", "trend", "daily", "v2"],
+    ["us_soxl_trend_v2", "soxl", "trend", "daily", "v2"],
+    ["us_tqqq_trend_daily_extra", "tqqq", "trend", "daily", "v2"],
+    ["us_u12345_trend_daily", "u12345", "trend", "daily", "v1"],
+    ["us_du987654_trend_daily", "du987654", "trend", "daily", "v1"],
+    ["us_123456_trend_daily", "123456", "trend", "daily", "v1"],
+    ["us_123_456_daily", "123", "456", "daily", "v1"],
+    ["us_tqqq_trend_daily", "tqqq", "trend", "daily", "v123456"],
+    ["us_tqqq_trend_daily", "tqqq", "trend", "daily", "v12.34.56"],
+  ]) {
     const badReg = cloneRegistry();
     badReg.strategies.push({
       strategy_id: badStrategyId,
       market: "us",
-      asset: "soxl",
-      family: "trend",
-      horizon: "daily",
-      version: "v2",
+      asset,
+      family,
+      horizon,
+      version,
       risk_tier: "BALANCED_COMPOUNDING",
       disposition: "archived",
       label_zh: "非法策略",
       label_en: "Invalid Strategy",
     });
-    assert.equal(validateSchema(badReg), false, `schema must reject ${badStrategyId}`);
-    assert.equal(validateNamingRegistry(badReg).ok, false, `validator must reject ${badStrategyId}`);
+    assert.equal(validateSchema(badReg), false, `schema must reject strategy ${badStrategyId}/${asset}/${version}`);
+    assert.equal(validateNamingRegistry(badReg).ok, false, `validator must reject strategy ${badStrategyId}/${asset}/${version}`);
   }
 }
 
@@ -273,9 +287,42 @@ for (const riskId of ["risk_macro_governor", "risk_regime_control"]) {
   assert.equal(isValidPluginId(riskId), true);
   assert.equal(pluginCapabilityClass(riskId), "risk_reduction");
 }
-for (const badPlugin of ["macro_risk_governor", "market_regime_control", "signal_v2", "obs_", "risk_", "OBS_test", ""]) {
+for (const badPlugin of [
+  "macro_risk_governor",
+  "market_regime_control",
+  "signal_v2",
+  "obs_u12345",
+  "risk_du987654",
+  "obs_123456",
+  "obs_12_34_56",
+  "risk_123_456",
+  "obs_",
+  "risk_",
+  "OBS_test",
+  "",
+]) {
   assert.equal(isValidPluginId(badPlugin), false, `expected rejected plugin ${String(badPlugin)}`);
   assert.equal(pluginCapabilityClass(badPlugin), null);
+}
+
+{
+  for (const rawPluginId of ["obs_u12345", "risk_du987654", "obs_123456", "obs_12_34_56", "risk_123_456"]) {
+    const isRisk = rawPluginId.startsWith("risk_");
+    const badReg = cloneRegistry();
+    badReg.plugins.push({
+      plugin_id: rawPluginId,
+      capability_class: isRisk ? "risk_reduction" : "observer",
+      read_only: !isRisk,
+      can_adjust_risk: isRisk,
+      max_scalar: isRisk ? 1.0 : null,
+      can_bypass_fuse: false,
+      status: "deferred",
+      label_zh: "非法插件",
+      label_en: "Invalid Plugin",
+    });
+    assert.equal(validateSchema(badReg), false, `schema must reject plugin ${rawPluginId}`);
+    assert.equal(validateNamingRegistry(badReg).ok, false, `validator must reject plugin ${rawPluginId}`);
+  }
 }
 
 {
@@ -468,6 +515,20 @@ assert.equal(unsafeAlias.reason, "unsafe_private_locator");
     assert.equal(validateSchema(splitLegacyReg), false, `schema must reject legacy split account: ${legacySplit}`);
     assert.equal(validateNamingRegistry(splitLegacyReg).ok, false, `validator must reject legacy split: ${legacySplit}`);
     assert.equal(resolveCanonicalAlias("accounts", legacySplit).reason, "raw_account_id_prohibited");
+  }
+
+  for (const [kind, canonicalTarget] of [
+    ["platforms", "ibkr"],
+    ["strategies", "us_tqqq_trend_daily"],
+    ["plugins", "risk_macro_governor"],
+  ]) {
+    for (const rawLegacyId of ["u12345", "du987654", "123456", "12-34-56", "12.34.56", "legacy_u12345", "broker-u12345"]) {
+      const badLegacyReg = cloneRegistry();
+      badLegacyReg.legacy_aliases[kind].push({ legacy_id: rawLegacyId, canonical_id: canonicalTarget });
+      assert.equal(validateSchema(badLegacyReg), false, `schema must reject raw legacy alias ${kind}:${rawLegacyId}`);
+      assert.equal(validateNamingRegistry(badLegacyReg).ok, false, `validator must reject raw legacy alias ${kind}:${rawLegacyId}`);
+      assert.equal(resolveCanonicalAlias(kind, rawLegacyId).reason, "raw_account_id_prohibited");
+    }
   }
 
   const workstationPathLabel = cloneRegistry();
