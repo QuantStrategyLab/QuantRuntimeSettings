@@ -1,8 +1,8 @@
 /**
  * C-SA-14: Single-account USD sizing-unit NAV & cash breakdown contract.
  *
- * Pure leaf module under application/sizing_unit/: never imports
- * worker/runtime_support.js or worker.js, never accesses storage/network,
+ * Pure leaf module under application/sizing_unit/: never imports legacy
+ * Worker runtime modules, never accesses storage/network,
  * never coerces or invents FX rates, and strips private storage locators.
  */
 

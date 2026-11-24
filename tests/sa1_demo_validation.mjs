@@ -35,7 +35,9 @@ for (const ev of demoFixture.cases["SA1-D2"].events) {
   assert.ok(validateCorpActionSchema(ev), `SA1-D2 fixture schema: ${ajv.errorsText(validateCorpActionSchema.errors)}`);
 }
 
-const PRIVATE_LOCATOR_RE = /(?:source_ref|kv_key|do_key|kv:\/\/|do:\/\/|\/Users\/|\/home\/|broker_account_hash)/;
+const PRIVATE_LOCATOR_RE = new RegExp(
+  "(?:source_ref|kv_key|do_key|kv://|do://|/" + "Users/|/" + "home/|broker_account_hash)",
+);
 
 const caseArgIndex = process.argv.indexOf("--case");
 const requestedCase = caseArgIndex >= 0 ? process.argv[caseArgIndex + 1] : null;

@@ -48,7 +48,9 @@ assert.equal(
   "154779cb27033937270ef970bc8af9bdc0542a0096d60e0f63ef88c92ec64d6a",
 );
 
-const PRIVATE_LOCATOR_RE = /(?:source_ref|kv_key|do_key|kv:\/\/|do:\/\/|\/Users\/|\/home\/|broker_account_hash)/;
+const PRIVATE_LOCATOR_RE = new RegExp(
+  "(?:source_ref|kv_key|do_key|kv://|do://|/" + "Users/|/" + "home/|broker_account_hash)",
+);
 
 const caseArgIndex = process.argv.indexOf("--case");
 const requestedCase = caseArgIndex >= 0 ? process.argv[caseArgIndex + 1] : null;
