@@ -246,6 +246,12 @@ function resolveNotionalUsd(qtyText, priceText, currency, raw) {
   return { notional_usd: null, usd_basis_qualified: false };
 }
 
+const SUBMISSION_META = new WeakMap();
+
+export function getSubmissionMeta(record) {
+  return (record && typeof record === "object" ? SUBMISSION_META.get(record) : null) ?? null;
+}
+
 export function normalizeSubmissionRecord(raw, identity) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new OrdersFillsError("invalid_submission_record", 400);
@@ -277,7 +283,7 @@ export function normalizeSubmissionRecord(raw, identity) {
     ? validateDecimalString(raw.estimated_fee_usd, "estimated_fee_usd", { nonNegative: true })
     : null;
 
-  return {
+  const record = {
     broker: identity.broker,
     environment: identity.environment,
     account: identity.account,
@@ -296,9 +302,14 @@ export function normalizeSubmissionRecord(raw, identity) {
     usd_basis_qualified: notional.usd_basis_qualified,
     submitted_at: submittedAt,
     evidence_ref: evidenceRef,
-    ...(qtyCanceled !== null ? { _qty_canceled: qtyCanceled } : {}),
-    ...(estimatedFeeUsd !== null ? { _estimated_fee_usd: estimatedFeeUsd } : {}),
   };
+  if (qtyCanceled !== null || estimatedFeeUsd !== null) {
+    SUBMISSION_META.set(record, {
+      ...(qtyCanceled !== null ? { qty_canceled: qtyCanceled } : {}),
+      ...(estimatedFeeUsd !== null ? { estimated_fee_usd: estimatedFeeUsd } : {}),
+    });
+  }
+  return record;
 }
 
 export function normalizeExecutionRecord(raw, identity) {
