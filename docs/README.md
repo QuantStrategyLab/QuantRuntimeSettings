@@ -22,6 +22,7 @@ The current package retains configuration and compatibility ownership. Broker cr
 | Document | Scope |
 | --- | --- |
 | [GCP resource naming convention](gcp-resource-naming-convention.md) · [中文](gcp-resource-naming-convention.zh-CN.md) | Names and labels for new GCP resources (buckets, Cloud Run, Scheduler, secrets, service accounts), the Google-managed name allowlist and the tiered policy for existing resources. Convention only; it authorizes no rename, migration or cloud change. |
+| [Canonical naming registry](canonical-naming-registry.md) · [中文](canonical-naming-registry.zh-CN.md) | Closed platform slugs (`schwab`, `firstrade`, `ibkr`, `longbridge`, `binance`), `{platform}:{env}:{slot}` account tuples, `{market}_{asset}_{family}_{horizon}` strategy IDs, `obs_*`/`risk_*` plugin prefixes, 1:1 risk-tier mapping, and non-breaking `legacy_aliases`. Convention and registry only; authorizes no rename, migration, or runtime change. |
 
 ## Console by task
 

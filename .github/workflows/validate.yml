@@ -239,6 +239,7 @@ jobs:
           node tests/schema_validators_validation.mjs
           node tests/sa1_demo_validation.mjs
           node tests/sa1_sizing_contracts_validation.mjs
+          node tests/naming_canonical_validation.mjs
           node tests/strategy_health_snapshot_extract_validation.mjs
           node tests/adaptive_selection_snapshot_extract_validation.mjs
           node tests/binance_private_scope_extract_validation.mjs
