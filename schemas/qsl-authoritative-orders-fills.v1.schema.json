@@ -1,0 +1,729 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.github.io/QuantRuntimeSettings/schemas/qsl-authoritative-orders-fills.v1.schema.json",
+  "title": "QSL Authoritative Orders, Fills, Cutoff Open Orders & ORDER-UNKNOWN v1 (C-SA-25)",
+  "description": "Broker-agnostic authoritative order submission, fill/execution, cutoff open-order, and restart-persistent ORDER-UNKNOWN symbol lock contract (C-SA-25). Strictly separates broker from paper/live environment, binds keys to (broker, environment, account), enforces 256/512/2048 caps and proven completeness for empty domains/K_pend release, preserves null fees and non-USD unavailability, and blocks raw brokerage account IDs and private locators.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "reason",
+    "broker",
+    "environment",
+    "account",
+    "account_binding",
+    "as_of",
+    "evaluated_at",
+    "domains",
+    "orders",
+    "executions",
+    "order_unknown_locks",
+    "order_unknown_symbols",
+    "summary",
+    "origin",
+    "source_class",
+    "evidence_ref"
+  ],
+  "properties": {
+    "schema_version": { "const": "qsl.authoritative_orders_fills.v1" },
+    "status": { "enum": ["ok", "blocked", "unavailable"] },
+    "reason": { "$ref": "#/$defs/nullableSafeString" },
+    "broker": { "$ref": "#/$defs/brokerSlug" },
+    "environment": { "$ref": "#/$defs/orderEnvironment" },
+    "account": { "$ref": "#/$defs/safeAccountRef" },
+    "account_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["broker", "environment", "account", "binding_key"],
+      "properties": {
+        "broker": { "$ref": "#/$defs/brokerSlug" },
+        "environment": { "$ref": "#/$defs/orderEnvironment" },
+        "account": { "$ref": "#/$defs/safeAccountRef" },
+        "binding_key": { "$ref": "#/$defs/safeBindingKey" }
+      }
+    },
+    "as_of": { "$ref": "#/$defs/nullableUtcTime" },
+    "evaluated_at": { "$ref": "#/$defs/utcTime" },
+    "domains": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["submissions", "executions", "cutoff_open_orders"],
+      "properties": {
+        "submissions": {
+          "allOf": [
+            { "$ref": "#/$defs/domainEnvelopeBase" },
+            {
+              "properties": {
+                "domain": { "const": "submissions" },
+                "records": {
+                  "type": "array",
+                  "maxItems": 2048,
+                  "items": { "$ref": "#/$defs/submissionRecord" }
+                }
+              }
+            }
+          ]
+        },
+        "executions": {
+          "allOf": [
+            { "$ref": "#/$defs/domainEnvelopeBase" },
+            {
+              "properties": {
+                "domain": { "const": "executions" },
+                "records": {
+                  "type": "array",
+                  "maxItems": 2048,
+                  "items": { "$ref": "#/$defs/executionRecord" }
+                }
+              }
+            }
+          ]
+        },
+        "cutoff_open_orders": {
+          "allOf": [
+            { "$ref": "#/$defs/domainEnvelopeBase" },
+            {
+              "properties": {
+                "domain": { "const": "cutoff_open_orders" },
+                "records": {
+                  "type": "array",
+                  "maxItems": 2048,
+                  "items": { "$ref": "#/$defs/cutoffOpenOrderRecord" }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "orders": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": { "$ref": "#/$defs/reconciledOrder" }
+    },
+    "executions": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": { "$ref": "#/$defs/executionRecord" }
+    },
+    "order_unknown_locks": {
+      "type": "array",
+      "maxItems": 512,
+      "items": { "$ref": "#/$defs/orderUnknownLock" }
+    },
+    "order_unknown_symbols": {
+      "type": "array",
+      "maxItems": 512,
+      "items": { "$ref": "#/$defs/symbol" }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "k_pend_usd",
+        "k_pend_release_allowed",
+        "empty_open_orders_proven",
+        "order_unknown_active",
+        "currencies_present",
+        "currency_coercion",
+        "fx_inferred"
+      ],
+      "properties": {
+        "k_pend_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "k_pend_release_allowed": { "type": "boolean" },
+        "empty_open_orders_proven": { "type": "boolean" },
+        "order_unknown_active": { "type": "boolean" },
+        "currencies_present": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/currency" }
+        },
+        "currency_coercion": { "const": "prohibited" },
+        "fx_inferred": { "const": false }
+      }
+    },
+    "origin": { "enum": ["synthetic", "production"] },
+    "source_class": { "$ref": "#/$defs/sourceClass" },
+    "evidence_ref": { "$ref": "#/$defs/evidenceRef" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "summary": {
+            "properties": { "order_unknown_active": { "const": true } },
+            "required": ["order_unknown_active"]
+          }
+        },
+        "required": ["summary"]
+      },
+      "then": {
+        "properties": {
+          "summary": {
+            "properties": { "k_pend_release_allowed": { "const": false } }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "summary": {
+            "properties": { "k_pend_release_allowed": { "const": true } },
+            "required": ["k_pend_release_allowed"]
+          }
+        },
+        "required": ["summary"]
+      },
+      "then": {
+        "properties": {
+          "order_unknown_locks": { "maxItems": 0 },
+          "order_unknown_symbols": { "maxItems": 0 },
+          "domains": {
+            "properties": {
+              "cutoff_open_orders": {
+                "properties": {
+                  "domain_capability": { "const": "supported" },
+                  "k_pend_release_allowed": { "const": true },
+                  "truncated": { "const": false },
+                  "completeness": { "const": "complete" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "brokerSlug": {
+      "type": "string",
+      "enum": ["schwab", "firstrade", "ibkr", "longbridge", "binance"]
+    },
+    "orderEnvironment": {
+      "type": "string",
+      "enum": ["live", "paper"]
+    },
+    "orderState": {
+      "type": "string",
+      "enum": [
+        "SUBMITTED",
+        "ACCEPTED",
+        "PARTIAL_FILL",
+        "FILLED",
+        "PARTIAL_CANCEL",
+        "CANCELED",
+        "REJECTED",
+        "ORDER_UNKNOWN"
+      ]
+    },
+    "orderSide": {
+      "type": "string",
+      "enum": ["BUY", "SELL"]
+    },
+    "domainName": {
+      "type": "string",
+      "enum": ["submissions", "executions", "cutoff_open_orders"]
+    },
+    "domainCapability": {
+      "type": "string",
+      "enum": ["supported", "unsupported"]
+    },
+    "completenessStatus": {
+      "type": "string",
+      "enum": ["complete", "incomplete", "unknown", "unsupported"]
+    },
+    "sourceClass": {
+      "type": "string",
+      "enum": [
+        "synthetic",
+        "historical_reconstruction",
+        "decision_time_market",
+        "operator_declared",
+        "authorized_operational",
+        "paper_broker",
+        "authorized_live_broker"
+      ]
+    },
+    "currency": {
+      "type": "string",
+      "pattern": "^[A-Z]{3,10}$",
+      "not": {
+        "anyOf": [
+          { "pattern": "(?:^|[^A-Za-z0-9])[dD]?[uU][0-9]{5,}(?:$|[^A-Za-z0-9])" },
+          { "pattern": "[0-9](?:[-_. ]*[0-9]){5}" }
+        ]
+      }
+    },
+    "nullableCurrency": {
+      "anyOf": [{ "$ref": "#/$defs/currency" }, { "type": "null" }]
+    },
+    "symbol": {
+      "type": "string",
+      "pattern": "^[A-Z0-9][A-Z0-9./_-]{0,63}$",
+      "not": {
+        "anyOf": [
+          { "pattern": "(?:^|[^A-Za-z0-9])[dD]?[uU][0-9]{5,}(?:$|[^A-Za-z0-9])" },
+          { "pattern": "[0-9](?:[-_. ]*[0-9]){5}" }
+        ]
+      }
+    },
+    "utcTime": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "nullableUtcTime": {
+      "anyOf": [{ "$ref": "#/$defs/utcTime" }, { "type": "null" }]
+    },
+    "decimal": {
+      "type": "string",
+      "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"
+    },
+    "nullableDecimal": {
+      "anyOf": [{ "$ref": "#/$defs/decimal" }, { "type": "null" }]
+    },
+    "nonNegativeDecimal": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"
+    },
+    "nullableNonNegativeDecimal": {
+      "anyOf": [{ "$ref": "#/$defs/nonNegativeDecimal" }, { "type": "null" }]
+    },
+    "positiveDecimal": {
+      "type": "string",
+      "pattern": "^(?:0\\.[0-9]*[1-9][0-9]*|[1-9][0-9]*(?:\\.[0-9]+)?)$"
+    },
+    "nullablePositiveDecimal": {
+      "anyOf": [{ "$ref": "#/$defs/positiveDecimal" }, { "type": "null" }]
+    },
+    "safeString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "\\S",
+      "not": {
+        "anyOf": [
+          { "pattern": "(?:^|[^A-Za-z0-9])[dD]?[uU][0-9]{5,}(?:$|[^A-Za-z0-9])" },
+          { "pattern": "[0-9](?:[-_. ]*[0-9]){5}" },
+          { "pattern": "(?:://|^[A-Za-z][A-Za-z0-9+.-]*:/|(?:^|[\\s:(\\[\"'（])(?:[A-Za-z]:\\\\|~/|/(?:[Uu]sers|[Hh]ome|[Tt]mp|[Vv]ar|[Ee]tc|[Oo]pt|[Mm]nt)/)|\\.\\.[/\\\\]|[?#]|&(?:[Xx]-[Gg]oog-|[Ss]ignature|[Ee]xpires|[Aa][Ww][Ss][Aa]ccess[Kk]ey[Ii]d|token|sig|auth)=)" }
+        ]
+      }
+    },
+    "nullableSafeString": {
+      "anyOf": [{ "$ref": "#/$defs/safeString" }, { "type": "null" }]
+    },
+    "safeId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+      "not": {
+        "anyOf": [
+          { "pattern": "(?:^|[^A-Za-z0-9])[dD]?[uU][0-9]{5,}(?:$|[^A-Za-z0-9])" },
+          { "pattern": "[0-9](?:[-_. ]*[0-9]){5}" },
+          { "pattern": "(?:://|^[A-Za-z][A-Za-z0-9+.-]*:/)" }
+        ]
+      }
+    },
+    "nullableSafeId": {
+      "anyOf": [{ "$ref": "#/$defs/safeId" }, { "type": "null" }]
+    },
+    "safeAccountRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "anyOf": [
+        { "pattern": "^(schwab|firstrade|ibkr|longbridge|binance):(live|paper):[a-z0-9][a-z0-9_-]{0,31}$" },
+        { "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$" }
+      ],
+      "not": {
+        "anyOf": [
+          { "pattern": "(?:^|[^A-Za-z0-9])[dD]?[uU][0-9]{5,}(?:$|[^A-Za-z0-9])" },
+          { "pattern": "[0-9](?:[-_. ]*[0-9]){5}" },
+          { "pattern": "(?:://|^[A-Za-z][A-Za-z0-9+.-]*:/)" }
+        ]
+      }
+    },
+    "safeBindingKey": {
+      "type": "string",
+      "pattern": "^(schwab|firstrade|ibkr|longbridge|binance)\\|(live|paper)\\|[a-z0-9][a-z0-9:_-]{0,63}$",
+      "not": {
+        "anyOf": [
+          { "pattern": "(?:^|[^A-Za-z0-9])[dD]?[uU][0-9]{5,}(?:$|[^A-Za-z0-9])" },
+          { "pattern": "[0-9](?:[-_. ]*[0-9]){5}" }
+        ]
+      }
+    },
+    "executionRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "anyOf": [
+        { "pattern": "^[a-f0-9]{64}$" },
+        { "$ref": "#/$defs/safeId" }
+      ]
+    },
+    "nullableExecutionRef": {
+      "anyOf": [{ "$ref": "#/$defs/executionRef" }, { "type": "null" }]
+    },
+    "evidenceRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "anyOf": [
+        { "pattern": "^sha256:[a-f0-9]{64}$" },
+        { "$ref": "#/$defs/safeId" }
+      ]
+    },
+    "queryTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["by", "broker", "environment", "account", "client_order_id", "broker_order_id"],
+      "properties": {
+        "by": { "enum": ["broker_order_id", "client_order_tuple"] },
+        "broker": { "$ref": "#/$defs/brokerSlug" },
+        "environment": { "$ref": "#/$defs/orderEnvironment" },
+        "account": { "$ref": "#/$defs/safeAccountRef" },
+        "client_order_id": { "$ref": "#/$defs/safeId" },
+        "broker_order_id": { "$ref": "#/$defs/nullableSafeId" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "by": { "const": "broker_order_id" } }, "required": ["by"] },
+          "then": { "properties": { "broker_order_id": { "$ref": "#/$defs/safeId" } } }
+        },
+        {
+          "if": { "properties": { "by": { "const": "client_order_tuple" } }, "required": ["by"] },
+          "then": { "properties": { "broker_order_id": { "type": "null" } } }
+        }
+      ]
+    },
+    "domainEnvelopeBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domain",
+        "domain_capability",
+        "as_of",
+        "source",
+        "scope",
+        "native_currency",
+        "currencies_present",
+        "cap",
+        "count",
+        "truncated",
+        "completeness",
+        "empty_domain_proven",
+        "k_pend_release_allowed",
+        "records"
+      ],
+      "properties": {
+        "domain": { "$ref": "#/$defs/domainName" },
+        "domain_capability": { "$ref": "#/$defs/domainCapability" },
+        "as_of": { "$ref": "#/$defs/nullableUtcTime" },
+        "source": { "$ref": "#/$defs/safeString" },
+        "scope": { "$ref": "#/$defs/safeString" },
+        "native_currency": { "$ref": "#/$defs/nullableCurrency" },
+        "currencies_present": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/currency" }
+        },
+        "cap": {
+          "anyOf": [
+            { "enum": [256, 512, 2048] },
+            { "type": "null" }
+          ]
+        },
+        "count": { "type": ["integer", "null"], "minimum": 0 },
+        "truncated": { "type": ["boolean", "null"] },
+        "completeness": { "$ref": "#/$defs/completenessStatus" },
+        "empty_domain_proven": { "type": "boolean" },
+        "k_pend_release_allowed": { "type": "boolean" },
+        "records": { "type": "array" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "domain_capability": { "const": "unsupported" } }, "required": ["domain_capability"] },
+          "then": {
+            "properties": {
+              "cap": { "type": "null" },
+              "count": { "type": "null" },
+              "truncated": { "type": "null" },
+              "completeness": { "enum": ["unsupported", "unknown"] },
+              "empty_domain_proven": { "const": false },
+              "k_pend_release_allowed": { "const": false },
+              "records": { "maxItems": 0 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "domain_capability": { "const": "supported" } }, "required": ["domain_capability"] },
+          "then": {
+            "properties": {
+              "as_of": { "$ref": "#/$defs/utcTime" },
+              "cap": { "enum": [256, 512, 2048] },
+              "count": { "type": "integer", "minimum": 0 },
+              "truncated": { "type": "boolean" },
+              "completeness": { "enum": ["complete", "incomplete", "unknown"] }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "empty_domain_proven": { "const": true } }, "required": ["empty_domain_proven"] },
+          "then": {
+            "properties": {
+              "domain_capability": { "const": "supported" },
+              "truncated": { "const": false },
+              "completeness": { "const": "complete" },
+              "count": { "const": 0 },
+              "records": { "maxItems": 0 }
+            }
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              { "properties": { "truncated": { "const": true } }, "required": ["truncated"] },
+              { "properties": { "completeness": { "enum": ["incomplete", "unknown", "unsupported"] } }, "required": ["completeness"] }
+            ]
+          },
+          "then": {
+            "properties": {
+              "empty_domain_proven": { "const": false },
+              "k_pend_release_allowed": { "const": false }
+            }
+          }
+        }
+      ]
+    },
+    "submissionRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "broker",
+        "environment",
+        "account",
+        "client_order_id",
+        "broker_order_id",
+        "symbol",
+        "side",
+        "state",
+        "qty_submitted",
+        "limit_price",
+        "currency",
+        "notional_usd",
+        "fee_native",
+        "fee_currency",
+        "fee_usd",
+        "usd_basis_qualified",
+        "submitted_at",
+        "evidence_ref"
+      ],
+      "properties": {
+        "broker": { "$ref": "#/$defs/brokerSlug" },
+        "environment": { "$ref": "#/$defs/orderEnvironment" },
+        "account": { "$ref": "#/$defs/safeAccountRef" },
+        "client_order_id": { "$ref": "#/$defs/safeId" },
+        "broker_order_id": { "$ref": "#/$defs/nullableSafeId" },
+        "symbol": { "$ref": "#/$defs/symbol" },
+        "side": { "$ref": "#/$defs/orderSide" },
+        "state": { "$ref": "#/$defs/orderState" },
+        "qty_submitted": { "$ref": "#/$defs/positiveDecimal" },
+        "limit_price": { "$ref": "#/$defs/nullablePositiveDecimal" },
+        "currency": { "$ref": "#/$defs/currency" },
+        "notional_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "fee_native": { "$ref": "#/$defs/nullableDecimal" },
+        "fee_currency": { "$ref": "#/$defs/nullableCurrency" },
+        "fee_usd": { "$ref": "#/$defs/nullableDecimal" },
+        "usd_basis_qualified": { "type": "boolean" },
+        "submitted_at": { "$ref": "#/$defs/utcTime" },
+        "evidence_ref": { "$ref": "#/$defs/evidenceRef" }
+      }
+    },
+    "executionRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "broker",
+        "environment",
+        "account",
+        "execution_ref",
+        "report_ref",
+        "client_order_id",
+        "broker_order_id",
+        "symbol",
+        "side",
+        "qty",
+        "price",
+        "currency",
+        "notional_usd",
+        "fee_native",
+        "fee_currency",
+        "fee_usd",
+        "usd_basis_qualified",
+        "executed_at",
+        "evidence_ref"
+      ],
+      "properties": {
+        "broker": { "$ref": "#/$defs/brokerSlug" },
+        "environment": { "$ref": "#/$defs/orderEnvironment" },
+        "account": { "$ref": "#/$defs/safeAccountRef" },
+        "execution_ref": { "$ref": "#/$defs/executionRef" },
+        "report_ref": { "$ref": "#/$defs/nullableExecutionRef" },
+        "client_order_id": { "$ref": "#/$defs/nullableSafeId" },
+        "broker_order_id": { "$ref": "#/$defs/nullableSafeId" },
+        "symbol": { "$ref": "#/$defs/symbol" },
+        "side": { "$ref": "#/$defs/orderSide" },
+        "qty": { "$ref": "#/$defs/positiveDecimal" },
+        "price": { "$ref": "#/$defs/nonNegativeDecimal" },
+        "currency": { "$ref": "#/$defs/currency" },
+        "notional_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "fee_native": { "$ref": "#/$defs/nullableDecimal" },
+        "fee_currency": { "$ref": "#/$defs/nullableCurrency" },
+        "fee_usd": { "$ref": "#/$defs/nullableDecimal" },
+        "usd_basis_qualified": { "type": "boolean" },
+        "executed_at": { "$ref": "#/$defs/nullableUtcTime" },
+        "evidence_ref": { "$ref": "#/$defs/evidenceRef" }
+      }
+    },
+    "cutoffOpenOrderRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "broker",
+        "environment",
+        "account",
+        "client_order_id",
+        "broker_order_id",
+        "symbol",
+        "side",
+        "state",
+        "qty_submitted",
+        "qty_filled",
+        "qty_canceled",
+        "qty_remaining",
+        "limit_price",
+        "currency",
+        "k_pend_usd",
+        "reserved_fee_usd",
+        "usd_basis_qualified",
+        "as_of",
+        "evidence_ref"
+      ],
+      "properties": {
+        "broker": { "$ref": "#/$defs/brokerSlug" },
+        "environment": { "$ref": "#/$defs/orderEnvironment" },
+        "account": { "$ref": "#/$defs/safeAccountRef" },
+        "client_order_id": { "$ref": "#/$defs/safeId" },
+        "broker_order_id": { "$ref": "#/$defs/nullableSafeId" },
+        "symbol": { "$ref": "#/$defs/symbol" },
+        "side": { "$ref": "#/$defs/orderSide" },
+        "state": { "$ref": "#/$defs/orderState" },
+        "qty_submitted": { "$ref": "#/$defs/positiveDecimal" },
+        "qty_filled": { "$ref": "#/$defs/nonNegativeDecimal" },
+        "qty_canceled": { "$ref": "#/$defs/nonNegativeDecimal" },
+        "qty_remaining": { "$ref": "#/$defs/nonNegativeDecimal" },
+        "limit_price": { "$ref": "#/$defs/nullablePositiveDecimal" },
+        "currency": { "$ref": "#/$defs/currency" },
+        "k_pend_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "reserved_fee_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "usd_basis_qualified": { "type": "boolean" },
+        "as_of": { "$ref": "#/$defs/utcTime" },
+        "evidence_ref": { "$ref": "#/$defs/evidenceRef" }
+      }
+    },
+    "reconciledOrder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "broker",
+        "environment",
+        "account",
+        "client_order_id",
+        "broker_order_id",
+        "symbol",
+        "side",
+        "state",
+        "currency",
+        "qty_submitted",
+        "qty_filled",
+        "qty_canceled",
+        "qty_remaining",
+        "limit_price",
+        "avg_fill_price",
+        "fee_native",
+        "fee_currency",
+        "fee_usd",
+        "notional_usd",
+        "k_pend_usd",
+        "usd_basis_qualified",
+        "query_target",
+        "updated_at",
+        "evidence_ref"
+      ],
+      "properties": {
+        "broker": { "$ref": "#/$defs/brokerSlug" },
+        "environment": { "$ref": "#/$defs/orderEnvironment" },
+        "account": { "$ref": "#/$defs/safeAccountRef" },
+        "client_order_id": { "$ref": "#/$defs/safeId" },
+        "broker_order_id": { "$ref": "#/$defs/nullableSafeId" },
+        "symbol": { "$ref": "#/$defs/symbol" },
+        "side": { "$ref": "#/$defs/orderSide" },
+        "state": { "$ref": "#/$defs/orderState" },
+        "currency": { "$ref": "#/$defs/currency" },
+        "qty_submitted": { "$ref": "#/$defs/positiveDecimal" },
+        "qty_filled": { "$ref": "#/$defs/nonNegativeDecimal" },
+        "qty_canceled": { "$ref": "#/$defs/nonNegativeDecimal" },
+        "qty_remaining": { "$ref": "#/$defs/nonNegativeDecimal" },
+        "limit_price": { "$ref": "#/$defs/nullablePositiveDecimal" },
+        "avg_fill_price": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "fee_native": { "$ref": "#/$defs/nullableDecimal" },
+        "fee_currency": { "$ref": "#/$defs/nullableCurrency" },
+        "fee_usd": { "$ref": "#/$defs/nullableDecimal" },
+        "notional_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "k_pend_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "usd_basis_qualified": { "type": "boolean" },
+        "query_target": {
+          "anyOf": [{ "$ref": "#/$defs/queryTarget" }, { "type": "null" }]
+        },
+        "updated_at": { "$ref": "#/$defs/utcTime" },
+        "evidence_ref": { "$ref": "#/$defs/evidenceRef" }
+      }
+    },
+    "orderUnknownLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "broker",
+        "environment",
+        "account",
+        "symbol",
+        "client_order_id",
+        "broker_order_id",
+        "query_target",
+        "k_pend_usd",
+        "locked_at",
+        "status",
+        "allow_new_orders",
+        "query_before_retry_required",
+        "clear_condition"
+      ],
+      "properties": {
+        "broker": { "$ref": "#/$defs/brokerSlug" },
+        "environment": { "$ref": "#/$defs/orderEnvironment" },
+        "account": { "$ref": "#/$defs/safeAccountRef" },
+        "symbol": { "$ref": "#/$defs/symbol" },
+        "client_order_id": { "$ref": "#/$defs/safeId" },
+        "broker_order_id": { "$ref": "#/$defs/nullableSafeId" },
+        "query_target": { "$ref": "#/$defs/queryTarget" },
+        "k_pend_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "locked_at": { "$ref": "#/$defs/utcTime" },
+        "status": { "const": "locked" },
+        "allow_new_orders": { "const": false },
+        "query_before_retry_required": { "const": true },
+        "clear_condition": { "const": "definitive_terminal_broker_evidence" }
+      }
+    }
+  }
+}

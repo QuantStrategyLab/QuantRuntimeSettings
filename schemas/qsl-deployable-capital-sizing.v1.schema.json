@@ -1,0 +1,437 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.github.io/QuantRuntimeSettings/schemas/qsl-deployable-capital-sizing.v1.schema.json",
+  "title": "QSL Deployable Capital & Whole-Share Order Sizing v1 (C-SA-Q21)",
+  "description": "Exact-decimal deployable capital (C_inv, C_avail, R_cash, K_pend), whole-share ideal targets, fee-and-collar-constrained buyable share rounding, unblocked reductions, ORDER-UNKNOWN symbol buy blocks, B_min,tier workable bankroll checks, and rho_order diagnostics (C-SA-Q21).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "reason",
+    "account_id",
+    "broker",
+    "environment",
+    "currency",
+    "currency_coercion",
+    "fx_inferred",
+    "margin_enabled",
+    "h_usd",
+    "kelly_applied",
+    "live_trading_enabled",
+    "stop_loss_return_enabled",
+    "fractional_shares",
+    "evaluated_at",
+    "capital",
+    "fee_schedule",
+    "order_unknown_symbols",
+    "orders",
+    "b_min_tier",
+    "origin",
+    "source_class",
+    "evidence_ref"
+  ],
+  "properties": {
+    "schema_version": { "const": "qsl.deployable_capital_sizing.v1" },
+    "status": { "enum": ["available", "unavailable"] },
+    "reason": { "$ref": "#/$defs/nullableSafeString" },
+    "account_id": {
+      "anyOf": [{ "$ref": "#/$defs/safeAccountRef" }, { "type": "null" }]
+    },
+    "broker": {
+      "anyOf": [{ "$ref": "#/$defs/brokerSlug" }, { "type": "null" }]
+    },
+    "environment": { "enum": ["live", "paper", null] },
+    "currency": { "const": "USD" },
+    "currency_coercion": { "const": "prohibited" },
+    "fx_inferred": { "const": false },
+    "margin_enabled": { "const": false },
+    "h_usd": { "const": "0" },
+    "kelly_applied": { "const": false },
+    "live_trading_enabled": { "const": false },
+    "stop_loss_return_enabled": { "const": false },
+    "fractional_shares": { "const": "prohibited" },
+    "evaluated_at": { "$ref": "#/$defs/utcTime" },
+    "capital": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "equity_usd",
+        "c_inv_usd",
+        "cash_settled_usd",
+        "proceeds_eligible_usd",
+        "r_cash_usd",
+        "k_pend_usd",
+        "k_pend_release_allowed",
+        "raw_deployable_cash_usd",
+        "c_avail_usd",
+        "total_buy_commit_usd",
+        "remaining_deployable_cash_usd"
+      ],
+      "properties": {
+        "equity_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "c_inv_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "cash_settled_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "proceeds_eligible_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "r_cash_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "k_pend_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "k_pend_release_allowed": { "type": "boolean" },
+        "raw_deployable_cash_usd": { "$ref": "#/$defs/nullableDecimal" },
+        "c_avail_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "total_buy_commit_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "remaining_deployable_cash_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" }
+      }
+    },
+    "fee_schedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "provenance",
+        "c_min_usd",
+        "c_per_share_usd",
+        "c_reg",
+        "b_exec_usd",
+        "oi_cost_3_resolved",
+        "oi_cost_4_resolved"
+      ],
+      "properties": {
+        "status": { "enum": ["available", "unavailable"] },
+        "provenance": {
+          "enum": ["synthetic_fixture", "research_prereg_amended", "venue_observed", null]
+        },
+        "c_min_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "c_per_share_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "c_reg": {
+          "anyOf": [
+            { "$ref": "#/$defs/nonNegativeDecimal" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["fixed_usd", "per_share_usd", "notional_rate"],
+              "properties": {
+                "fixed_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
+                "per_share_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
+                "notional_rate": { "$ref": "#/$defs/nonNegativeDecimal" }
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "b_exec_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "oi_cost_3_resolved": { "type": "boolean" },
+        "oi_cost_4_resolved": { "type": "boolean" }
+      }
+    },
+    "order_unknown_symbols": {
+      "type": "array",
+      "maxItems": 512,
+      "items": { "$ref": "#/$defs/symbol" }
+    },
+    "orders": {
+      "type": "array",
+      "maxItems": 128,
+      "items": { "$ref": "#/$defs/orderSizingItem" }
+    },
+    "b_min_tier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "workable",
+        "bankroll_w_usd",
+        "c_fixed_ann_usd",
+        "expected_excess_growth_ann_usd",
+        "threshold_ratio",
+        "friction_ratio",
+        "reason"
+      ],
+      "properties": {
+        "status": { "enum": ["available", "unavailable"] },
+        "workable": { "type": ["boolean", "null"] },
+        "bankroll_w_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "c_fixed_ann_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "expected_excess_growth_ann_usd": { "$ref": "#/$defs/nullableDecimal" },
+        "threshold_ratio": { "const": "0.1" },
+        "friction_ratio": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+        "reason": { "$ref": "#/$defs/nullableSafeString" }
+      }
+    },
+    "origin": { "enum": ["synthetic", "production"] },
+    "source_class": { "$ref": "#/$defs/sourceClass" },
+    "evidence_ref": { "$ref": "#/$defs/evidenceRef" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "available" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "capital": {
+            "properties": {
+              "equity_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
+              "c_inv_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
+              "cash_settled_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
+              "proceeds_eligible_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
+              "r_cash_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
+              "k_pend_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+              "raw_deployable_cash_usd": { "$ref": "#/$defs/nullableDecimal" },
+              "c_avail_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
+              "total_buy_commit_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
+              "remaining_deployable_cash_usd": { "$ref": "#/$defs/nonNegativeDecimal" }
+            }
+          },
+          "fee_schedule": {
+            "properties": {
+              "status": { "const": "available" },
+              "provenance": { "enum": ["synthetic_fixture", "research_prereg_amended", "venue_observed"] },
+              "oi_cost_3_resolved": { "const": true }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": { "const": "available" },
+          "capital": {
+            "properties": { "k_pend_usd": { "type": "string" } },
+            "required": ["k_pend_usd"]
+          }
+        },
+        "required": ["status", "capital"]
+      },
+      "then": {
+        "properties": {
+          "capital": {
+            "properties": {
+              "raw_deployable_cash_usd": { "$ref": "#/$defs/decimal" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": { "const": "available" },
+          "capital": {
+            "properties": { "k_pend_usd": { "type": "null" } },
+            "required": ["k_pend_usd"]
+          }
+        },
+        "required": ["status", "capital"]
+      },
+      "then": {
+        "properties": {
+          "capital": {
+            "properties": {
+              "k_pend_release_allowed": { "const": false },
+              "raw_deployable_cash_usd": { "type": "null" },
+              "c_avail_usd": { "const": "0" },
+              "total_buy_commit_usd": { "const": "0" },
+              "remaining_deployable_cash_usd": { "const": "0" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "unavailable" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "capital": {
+            "properties": {
+              "c_avail_usd": { "type": "null" }
+            }
+          },
+          "orders": { "maxItems": 0 }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "brokerSlug": {
+      "type": "string",
+      "enum": ["schwab", "firstrade", "ibkr", "longbridge", "binance"]
+    },
+    "sourceClass": {
+      "type": "string",
+      "enum": [
+        "synthetic",
+        "historical_reconstruction",
+        "decision_time_market",
+        "operator_declared",
+        "authorized_operational",
+        "paper_broker",
+        "authorized_live_broker"
+      ]
+    },
+    "symbol": {
+      "type": "string",
+      "pattern": "^[A-Z0-9][A-Z0-9./_-]{0,63}$",
+      "not": {
+        "anyOf": [
+          { "pattern": "(?:^|[^A-Za-z0-9])[dD]?[uU][0-9]{5,}(?:$|[^A-Za-z0-9])" },
+          { "pattern": "[0-9](?:[-_. ]*[0-9]){5}" }
+        ]
+      }
+    },
+    "utcTime": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "decimal": {
+      "type": "string",
+      "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"
+    },
+    "nullableDecimal": {
+      "anyOf": [{ "$ref": "#/$defs/decimal" }, { "type": "null" }]
+    },
+    "nonNegativeDecimal": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"
+    },
+    "nullableNonNegativeDecimal": {
+      "anyOf": [{ "$ref": "#/$defs/nonNegativeDecimal" }, { "type": "null" }]
+    },
+    "positiveDecimal": {
+      "type": "string",
+      "pattern": "^(?:0\\.[0-9]*[1-9][0-9]*|[1-9][0-9]*(?:\\.[0-9]+)?)$"
+    },
+    "nullablePositiveDecimal": {
+      "anyOf": [{ "$ref": "#/$defs/positiveDecimal" }, { "type": "null" }]
+    },
+    "nonNegativeIntegerDecimal": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)$"
+    },
+    "integerDecimal": {
+      "type": "string",
+      "pattern": "^-?(?:0|[1-9][0-9]*)$"
+    },
+    "safeString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "\\S",
+      "not": {
+        "anyOf": [
+          { "pattern": "(?:^|[^A-Za-z0-9])[dD]?[uU][0-9]{5,}(?:$|[^A-Za-z0-9])" },
+          { "pattern": "[0-9](?:[-_. ]*[0-9]){5}" },
+          { "pattern": "(?:://|^[A-Za-z][A-Za-z0-9+.-]*:/|(?:^|[\\s:(\\[\"'（])(?:[A-Za-z]:\\\\|~/|/(?:[Uu]sers|[Hh]ome|[Tt]mp|[Vv]ar|[Ee]tc|[Oo]pt|[Mm]nt)/)|\\.\\.[/\\\\]|[?#]|&(?:[Xx]-[Gg]oog-|[Ss]ignature|[Ee]xpires|[Aa][Ww][Ss][Aa]ccess[Kk]ey[Ii]d|token|sig|auth)=)" }
+        ]
+      }
+    },
+    "nullableSafeString": {
+      "anyOf": [{ "$ref": "#/$defs/safeString" }, { "type": "null" }]
+    },
+    "safeAccountRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "anyOf": [
+        { "pattern": "^(schwab|firstrade|ibkr|longbridge|binance):(live|paper):[a-z0-9][a-z0-9_-]{0,31}$" },
+        { "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$" }
+      ],
+      "not": {
+        "anyOf": [
+          { "pattern": "(?:^|[^A-Za-z0-9])[dD]?[uU][0-9]{5,}(?:$|[^A-Za-z0-9])" },
+          { "pattern": "[0-9](?:[-_. ]*[0-9]){5}" },
+          { "pattern": "(?:://|^[A-Za-z][A-Za-z0-9+.-]*:/)" }
+        ]
+      }
+    },
+    "evidenceRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "anyOf": [
+        { "pattern": "^sha256:[a-f0-9]{64}$" },
+        {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+          "not": {
+            "anyOf": [
+              { "pattern": "(?:^|[^A-Za-z0-9])[dD]?[uU][0-9]{5,}(?:$|[^A-Za-z0-9])" },
+              { "pattern": "[0-9](?:[-_. ]*[0-9]){5}" },
+              { "pattern": "(?:://|^[A-Za-z][A-Za-z0-9+.-]*:/)" }
+            ]
+          }
+        }
+      ]
+    },
+    "orderSizingItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "symbol",
+        "price_ref",
+        "price_lim",
+        "w_target",
+        "w_cur",
+        "q_pre",
+        "q_ideal",
+        "delta_q_raw",
+        "delta_q_final",
+        "delta_q_buy",
+        "delta_q_sell",
+        "q_target",
+        "action",
+        "band_suppressed",
+        "emergency_bypass_applied",
+        "buy_blocked_reason",
+        "est_notional_ref_usd",
+        "est_worst_case_notional_usd",
+        "est_commission_usd",
+        "est_b_exec_usd",
+        "est_total_buy_commit_usd",
+        "rho_order"
+      ],
+      "properties": {
+        "symbol": { "$ref": "#/$defs/symbol" },
+        "price_ref": { "$ref": "#/$defs/positiveDecimal" },
+        "price_lim": { "$ref": "#/$defs/nullablePositiveDecimal" },
+        "w_target": { "$ref": "#/$defs/nonNegativeDecimal" },
+        "w_cur": { "$ref": "#/$defs/nonNegativeDecimal" },
+        "q_pre": { "$ref": "#/$defs/nonNegativeIntegerDecimal" },
+        "q_ideal": { "$ref": "#/$defs/nonNegativeIntegerDecimal" },
+        "delta_q_raw": { "$ref": "#/$defs/integerDecimal" },
+        "delta_q_final": { "$ref": "#/$defs/integerDecimal" },
+        "delta_q_buy": { "$ref": "#/$defs/nonNegativeIntegerDecimal" },
+        "delta_q_sell": { "$ref": "#/$defs/nonNegativeIntegerDecimal" },
+        "q_target": { "$ref": "#/$defs/nonNegativeIntegerDecimal" },
+        "action": { "enum": ["BUY", "SELL", "HOLD", "BLOCKED_BUY"] },
+        "band_suppressed": { "type": "boolean" },
+        "emergency_bypass_applied": { "type": "boolean" },
+        "buy_blocked_reason": { "$ref": "#/$defs/nullableSafeString" },
+        "est_notional_ref_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
+        "est_worst_case_notional_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
+        "est_commission_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
+        "est_b_exec_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
+        "est_total_buy_commit_usd": { "$ref": "#/$defs/nonNegativeDecimal" },
+        "rho_order": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "threshold",
+            "status",
+            "numerator_usd",
+            "denominator_usd",
+            "rounding_friction_usd"
+          ],
+          "properties": {
+            "value": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+            "threshold": { "type": "null" },
+            "status": { "enum": ["diagnostic_only_threshold_unset", "not_applicable_zero_order"] },
+            "numerator_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+            "denominator_usd": { "$ref": "#/$defs/nullableNonNegativeDecimal" },
+            "rounding_friction_usd": { "$ref": "#/$defs/nonNegativeDecimal" }
+          }
+        }
+      }
+    }
+  }
+}
