@@ -269,7 +269,10 @@ export function normalizeSubmissionRecord(raw, identity) {
   const qtySubmitted = validateDecimalString(raw.qty_submitted, "qty_submitted", { positive: true });
   const limitPrice = validateDecimalString(raw.limit_price ?? null, "limit_price", { allowNull: true, positive: true });
   const currency = validateCurrency(raw.currency);
-  const submittedAt = parseStrictUtcString(raw.submitted_at, "submitted_at");
+  const submittedAt = parseStrictUtcString(
+    raw.submitted_at ?? raw.resolved_at ?? raw.updated_at,
+    "submitted_at",
+  );
   const evidenceRef = assertSafeIdentifier(raw.evidence_ref, "evidence_ref", { allowSha256: true });
 
   const fee = resolveFeeFields(raw);
