@@ -1,5 +1,9 @@
 import { rangeStart } from "../../performance_math.js";
 import { mergeExecutionRecord } from "../account_facts/executions.js";
+import {
+  adaptLegacyBrokerExecutionPayload,
+  evaluateAuthoritativeOrdersAndFills,
+} from "../orders_fills/helpers.js";
 
 const REQUIRED_FIELDS = ["execution_ref", "trade_date", "symbol", "asset_category", "side", "quantity", "price", "currency"];
 const OPTIONAL_FIELDS = ["local_time", "time_zone", "commission", "commission_currency", "taxes"];
@@ -221,4 +225,19 @@ export async function executionStatsResponse(options, { scope, range, today, gro
         sell_execution_count: group.filter(row => row.side === "SELL").length };
     }), win_rate_percent: null, realized_pnl: null,
   }, status === "unavailable" ? 503 : 200);
+}
+
+/**
+ * Pure read-only C-SA-25 authoritative orders/fills projection helper.
+ * Never touches KV or SQLite writes (ADR 0002 compliant).
+ */
+export function buildConsoleOrdersFillsReadModel(input = {}, _deps = {}) {
+  const payload = input?.legacyPayload
+    ? adaptLegacyBrokerExecutionPayload(input.legacyPayload, input.context || {})
+    : input;
+  return evaluateAuthoritativeOrdersAndFills(payload, {
+    lockStore: input?.lockStore ?? null,
+    priorKPendUsd: input?.priorKPendUsd ?? input?.prior_k_pend_usd ?? null,
+    evaluated_at: input?.evaluated_at,
+  });
 }

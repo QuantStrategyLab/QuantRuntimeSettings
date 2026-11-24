@@ -538,9 +538,37 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
 
   const unknownSet = new Set();
   for (const list of [raw.order_unknown_symbols, ordersFills?.order_unknown_symbols]) {
+    if (list !== undefined && list !== null && !Array.isArray(list)) {
+      return buildUnavailableResult({
+        reason: "invalid_order_unknown_symbols",
+        accountId,
+        broker,
+        environment,
+        evaluatedAt,
+        feeScheduleView: feeParsed.view,
+        orderUnknownSymbols: [],
+        origin,
+        sourceClass,
+        evidenceRef,
+      });
+    }
     if (Array.isArray(list)) {
       for (const sym of list) {
-        if (validateSafeSymbol(sym)) unknownSet.add(sym);
+        if (!validateSafeSymbol(sym)) {
+          return buildUnavailableResult({
+            reason: "invalid_order_unknown_symbol",
+            accountId,
+            broker,
+            environment,
+            evaluatedAt,
+            feeScheduleView: feeParsed.view,
+            orderUnknownSymbols: [],
+            origin,
+            sourceClass,
+            evidenceRef,
+          });
+        }
+        unknownSet.add(sym);
       }
     }
   }
