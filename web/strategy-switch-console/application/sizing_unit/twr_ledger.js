@@ -10,10 +10,11 @@
 import {
   countWeekdayTouchedSessions,
   countXnysTouchedSessions,
+  parseInstantNs,
+  toUtcIsoFromNs,
 } from "./freshness.js";
 import {
   parseDecimal,
-  parseInstantMs,
   ratAdd,
   ratCmp,
   ratDiv,
@@ -76,18 +77,37 @@ function parseSignedFlowAmount(flow) {
  * Chronological epoch-millisecond ordering preserving ISO-8601 fractional seconds
  * and numeric timezone offsets (".500Z" after "Z", "-05:00" resolved to UTC).
  */
+const MS_TO_NS = 1_000_000n;
+
+function cmpNs(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function nsToFloorMsNumber(ns) {
+  let q = ns / MS_TO_NS;
+  if (ns < 0n && ns % MS_TO_NS !== 0n) q -= 1n;
+  return Number(q);
+}
+
 export function orderObservationsChronologically(items) {
   if (!Array.isArray(items)) return [];
   return items
     .map((item, idx) => {
-      const ms = parseInstantMs(item?.observed_at ?? item?.effective_at ?? item?.timestamp);
-      return { item, idx, ms: ms === null ? Number.POSITIVE_INFINITY : ms };
+      const ns = parseInstantNs(item?.observed_at ?? item?.effective_at ?? item?.timestamp);
+      return { item, idx, ns };
     })
-    .sort((a, b) => (a.ms !== b.ms ? a.ms - b.ms : a.idx - b.idx))
+    .sort((a, b) => {
+      if (a.ns !== b.ns) {
+        if (a.ns === null) return 1;
+        if (b.ns === null) return -1;
+        return cmpNs(a.ns, b.ns);
+      }
+      return a.idx - b.idx;
+    })
     .map((x) => x.item);
 }
 
-function validateAndNormalizeFlows(flows, flowWindowMeta, startMs, endMs) {
+function validateAndNormalizeFlows(flows, flowWindowMeta, startNs, endNs) {
   if (flowWindowMeta && typeof flowWindowMeta === "object") {
     if (flowWindowMeta.coverage === "incomplete") {
       return { ok: false, status: "partial", reason: "incomplete_flow_coverage" };
@@ -116,11 +136,11 @@ function validateAndNormalizeFlows(flows, flowWindowMeta, startMs, endMs) {
     if (flow.time_precision === "date") {
       return { ok: false, status: "partial", reason: "date_only_flow_disqualified" };
     }
-    const effectiveMs = parseInstantMs(flow.effective_at);
-    if (effectiveMs === null) {
+    const effectiveNs = parseInstantNs(flow.effective_at);
+    if (effectiveNs === null) {
       return { ok: false, status: "partial", reason: "missing_exact_flow_timestamp" };
     }
-    if (effectiveMs < startMs || effectiveMs > endMs) {
+    if (effectiveNs < startNs || effectiveNs > endNs) {
       return { ok: false, status: "partial", reason: "flow_outside_period_window" };
     }
     const amountRat = parseSignedFlowAmount(flow);
@@ -130,30 +150,30 @@ function validateAndNormalizeFlows(flows, flowWindowMeta, startMs, endMs) {
     normalized.push({
       raw: flow,
       type: flow.type ?? (amountRat.n >= 0n ? "deposit" : "withdrawal"),
-      effective_ms: effectiveMs,
-      effective_at: new Date(effectiveMs).toISOString(),
+      effective_ns: effectiveNs,
+      effective_at: toUtcIsoFromNs(effectiveNs),
       amount_rat: amountRat,
     });
   }
-  normalized.sort((a, b) => a.effective_ms - b.effective_ms);
+  normalized.sort((a, b) => cmpNs(a.effective_ns, b.effective_ns));
   return { ok: true, flows: normalized };
 }
 
-function validateSessionContinuitySpan(startMs, endMs, intradaySubvaluations, calendarProvider) {
-  if (startMs === null || endMs === null) {
+function validateSessionContinuitySpan(startNs, endNs, intradaySubvaluations, calendarProvider) {
+  if (startNs === null || endNs === null) {
     return { ok: false, status: "unavailable", reason: "invalid_period_boundaries" };
   }
-  const subMs = Array.isArray(intradaySubvaluations)
+  const subNs = Array.isArray(intradaySubvaluations)
     ? intradaySubvaluations
-      .map((sv) => parseInstantMs(sv?.effective_at))
-      .filter((ms) => ms !== null && ms > startMs && ms < endMs)
-      .sort((a, b) => a - b)
+      .map((sv) => parseInstantNs(sv?.effective_at))
+      .filter((ns) => ns !== null && ns > startNs && ns < endNs)
+      .sort(cmpNs)
     : [];
-  const pointsMs = [startMs, ...subMs, endMs];
-  const MAX_UNVERIFIED_CALENDAR_SPAN_MS = 3 * 86_400_000;
-  for (let idx = 1; idx < pointsMs.length; idx++) {
-    const segStart = pointsMs[idx - 1];
-    const segEnd = pointsMs[idx];
+  const pointsNs = [startNs, ...subNs, endNs];
+  const MAX_UNVERIFIED_CALENDAR_SPAN_NS = 3n * 86_400_000n * MS_TO_NS;
+  for (let idx = 1; idx < pointsNs.length; idx++) {
+    const segStart = pointsNs[idx - 1];
+    const segEnd = pointsNs[idx];
     if (calendarProvider) {
       const span = countXnysTouchedSessions(segStart, segEnd, calendarProvider);
       if (!span.covered || span.touched_sessions > 1) {
@@ -164,9 +184,9 @@ function validateSessionContinuitySpan(startMs, endMs, intradaySubvaluations, ca
         };
       }
     } else {
-      const weekdayCount = countWeekdayTouchedSessions(segStart, segEnd);
+      const weekdayCount = countWeekdayTouchedSessions(nsToFloorMsNumber(segStart), nsToFloorMsNumber(segEnd));
       if (
-        segEnd - segStart > MAX_UNVERIFIED_CALENDAR_SPAN_MS
+        segEnd - segStart > MAX_UNVERIFIED_CALENDAR_SPAN_NS
         || weekdayCount === null
         || weekdayCount > 1
       ) {
@@ -195,9 +215,9 @@ export function evaluatePeriod7aReturn(input = {}, options = {}) {
   if (input.gap_before === true) {
     return failPeriod("partial", "internal_valuation_gap");
   }
-  const startMs = parseInstantMs(input.period_start_utc);
-  const endMs = parseInstantMs(input.period_end_utc);
-  if (startMs === null || endMs === null || endMs <= startMs) {
+  const startNs = parseInstantNs(input.period_start_utc);
+  const endNs = parseInstantNs(input.period_end_utc);
+  if (startNs === null || endNs === null || endNs <= startNs) {
     return failPeriod("unavailable", "invalid_period_boundaries");
   }
   const openingRat = ratFromText(String(input.opening_equity_usd));
@@ -207,7 +227,7 @@ export function evaluatePeriod7aReturn(input = {}, options = {}) {
     return failPeriod("unavailable", "invalid_equity_or_reserve");
   }
 
-  const flowCheck = validateAndNormalizeFlows(input.flows, input.flow_window_meta, startMs, endMs);
+  const flowCheck = validateAndNormalizeFlows(input.flows, input.flow_window_meta, startNs, endNs);
   if (!flowCheck.ok) {
     return failPeriod(flowCheck.status, flowCheck.reason);
   }
@@ -224,22 +244,22 @@ export function evaluatePeriod7aReturn(input = {}, options = {}) {
   const rawChangeRat = ratSub(endingRat, openingRat);
   const adjPnlRat = ratSub(rawChangeRat, netFlowRat);
 
-  // Partition flows at start, strictly interior (startMs, endMs), and end boundary.
-  const subValsByMs = new Map();
+  // Partition flows at start, strictly interior (startNs, endNs), and end boundary.
+  const subValsByNs = new Map();
   if (Array.isArray(input.intraday_subvaluations)) {
     for (const sv of input.intraday_subvaluations) {
       if (sv?.missing === true || sv?.pre_flow_equity_usd == null) {
         return failPeriod("unavailable", "missing_intraday_subvaluation");
       }
-      const svMs = parseInstantMs(sv.effective_at);
+      const svNs = parseInstantNs(sv.effective_at);
       const svRat = ratFromText(String(sv.pre_flow_equity_usd));
-      if (svMs === null || !svRat || svMs <= startMs || svMs > endMs) {
+      if (svNs === null || !svRat || svNs <= startNs || svNs > endNs) {
         return failPeriod("unavailable", "invalid_intraday_subvaluation");
       }
-      if (subValsByMs.has(svMs)) {
+      if (subValsByNs.has(svNs)) {
         return failPeriod("partial", "ambiguous_same_timestamp_subvaluations");
       }
-      subValsByMs.set(svMs, [svRat]);
+      subValsByNs.set(svNs, [svRat]);
     }
   }
 
@@ -247,32 +267,32 @@ export function evaluatePeriod7aReturn(input = {}, options = {}) {
   let startBoundaryFlow = ZERO;
   let endBoundaryFlow = ZERO;
   for (const f of flows) {
-    if (f.effective_ms === startMs) {
+    if (f.effective_ns === startNs) {
       startBoundaryFlow = ratAdd(startBoundaryFlow, f.amount_rat);
-    } else if (f.effective_ms === endMs) {
+    } else if (f.effective_ns === endNs) {
       endBoundaryFlow = ratAdd(endBoundaryFlow, f.amount_rat);
     } else {
       groupedInterior.set(
-        f.effective_ms,
-        ratAdd(groupedInterior.get(f.effective_ms) || ZERO, f.amount_rat),
+        f.effective_ns,
+        ratAdd(groupedInterior.get(f.effective_ns) || ZERO, f.amount_rat),
       );
     }
   }
 
   const flowInteriorTimes = [...groupedInterior.keys()];
-  const allInteriorHaveSubvals = flowInteriorTimes.every((ms) => (subValsByMs.get(ms)?.length ?? 0) > 0);
+  const allInteriorHaveSubvals = flowInteriorTimes.every((ns) => (subValsByNs.get(ns)?.length ?? 0) > 0);
   const calendarProvider = options?.calendarProvider ?? input?.calendarProvider ?? null;
   const spanCheck = validateSessionContinuitySpan(
-    startMs,
-    endMs,
+    startNs,
+    endNs,
     input.intraday_subvaluations,
     calendarProvider,
   );
   if (!spanCheck.ok) {
     return failPeriod(spanCheck.status, spanCheck.reason);
   }
-  const interiorSubvalTimes = [...subValsByMs.keys()].filter((ms) => ms < endMs);
-  const interiorTimes = [...new Set([...flowInteriorTimes, ...interiorSubvalTimes])].sort((a, b) => a - b);
+  const interiorSubvalTimes = [...subValsByNs.keys()].filter((ns) => ns < endNs);
+  const interiorTimes = [...new Set([...flowInteriorTimes, ...interiorSubvalTimes])].sort(cmpNs);
   const ePreEndRat = ratSub(endingRat, endBoundaryFlow);
 
   if (allInteriorHaveSubvals) {
@@ -284,10 +304,10 @@ export function evaluatePeriod7aReturn(input = {}, options = {}) {
     let prevPostEq = ratAdd(openingRat, startBoundaryFlow);
     if (startBoundaryFlow.n !== 0n) observedSubvals.push(prevPostEq);
 
-    for (const ms of interiorTimes) {
-      const preList = subValsByMs.get(ms);
+    for (const ns of interiorTimes) {
+      const preList = subValsByNs.get(ns);
       const preEq = preList[preList.length - 1];
-      const flowAtT = groupedInterior.get(ms) || ZERO;
+      const flowAtT = groupedInterior.get(ns) || ZERO;
       if (prevPostEq.n <= 0n || ratAdd(prevPostEq, hRat).n <= 0n) {
         return failPeriod("unavailable", "nonpositive_subperiod_base");
       }
@@ -345,10 +365,10 @@ export function evaluatePeriod7aReturn(input = {}, options = {}) {
 
   // Exact-time complete flows exist strictly inside the window without pre-flow
   // sub-valuations: fall back strictly to Modified Dietz with explicit flags.
-  const durationBig = BigInt(endMs - startMs);
+  const durationBig = endNs - startNs;
   let weightedFlow = ZERO;
   for (const f of flows) {
-    const w = { n: BigInt(endMs - f.effective_ms), d: durationBig };
+    const w = { n: endNs - f.effective_ns, d: durationBig };
     weightedFlow = ratAdd(weightedFlow, ratMul(w, f.amount_rat));
   }
   const dietzBase = ratAdd(openingRat, weightedFlow);
@@ -399,7 +419,7 @@ function buildSessionsFromValuations(valuations, allFlows) {
     if (val?.gap_before === true) {
       return { ok: false, status: "partial", reason: "internal_valuation_gap" };
     }
-    if (parseInstantMs(val.observed_at) === null) {
+    if (parseInstantNs(val.observed_at) === null) {
       return { ok: false, status: "unavailable", reason: "invalid_valuation_timestamp" };
     }
   }
@@ -407,12 +427,12 @@ function buildSessionsFromValuations(valuations, allFlows) {
   for (let i = 1; i < ordered.length; i++) {
     const prev = ordered[i - 1];
     const curr = ordered[i];
-    const prevMs = parseInstantMs(prev.observed_at);
-    const currMs = parseInstantMs(curr.observed_at);
+    const prevNs = parseInstantNs(prev.observed_at);
+    const currNs = parseInstantNs(curr.observed_at);
     const sessionFlows = Array.isArray(allFlows)
       ? allFlows.filter((f) => {
-        const fMs = parseInstantMs(f.effective_at);
-        return fMs === null || (fMs > prevMs && fMs <= currMs);
+        const fNs = parseInstantNs(f.effective_at);
+        return fNs === null || (fNs > prevNs && fNs <= currNs);
       })
       : undefined;
     sessions.push({
@@ -499,12 +519,12 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
   let totalRawChangeRat = ZERO;
   let totalAdjPnlRat = ZERO;
   let anyApproximate = false;
-  let prevPeriodEndMs = null;
+  let prevPeriodEndNs = null;
 
   for (const session of effectiveSessions) {
-    const sStartMs = parseInstantMs(session?.period_start_utc);
-    const sEndMs = parseInstantMs(session?.period_end_utc);
-    if (prevPeriodEndMs !== null && (sStartMs === null || sStartMs !== prevPeriodEndMs)) {
+    const sStartNs = parseInstantNs(session?.period_start_utc);
+    const sEndNs = parseInstantNs(session?.period_end_utc);
+    if (prevPeriodEndNs !== null && (sStartNs === null || sStartNs !== prevPeriodEndNs)) {
       return {
         labels: DESK_7A_LABELS,
         status: "partial",
@@ -665,7 +685,7 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
       method_version: null,
     });
     ePrev = eEnd;
-    prevPeriodEndMs = sEndMs;
+    prevPeriodEndNs = sEndNs;
   }
 
   const eligible = !anyApproximate;

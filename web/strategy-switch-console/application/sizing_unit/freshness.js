@@ -31,7 +31,7 @@ const NY_TIME_FORMAT = new Intl.DateTimeFormat("en-GB", {
   minute: "2-digit",
 });
 
-function parseInstantNs(value) {
+export function parseInstantNs(value) {
   if (typeof value === "number") {
     if (!Number.isFinite(value)) return null;
     const wholeMs = Math.trunc(value);
@@ -73,7 +73,7 @@ function parseInstantNs(value) {
   return BigInt(wholeMs) * 1_000_000n + fracNs;
 }
 
-function toUtcIsoFromNs(ns) {
+export function toUtcIsoFromNs(ns) {
   if (typeof ns !== "bigint") return null;
   const ms = ns / 1_000_000n;
   const subMsNs = ((ns % 1_000_000n) + 1_000_000n) % 1_000_000n;

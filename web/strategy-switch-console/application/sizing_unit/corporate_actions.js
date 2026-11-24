@@ -522,7 +522,8 @@ export function applyCorporateAction(ledgerState, event) {
       if (payLeg.applicable && cilLeg.applicable) {
         return failAction("delisting_terminal_valuation_mismatch");
       }
-      if (settledToCash || termVal.n === 0n) {
+      const positionRetired = settledToCash || termVal.n === 0n;
+      if (positionRetired) {
         const legCash = payLeg.applicable ? payLeg.rat : (cilLeg.applicable ? cilLeg.rat : null);
         if (legCash !== null && ratCmp(legCash, termVal) !== 0) {
           return failAction("delisting_terminal_valuation_mismatch");
@@ -536,7 +537,8 @@ export function applyCorporateAction(ledgerState, event) {
         return failAction("delisting_terminal_valuation_mismatch");
       }
       nextLedger.positions[event.instrument_id].unresolved_pending_evidence = false;
-      nextLedger.positions[event.instrument_id].delisted_settled = true;
+      nextLedger.positions[event.instrument_id].delisted_settled = positionRetired;
+      nextLedger.positions[event.instrument_id].delisted_terminal_marked = !positionRetired;
       nextLedger.v3.triggered = true;
       nextLedger.v3.unresolved_instruments = nextLedger.v3.unresolved_instruments.filter(
         (id) => id !== event.instrument_id,

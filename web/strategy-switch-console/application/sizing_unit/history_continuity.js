@@ -9,12 +9,35 @@
  * - Always fails closed to insufficient_history (return_pct: null) on any gap.
  */
 
-import { parseInstantMs, safePublicText } from "./nav.js";
+import { parseInstantNs, safePublicText, toUtcIsoFromNs } from "./nav.js";
 
 export const CONTINUITY_SCHEMA = "qsl.sizing_unit_continuity.v1";
 export const RETENTION_LIMIT_DAYS = 366;
 export const DESK_LIMIT_MONTHS = 6;
-const DAY_MS = 86_400_000;
+const MS_TO_NS = 1_000_000n;
+const DAY_NS = 86_400_000n * MS_TO_NS;
+
+function cmpNs(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function minNs(...vals) {
+  return vals.reduce((a, b) => (a <= b ? a : b));
+}
+
+function maxNs(...vals) {
+  return vals.reduce((a, b) => (a >= b ? a : b));
+}
+
+function subtractUtcMonthsNs(ns, months) {
+  let wholeMs = ns / MS_TO_NS;
+  let subNs = ns - wholeMs * MS_TO_NS;
+  if (subNs < 0n) {
+    wholeMs -= 1n;
+    subNs += MS_TO_NS;
+  }
+  return BigInt(subtractUtcMonths(Number(wholeMs), months)) * MS_TO_NS + subNs;
+}
 
 function subtractUtcMonths(ms, months) {
   const dt = new Date(ms);
@@ -39,32 +62,32 @@ function subtractUtcMonths(ms, months) {
 
 function mergeHalfOpenIntervals(intervals) {
   if (!intervals.length) return [];
-  const sorted = [...intervals].sort((a, b) => (a.startMs !== b.startMs ? a.startMs - b.startMs : a.endMs - b.endMs));
-  const merged = [{ startMs: sorted[0].startMs, endMs: sorted[0].endMs }];
+  const sorted = [...intervals].sort((a, b) => (a.startNs !== b.startNs ? cmpNs(a.startNs, b.startNs) : cmpNs(a.endNs, b.endNs)));
+  const merged = [{ startNs: sorted[0].startNs, endNs: sorted[0].endNs }];
   for (let i = 1; i < sorted.length; i++) {
     const cur = sorted[i];
     const last = merged[merged.length - 1];
-    if (cur.startMs <= last.endMs) {
-      last.endMs = Math.max(last.endMs, cur.endMs);
+    if (cur.startNs <= last.endNs) {
+      last.endNs = maxNs(last.endNs, cur.endNs);
     } else {
-      merged.push({ startMs: cur.startMs, endMs: cur.endMs });
+      merged.push({ startNs: cur.startNs, endNs: cur.endNs });
     }
   }
   return merged;
 }
 
-function findUncoveredRanges(targetStartMs, targetEndMs, coveredIntervals, rejectedForKind, evidenceKind) {
+function findUncoveredRanges(targetStartNs, targetEndNs, coveredIntervals, rejectedForKind, evidenceKind) {
   const merged = mergeHalfOpenIntervals(coveredIntervals);
   const gaps = [];
-  let cursor = targetStartMs;
+  let cursor = targetStartNs;
 
   const pushGap = (s, e) => {
     if (e <= s) return;
-    const overlappingRej = rejectedForKind.find((r) => r.startMs < e && r.endMs > s && r.reason !== "currency_mismatch")
-      || rejectedForKind.find((r) => r.startMs < e && r.endMs > s);
+    const overlappingRej = rejectedForKind.find((r) => r.startNs < e && r.endNs > s && r.reason !== "currency_mismatch")
+      || rejectedForKind.find((r) => r.startNs < e && r.endNs > s);
     gaps.push({
-      start_utc: new Date(s).toISOString(),
-      end_utc: new Date(e).toISOString(),
+      start_utc: toUtcIsoFromNs(s),
+      end_utc: toUtcIsoFromNs(e),
       evidence_kind: evidenceKind,
       reason: overlappingRej ? overlappingRej.reason : "uncovered_interval",
       binding_id: null,
@@ -72,15 +95,15 @@ function findUncoveredRanges(targetStartMs, targetEndMs, coveredIntervals, rejec
   };
 
   for (const iv of merged) {
-    if (iv.endMs <= cursor) continue;
-    if (iv.startMs >= targetEndMs) break;
-    if (iv.startMs > cursor) {
-      pushGap(cursor, Math.min(iv.startMs, targetEndMs));
+    if (iv.endNs <= cursor) continue;
+    if (iv.startNs >= targetEndNs) break;
+    if (iv.startNs > cursor) {
+      pushGap(cursor, minNs(iv.startNs, targetEndNs));
     }
-    cursor = Math.max(cursor, Math.min(iv.endMs, targetEndMs));
+    cursor = maxNs(cursor, minNs(iv.endNs, targetEndNs));
   }
-  if (cursor < targetEndMs) {
-    pushGap(cursor, targetEndMs);
+  if (cursor < targetEndNs) {
+    pushGap(cursor, targetEndNs);
   }
   return gaps;
 }
@@ -91,8 +114,8 @@ function classifySeriesIntervals({
   accountId,
   brokerEnv,
   allowedBindings,
-  reqStartMs,
-  reqEndMs,
+  reqStartNs,
+  reqEndNs,
   defaultSourceClass,
   targetCurrency,
   hasExplicitInputCurrency,
@@ -106,9 +129,9 @@ function classifySeriesIntervals({
     || intervalsList.some((raw) => raw && Object.hasOwn(raw, "currency"));
 
   for (const raw of intervalsList) {
-    const sMs = parseInstantMs(raw?.start_utc);
-    const eMs = parseInstantMs(raw?.end_utc);
-    if (sMs === null || eMs === null || eMs <= sMs) continue;
+    const sNs = parseInstantNs(raw?.start_utc);
+    const eNs = parseInstantNs(raw?.end_utc);
+    if (sNs === null || eNs === null || eNs <= sNs) continue;
 
     let rejectReason = null;
     if (raw.account_id !== accountId) {
@@ -127,14 +150,14 @@ function classifySeriesIntervals({
       rejectReason = "non_exact_interval_precision";
     }
 
-    const clippedStart = Math.max(sMs, reqStartMs);
-    const clippedEnd = Math.min(eMs, reqEndMs);
+    const clippedStart = maxNs(sNs, reqStartNs);
+    const clippedEnd = minNs(eNs, reqEndNs);
     if (clippedEnd <= clippedStart) continue;
 
     if (rejectReason) {
       rejected.push({
-        start_utc: new Date(clippedStart).toISOString(),
-        end_utc: new Date(clippedEnd).toISOString(),
+        start_utc: toUtcIsoFromNs(clippedStart),
+        end_utc: toUtcIsoFromNs(clippedEnd),
         evidence_kind: evidenceKind,
         reason: rejectReason,
         binding_id: typeof raw.binding_id === "string" ? raw.binding_id : null,
@@ -143,11 +166,11 @@ function classifySeriesIntervals({
           ? raw.broker_environment
           : null,
       });
-      rejectedCoords.push({ startMs: clippedStart, endMs: clippedEnd, reason: rejectReason });
+      rejectedCoords.push({ startNs: clippedStart, endNs: clippedEnd, reason: rejectReason });
     } else {
       covered.push({
-        start_utc: new Date(clippedStart).toISOString(),
-        end_utc: new Date(clippedEnd).toISOString(),
+        start_utc: toUtcIsoFromNs(clippedStart),
+        end_utc: toUtcIsoFromNs(clippedEnd),
         account_id: accountId,
         broker_environment: brokerEnv,
         binding_id: raw.binding_id,
@@ -156,22 +179,22 @@ function classifySeriesIntervals({
         precision: raw.precision,
         source_class: raw.source_class || defaultSourceClass,
       });
-      coveredCoords.push({ startMs: clippedStart, endMs: clippedEnd });
+      coveredCoords.push({ startNs: clippedStart, endNs: clippedEnd });
     }
   }
 
-  const gaps = findUncoveredRanges(reqStartMs, reqEndMs, coveredCoords, rejectedCoords, evidenceKind);
+  const gaps = findUncoveredRanges(reqStartNs, reqEndNs, coveredCoords, rejectedCoords, evidenceKind);
   return { covered, rejected, gaps };
 }
 
 function coalesceIntervalsByBinding(coveredIntervals) {
   const byBinding = new Map();
   for (const iv of coveredIntervals) {
-    const startMs = parseInstantMs(iv.start_utc);
-    const endMs = parseInstantMs(iv.end_utc);
-    if (startMs === null || endMs === null || endMs <= startMs) continue;
+    const startNs = parseInstantNs(iv.start_utc);
+    const endNs = parseInstantNs(iv.end_utc);
+    if (startNs === null || endNs === null || endNs <= startNs) continue;
     const list = byBinding.get(iv.binding_id) || [];
-    list.push({ startMs, endMs });
+    list.push({ startNs, endNs });
     byBinding.set(iv.binding_id, list);
   }
   const coalesced = [];
@@ -179,17 +202,17 @@ function coalesceIntervalsByBinding(coveredIntervals) {
     for (const span of mergeHalfOpenIntervals(coords)) {
       coalesced.push({
         binding_id,
-        startMs: span.startMs,
-        endMs: span.endMs,
-        start_utc: new Date(span.startMs).toISOString(),
+        startNs: span.startNs,
+        endNs: span.endNs,
+        start_utc: toUtcIsoFromNs(span.startNs),
       });
     }
   }
   return coalesced.sort((a, b) => (
-    a.startMs !== b.startMs
-      ? a.startMs - b.startMs
-      : a.endMs !== b.endMs
-        ? a.endMs - b.endMs
+    a.startNs !== b.startNs
+      ? cmpNs(a.startNs, b.startNs)
+      : a.endNs !== b.endNs
+        ? cmpNs(a.endNs, b.endNs)
         : (a.binding_id < b.binding_id ? -1 : a.binding_id > b.binding_id ? 1 : 0)
   ));
 }
@@ -202,7 +225,7 @@ function extractBindingTransitions(coveredIntervals) {
     const curr = ordered[i];
     if (prev.binding_id !== curr.binding_id) {
       transitions.push({
-        at_ms: curr.startMs,
+        at_ns: curr.startNs,
         at_utc: curr.start_utc,
         from_binding: prev.binding_id,
         to_binding: curr.binding_id,
@@ -215,18 +238,18 @@ function extractBindingTransitions(coveredIntervals) {
 function findTransitionMismatches(valCovered, flowCovered, evalEndIso) {
   const valTransitions = extractBindingTransitions(valCovered);
   const flowTransitions = extractBindingTransitions(flowCovered);
-  const valTimes = new Set(valTransitions.map((t) => t.at_ms));
-  const flowTimes = new Set(flowTransitions.map((t) => t.at_ms));
+  const valTimes = new Set(valTransitions.map((t) => t.at_ns));
+  const flowTimes = new Set(flowTransitions.map((t) => t.at_ns));
   const unmatchedTimes = [...new Set([
-    ...valTransitions.filter((t) => !flowTimes.has(t.at_ms)).map((t) => t.at_ms),
-    ...flowTransitions.filter((t) => !valTimes.has(t.at_ms)).map((t) => t.at_ms),
-  ])].sort((a, b) => a - b);
+    ...valTransitions.filter((t) => !flowTimes.has(t.at_ns)).map((t) => t.at_ns),
+    ...flowTransitions.filter((t) => !valTimes.has(t.at_ns)).map((t) => t.at_ns),
+  ])].sort(cmpNs);
   if (unmatchedTimes.length === 0) return [];
-  const startMs = unmatchedTimes[0];
-  const endMs = unmatchedTimes.length > 1 ? unmatchedTimes[unmatchedTimes.length - 1] : parseInstantMs(evalEndIso);
+  const startNs = unmatchedTimes[0];
+  const endNs = unmatchedTimes.length > 1 ? unmatchedTimes[unmatchedTimes.length - 1] : parseInstantNs(evalEndIso);
   return [{
-    start_utc: new Date(startMs).toISOString(),
-    end_utc: new Date(endMs > startMs ? endMs : parseInstantMs(evalEndIso)).toISOString(),
+    start_utc: toUtcIsoFromNs(startNs),
+    end_utc: toUtcIsoFromNs(endNs > startNs ? endNs : parseInstantNs(evalEndIso)),
     evidence_kind: "external_flow",
     reason: "binding_transition_mismatch",
     binding_id: null,
@@ -246,10 +269,10 @@ export function evaluateHistoryContinuity(input = {}) {
   const sourceClass = input.source_class || "synthetic";
   const evidenceRef = safePublicText(input.evidence_ref, `sa1:continuity:${accountId}`);
 
-  const reqStartMs = parseInstantMs(input.requested_interval?.start_utc);
-  const reqEndMs = parseInstantMs(input.requested_interval?.end_utc);
-  if (reqStartMs === null || reqEndMs === null || reqEndMs <= reqStartMs) {
-    const nowIso = new Date().toISOString();
+  const reqStartNs = parseInstantNs(input.requested_interval?.start_utc);
+  const reqEndNs = parseInstantNs(input.requested_interval?.end_utc);
+  if (reqStartNs === null || reqEndNs === null || reqEndNs <= reqStartNs) {
+    const nowIso = toUtcIsoFromNs(BigInt(Date.now()) * MS_TO_NS);
     return {
       schema_version: CONTINUITY_SCHEMA,
       account_id: accountId,
@@ -269,18 +292,18 @@ export function evaluateHistoryContinuity(input = {}) {
     };
   }
 
-  const reqStartIso = new Date(reqStartMs).toISOString();
-  const reqEndIso = new Date(reqEndMs).toISOString();
+  const reqStartIso = toUtcIsoFromNs(reqStartNs);
+  const reqEndIso = toUtcIsoFromNs(reqEndNs);
 
   // Independent 366-day retention boundary and 6-month Desk view boundary.
-  const retentionFloorMs = reqEndMs - RETENTION_LIMIT_DAYS * DAY_MS;
-  const retentionTruncated = reqStartMs < retentionFloorMs;
-  const retentionEffectiveStartMs = retentionTruncated ? retentionFloorMs : reqStartMs;
+  const retentionFloorNs = reqEndNs - BigInt(RETENTION_LIMIT_DAYS) * DAY_NS;
+  const retentionTruncated = reqStartNs < retentionFloorNs;
+  const retentionEffectiveStartNs = retentionTruncated ? retentionFloorNs : reqStartNs;
 
   const deskApplicable = input.desk_view === true;
-  const deskFloorMs = subtractUtcMonths(reqEndMs, DESK_LIMIT_MONTHS);
-  const deskTruncated = deskApplicable && reqStartMs < deskFloorMs;
-  const deskEffectiveStartMs = deskTruncated ? deskFloorMs : reqStartMs;
+  const deskFloorNs = subtractUtcMonthsNs(reqEndNs, DESK_LIMIT_MONTHS);
+  const deskTruncated = deskApplicable && reqStartNs < deskFloorNs;
+  const deskEffectiveStartNs = deskTruncated ? deskFloorNs : reqStartNs;
 
   const truncated = retentionTruncated || deskTruncated;
 
@@ -292,14 +315,14 @@ export function evaluateHistoryContinuity(input = {}) {
       requested_interval: { start_utc: reqStartIso, end_utc: reqEndIso },
       retention_clip: {
         limit_days: RETENTION_LIMIT_DAYS,
-        effective_start_utc: new Date(retentionEffectiveStartMs).toISOString(),
+        effective_start_utc: toUtcIsoFromNs(retentionEffectiveStartNs),
         effective_end_utc: reqEndIso,
         truncated: retentionTruncated,
       },
       desk_window_clip: {
         limit_months: DESK_LIMIT_MONTHS,
         applicable: deskApplicable,
-        effective_start_utc: new Date(deskEffectiveStartMs).toISOString(),
+        effective_start_utc: toUtcIsoFromNs(deskEffectiveStartNs),
         effective_end_utc: reqEndIso,
         truncated: deskTruncated,
       },
@@ -341,15 +364,15 @@ export function evaluateHistoryContinuity(input = {}) {
     ? (typeof input.currency === "string" && input.currency.length > 0 ? input.currency : null)
     : "USD";
 
-  const valEvalStart = Math.max(reqStartMs, retentionEffectiveStartMs, deskEffectiveStartMs);
+  const valEvalStart = maxNs(reqStartNs, retentionEffectiveStartNs, deskEffectiveStartNs);
   const valSeries = classifySeriesIntervals({
     rawIntervals: input.valuation_intervals,
     evidenceKind: "valuation",
     accountId,
     brokerEnv,
     allowedBindings: valBindings,
-    reqStartMs: valEvalStart,
-    reqEndMs,
+    reqStartNs: valEvalStart,
+    reqEndNs,
     defaultSourceClass: sourceClass,
     targetCurrency,
     hasExplicitInputCurrency,
@@ -360,8 +383,8 @@ export function evaluateHistoryContinuity(input = {}) {
     accountId,
     brokerEnv,
     allowedBindings: flowBindings,
-    reqStartMs: valEvalStart,
-    reqEndMs,
+    reqStartNs: valEvalStart,
+    reqEndNs,
     defaultSourceClass: sourceClass,
     targetCurrency,
     hasExplicitInputCurrency,
@@ -369,10 +392,10 @@ export function evaluateHistoryContinuity(input = {}) {
 
   const gapIntervals = [];
   if (truncated) {
-    const clipEndMs = Math.min(reqEndMs, valEvalStart);
+    const clipEndNs = minNs(reqEndNs, valEvalStart);
     gapIntervals.push({
       start_utc: reqStartIso,
-      end_utc: new Date(clipEndMs).toISOString(),
+      end_utc: toUtcIsoFromNs(clipEndNs),
       evidence_kind: "both",
       reason: retentionTruncated ? "retention_window_exceeded" : "desk_6m_window_clipped",
       binding_id: null,
@@ -425,14 +448,14 @@ export function evaluateHistoryContinuity(input = {}) {
     requested_interval: { start_utc: reqStartIso, end_utc: reqEndIso },
     retention_clip: {
       limit_days: RETENTION_LIMIT_DAYS,
-      effective_start_utc: new Date(retentionEffectiveStartMs).toISOString(),
+      effective_start_utc: toUtcIsoFromNs(retentionEffectiveStartNs),
       effective_end_utc: reqEndIso,
       truncated: retentionTruncated,
     },
     desk_window_clip: {
       limit_months: DESK_LIMIT_MONTHS,
       applicable: deskApplicable,
-      effective_start_utc: new Date(deskEffectiveStartMs).toISOString(),
+      effective_start_utc: toUtcIsoFromNs(deskEffectiveStartNs),
       effective_end_utc: reqEndIso,
       truncated: deskTruncated,
     },

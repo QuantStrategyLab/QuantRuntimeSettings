@@ -8,7 +8,13 @@
 
 import { MANAGEMENT_STATUS, processingEligible } from "../account_mapping/policy.js";
 import { managementDisposition, scopeConflict } from "../account_mapping/management_cohort.js";
-import { evaluateFreshness as evaluateSessionFreshness } from "./freshness.js";
+import {
+  evaluateFreshness as evaluateSessionFreshness,
+  parseInstantNs,
+  toUtcIsoFromNs,
+} from "./freshness.js";
+
+export { parseInstantNs, toUtcIsoFromNs };
 
 export const SIZING_UNIT_NAV_SCHEMA = "qsl.sizing_unit_nav.v1";
 export const FUTURE_SKEW_LIMIT_MS = 60_000;

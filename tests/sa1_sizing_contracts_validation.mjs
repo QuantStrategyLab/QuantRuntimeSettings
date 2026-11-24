@@ -632,6 +632,67 @@ const handlers = {
     });
     assert.equal(clearNewSymRec.ok, true, clearNewSymRec.reason);
     assert.equal(clearNewSymRec.v2.state, "CLEAR");
+
+    // Codex P2 4683652398: terminal-marked delisting leaves position eligible for later cash settlement
+    const markedTerminalDelist = structuredClone(unresolvedEvt);
+    markedTerminalDelist.event_id = "ca-a03-p2-delist-marked-terminal";
+    markedTerminalDelist.post_units = "25";
+    markedTerminalDelist.post_ref = "3.00";
+    markedTerminalDelist.payment_transfer_usd = {
+      applicable: false,
+      amount_usd: null,
+      reason: "delisting_terminal_marking",
+    };
+    markedTerminalDelist.incremental_cash_in_lieu = {
+      applicable: false,
+      amount_usd: null,
+      reason: "delisting_terminal_marking",
+    };
+    markedTerminalDelist.delisting = { invoked_v3: true, resolved: true, terminal_valuation_usd: "75.00" };
+    assert.ok(validateCorpActionSchema(markedTerminalDelist));
+    const markedTerminalRes = applyCorporateAction(freshSplitLedger, markedTerminalDelist);
+    assert.equal(markedTerminalRes.ok, true, markedTerminalRes.reason);
+    assert.equal(markedTerminalRes.ledger.positions.inst_delist.units, "25");
+    assert.equal(markedTerminalRes.ledger.positions.inst_delist.ref_price_usd, "3.00");
+    assert.equal(markedTerminalRes.ledger.positions.inst_delist.unresolved_pending_evidence, false);
+    assert.equal(markedTerminalRes.ledger.positions.inst_delist.delisted_settled, false);
+    assert.equal(markedTerminalRes.ledger.positions.inst_delist.delisted_terminal_marked, true);
+    assert.equal(markedTerminalRes.ledger.settled_cash_usd, freshSplitLedger.settled_cash_usd);
+
+    const settleAfterMarkedDelist = structuredClone(unresolvedEvt);
+    settleAfterMarkedDelist.event_id = "ca-a03-p2-delist-settle-after-mark";
+    settleAfterMarkedDelist.pre_units = "25";
+    settleAfterMarkedDelist.post_units = "0";
+    settleAfterMarkedDelist.pre_ref = "3.00";
+    settleAfterMarkedDelist.post_ref = "0";
+    settleAfterMarkedDelist.payment_transfer_usd = {
+      applicable: true,
+      amount_usd: "75.00",
+      reason: "delisting_terminal_cash_settlement",
+    };
+    settleAfterMarkedDelist.incremental_cash_in_lieu = {
+      applicable: false,
+      amount_usd: null,
+      reason: "delisting_terminal_cash_settlement",
+    };
+    settleAfterMarkedDelist.delisting = { invoked_v3: true, resolved: true, terminal_valuation_usd: "75.00" };
+    assert.ok(validateCorpActionSchema(settleAfterMarkedDelist));
+    const settleAfterMarkedRes = applyCorporateAction(markedTerminalRes.ledger, settleAfterMarkedDelist);
+    assert.equal(settleAfterMarkedRes.ok, true, settleAfterMarkedRes.reason);
+    assert.equal(settleAfterMarkedRes.ledger.positions.inst_delist.units, "0");
+    assert.equal(settleAfterMarkedRes.ledger.positions.inst_delist.ref_price_usd, "0");
+    assert.equal(settleAfterMarkedRes.ledger.positions.inst_delist.delisted_settled, true);
+    assert.equal(settleAfterMarkedRes.ledger.positions.inst_delist.delisted_terminal_marked, false);
+    assert.equal(settleAfterMarkedRes.ledger.settled_cash_usd, "1075.00");
+
+    const dupSettleAfterMarked = structuredClone(settleAfterMarkedDelist);
+    dupSettleAfterMarked.event_id = "ca-a03-p2-delist-settle-dup";
+    dupSettleAfterMarked.pre_units = "0";
+    dupSettleAfterMarked.pre_ref = "0";
+    const dupSettleAfterMarkedRes = applyCorporateAction(settleAfterMarkedRes.ledger, dupSettleAfterMarked);
+    assert.equal(dupSettleAfterMarkedRes.ok, false);
+    assert.equal(dupSettleAfterMarkedRes.reason, "delisting_already_settled_or_empty_position");
+    assert.equal(dupSettleAfterMarkedRes.ledger.settled_cash_usd, "1075.00");
   },
 
   async "SA-A06"() {
@@ -1647,6 +1708,65 @@ const handlers = {
     assert.equal(mixedChainDesk.cashflow_7a.adjusted_performance.return_method, "modified_dietz");
     assert.equal(mixedChainDesk.cashflow_7a.adjusted_performance.approximate, true);
     assert.equal(mixedChainDesk.cashflow_7a.adjusted_performance.sizing_eligible, false);
+
+    // Codex P2 4683652404: sub-millisecond ISO timestamps preserved via BigInt ns precision
+    const { parseInstantNs, toUtcIsoFromNs } = await import(
+      "../web/strategy-switch-console/application/sizing_unit/nav.js"
+    );
+    const t1Ns = parseInstantNs("2025-01-08T14:30:00.000100Z");
+    const t2Ns = parseInstantNs("2025-01-08T14:30:00.000200Z");
+    assert.notEqual(t1Ns, null);
+    assert.notEqual(t1Ns, t2Ns);
+    assert.equal(toUtcIsoFromNs(t1Ns), "2025-01-08T14:30:00.0001Z");
+
+    const subMsPeriodBase = {
+      opening_equity_usd: "100.00",
+      ending_equity_usd: "120.00",
+      period_start_utc: "2025-01-08T14:30:00Z",
+      period_end_utc: "2025-01-08T21:00:00Z",
+      flows: [
+        {
+          source_ref: "subms1".padEnd(64, "0"),
+          type: "deposit",
+          amount_usd: "10.00",
+          effective_at: "2025-01-08T14:30:00.000100Z",
+          time_precision: "exact",
+          coverage: "complete",
+        },
+      ],
+      intraday_subvaluations: [],
+    };
+    const subMsNoSubval = evaluatePeriod7aReturn(subMsPeriodBase, { calendarProvider: calProv });
+    assert.equal(subMsNoSubval.return_method, "modified_dietz");
+    assert.equal(subMsNoSubval.approximate, true);
+    assert.equal(subMsNoSubval.sizing_eligible, false);
+    assert.equal(subMsNoSubval.breaker_eligible, false);
+    assert.equal(subMsNoSubval.verdict_eligible, false);
+
+    const subMsExactMatch = evaluatePeriod7aReturn(
+      {
+        ...subMsPeriodBase,
+        intraday_subvaluations: [{ effective_at: "2025-01-08T14:30:00.000100Z", pre_flow_equity_usd: "105.00" }],
+      },
+      { calendarProvider: calProv },
+    );
+    assert.equal(subMsExactMatch.return_method, "daily_linked_twr");
+    assert.equal(subMsExactMatch.approximate, false);
+    assert.equal(subMsExactMatch.sizing_eligible, true);
+    assert.equal(subMsExactMatch.breaker_eligible, true);
+    assert.equal(subMsExactMatch.verdict_eligible, true);
+    assert.equal(subMsExactMatch.status, "ok");
+
+    const subMsSameMsMismatch = evaluatePeriod7aReturn(
+      {
+        ...subMsPeriodBase,
+        intraday_subvaluations: [{ effective_at: "2025-01-08T14:30:00.000200Z", pre_flow_equity_usd: "105.00" }],
+      },
+      { calendarProvider: calProv },
+    );
+    assert.equal(subMsSameMsMismatch.return_method, "modified_dietz");
+    assert.equal(subMsSameMsMismatch.approximate, true);
+    assert.equal(subMsSameMsMismatch.sizing_eligible, false);
   },
 
   async "SA-A11"() {
@@ -2069,6 +2189,137 @@ const handlers = {
     assert.equal(trueOscillating.result.status, "insufficient_history");
     assert.equal(trueOscillating.result.return_pct, null);
     assert.equal(trueOscillating.result.unavailable_reason, "binding_transition_mismatch");
+
+    // Codex P2 4683652404: sub-millisecond transitions aligned vs mismatched in BigInt ns
+    const subMsAligned = evaluateHistoryContinuity({
+      account_id: "synth-sizing-01",
+      broker_environment: "live",
+      requested_interval: { start_utc: "2025-01-01T00:00:00.000Z", end_utc: "2025-01-04T00:00:00.000Z" },
+      desk_view: false,
+      current_valuation_binding_id: "b_val_curr",
+      history_source_binding_ids: ["b_val_prior"],
+      current_flow_binding_id: "b_flow_curr",
+      flow_history_source_binding_ids: ["b_flow_prior"],
+      valuation_intervals: [
+        {
+          start_utc: "2025-01-01T00:00:00Z",
+          end_utc: "2025-01-02T00:00:00.000100Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_val_prior",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+        {
+          start_utc: "2025-01-02T00:00:00.000100Z",
+          end_utc: "2025-01-04T00:00:00Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_val_curr",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+      ],
+      flow_intervals: [
+        {
+          start_utc: "2025-01-01T00:00:00Z",
+          end_utc: "2025-01-02T00:00:00.000100Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_flow_prior",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+        {
+          start_utc: "2025-01-02T00:00:00.000100Z",
+          end_utc: "2025-01-04T00:00:00Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_flow_curr",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+      ],
+      candidate_return_pct: "0.025",
+      origin: "synthetic",
+      source_class: "synthetic",
+      evidence_ref: "sha256:" + "d".repeat(64),
+    });
+    assert.ok(validateContinuitySchema(subMsAligned), ajv.errorsText(validateContinuitySchema.errors));
+    assert.equal(subMsAligned.continuity_status, "continuous");
+    assert.equal(subMsAligned.result.status, "eligible");
+    assert.equal(subMsAligned.result.return_pct, "0.025");
+    assert.equal(subMsAligned.gap_intervals.length, 0);
+
+    const subMsMismatched = evaluateHistoryContinuity({
+      account_id: "synth-sizing-01",
+      broker_environment: "live",
+      requested_interval: { start_utc: "2025-01-01T00:00:00.000Z", end_utc: "2025-01-04T00:00:00.000Z" },
+      desk_view: false,
+      current_valuation_binding_id: "b_val_curr",
+      history_source_binding_ids: ["b_val_prior"],
+      current_flow_binding_id: "b_flow_curr",
+      flow_history_source_binding_ids: ["b_flow_prior"],
+      valuation_intervals: [
+        {
+          start_utc: "2025-01-01T00:00:00Z",
+          end_utc: "2025-01-02T00:00:00.000100Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_val_prior",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+        {
+          start_utc: "2025-01-02T00:00:00.000100Z",
+          end_utc: "2025-01-04T00:00:00Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_val_curr",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+      ],
+      flow_intervals: [
+        {
+          start_utc: "2025-01-01T00:00:00Z",
+          end_utc: "2025-01-02T00:00:00.000200Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_flow_prior",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+        {
+          start_utc: "2025-01-02T00:00:00.000200Z",
+          end_utc: "2025-01-04T00:00:00Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_flow_curr",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+      ],
+      candidate_return_pct: "0.025",
+      origin: "synthetic",
+      source_class: "synthetic",
+      evidence_ref: "sha256:" + "e".repeat(64),
+    });
+    assert.ok(validateContinuitySchema(subMsMismatched), ajv.errorsText(validateContinuitySchema.errors));
+    assert.equal(subMsMismatched.continuity_status, "binding_gap");
+    assert.equal(subMsMismatched.result.status, "insufficient_history");
+    assert.equal(subMsMismatched.result.return_pct, null);
+    assert.equal(subMsMismatched.result.unavailable_reason, "binding_transition_mismatch");
+    assert.equal(subMsMismatched.gap_intervals[0].start_utc, "2025-01-02T00:00:00.0001Z");
+    assert.equal(subMsMismatched.gap_intervals[0].end_utc, "2025-01-02T00:00:00.0002Z");
   },
 };
 
