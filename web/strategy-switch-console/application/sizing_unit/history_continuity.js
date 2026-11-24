@@ -164,19 +164,45 @@ function classifySeriesIntervals({
   return { covered, rejected, gaps };
 }
 
+function coalesceIntervalsByBinding(coveredIntervals) {
+  const byBinding = new Map();
+  for (const iv of coveredIntervals) {
+    const startMs = parseInstantMs(iv.start_utc);
+    const endMs = parseInstantMs(iv.end_utc);
+    if (startMs === null || endMs === null || endMs <= startMs) continue;
+    const list = byBinding.get(iv.binding_id) || [];
+    list.push({ startMs, endMs });
+    byBinding.set(iv.binding_id, list);
+  }
+  const coalesced = [];
+  for (const [binding_id, coords] of byBinding.entries()) {
+    for (const span of mergeHalfOpenIntervals(coords)) {
+      coalesced.push({
+        binding_id,
+        startMs: span.startMs,
+        endMs: span.endMs,
+        start_utc: new Date(span.startMs).toISOString(),
+      });
+    }
+  }
+  return coalesced.sort((a, b) => (
+    a.startMs !== b.startMs
+      ? a.startMs - b.startMs
+      : a.endMs !== b.endMs
+        ? a.endMs - b.endMs
+        : (a.binding_id < b.binding_id ? -1 : a.binding_id > b.binding_id ? 1 : 0)
+  ));
+}
+
 function extractBindingTransitions(coveredIntervals) {
-  const ordered = [...coveredIntervals].sort((a, b) => {
-    const aMs = parseInstantMs(a.start_utc);
-    const bMs = parseInstantMs(b.start_utc);
-    return aMs !== bMs ? aMs - bMs : parseInstantMs(a.end_utc) - parseInstantMs(b.end_utc);
-  });
+  const ordered = coalesceIntervalsByBinding(coveredIntervals);
   const transitions = [];
   for (let i = 1; i < ordered.length; i++) {
     const prev = ordered[i - 1];
     const curr = ordered[i];
     if (prev.binding_id !== curr.binding_id) {
       transitions.push({
-        at_ms: parseInstantMs(curr.start_utc),
+        at_ms: curr.startMs,
         at_utc: curr.start_utc,
         from_binding: prev.binding_id,
         to_binding: curr.binding_id,

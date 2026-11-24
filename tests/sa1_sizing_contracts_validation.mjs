@@ -1950,6 +1950,125 @@ const handlers = {
       }),
       false,
     );
+
+    // Codex P2 #7: coalesce redundant overlapping same-binding intervals before transition detection,
+    // while genuine oscillating A -> B -> A transitions still reject with binding_transition_mismatch
+    const baseOverlapArgs = {
+      account_id: "synth-sizing-01",
+      broker_environment: "live",
+      requested_interval: { start_utc: "2025-01-01T00:00:00.000Z", end_utc: "2025-01-04T00:00:00.000Z" },
+      desk_view: true,
+      current_valuation_binding_id: "b_val_curr",
+      history_source_binding_ids: ["b_val_prior"],
+      current_flow_binding_id: "b_flow_curr",
+      flow_history_source_binding_ids: ["b_flow_prior"],
+      flow_intervals: [
+        {
+          start_utc: "2025-01-01T00:00:00.000Z",
+          end_utc: "2025-01-02T00:00:00.000Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_flow_prior",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+        {
+          start_utc: "2025-01-02T00:00:00.000Z",
+          end_utc: "2025-01-04T00:00:00.000Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_flow_curr",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+      ],
+      candidate_return_pct: "20",
+      origin: "synthetic",
+      source_class: "synthetic",
+      evidence_ref: "sa1:a11:coalesce-bindings",
+    };
+    const coalescedOverlap = evaluateHistoryContinuity({
+      ...baseOverlapArgs,
+      valuation_intervals: [
+        {
+          start_utc: "2025-01-01T00:00:00.000Z",
+          end_utc: "2025-01-03T12:00:00.000Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_val_prior",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+        {
+          start_utc: "2025-01-02T00:00:00.000Z",
+          end_utc: "2025-01-04T00:00:00.000Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_val_curr",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+        {
+          start_utc: "2025-01-03T00:00:00.000Z",
+          end_utc: "2025-01-03T12:00:00.000Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_val_prior",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+      ],
+    });
+    assert.ok(validateContinuitySchema(coalescedOverlap));
+    assert.equal(coalescedOverlap.continuity_status, "continuous");
+    assert.equal(coalescedOverlap.result.status, "eligible");
+    assert.equal(coalescedOverlap.result.return_pct, "20");
+
+    const trueOscillating = evaluateHistoryContinuity({
+      ...baseOverlapArgs,
+      valuation_intervals: [
+        {
+          start_utc: "2025-01-01T00:00:00.000Z",
+          end_utc: "2025-01-02T00:00:00.000Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_val_prior",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+        {
+          start_utc: "2025-01-02T00:00:00.000Z",
+          end_utc: "2025-01-03T00:00:00.000Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_val_curr",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+        {
+          start_utc: "2025-01-03T00:00:00.000Z",
+          end_utc: "2025-01-04T00:00:00.000Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_val_prior",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+      ],
+    });
+    assert.ok(validateContinuitySchema(trueOscillating));
+    assert.equal(trueOscillating.continuity_status, "binding_gap");
+    assert.equal(trueOscillating.result.status, "insufficient_history");
+    assert.equal(trueOscillating.result.return_pct, null);
+    assert.equal(trueOscillating.result.unavailable_reason, "binding_transition_mismatch");
   },
 };
 
