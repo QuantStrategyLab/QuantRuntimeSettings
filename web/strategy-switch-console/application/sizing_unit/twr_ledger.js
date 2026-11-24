@@ -532,10 +532,30 @@ export function evaluateTwrLedger({ initialState = {}, sessions, valuations, flo
         };
       }
     }
+    if (Object.prototype.hasOwnProperty.call(session || {}, "h_usd")) {
+      const sessionH = session.h_usd === null || session.h_usd === undefined
+        ? null
+        : ratFromText(String(session.h_usd));
+      if (!sessionH || ratCmp(sessionH, h) !== 0) {
+        return {
+          labels: DESK_7A_LABELS,
+          status: "unavailable",
+          return_pct: null,
+          interpolated: false,
+          empty_as_zero: false,
+          sizing_eligible: false,
+          breaker_eligible: false,
+          verdict_eligible: false,
+          method_version: null,
+          unavailable_reason: "session_reserve_mismatch",
+          sessions: outSessions,
+        };
+      }
+    }
     const period = evaluatePeriod7aReturn({
       ...session,
       opening_equity_usd: session.opening_equity_usd ?? ratToDecimalText(ePrev, { minScale: 2 }),
-      h_usd: session.h_usd ?? ratToDecimalText(h, { minScale: 2 }),
+      h_usd: ratToDecimalText(h, { minScale: 2 }),
     }, { calendarProvider });
     if (period.status !== "ok") {
       return {

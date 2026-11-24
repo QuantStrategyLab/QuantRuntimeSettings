@@ -284,13 +284,6 @@ export function applyCorporateAction(ledgerState, event) {
   if (!pos) {
     return rejectAction(ledgerState, "unknown_instrument_id");
   }
-  const symbolInLineage = (sym) => sym === pos.symbol
-    || (Array.isArray(pos.ticker_history) && pos.ticker_history.includes(sym));
-  const isHistoricalDividendSymbol = event.action_type === "dividend_payment"
-    && symbolInLineage(event.symbol);
-  if (pos.symbol !== event.symbol && !isHistoricalDividendSymbol) {
-    return rejectAction(ledgerState, "instrument_symbol_mismatch");
-  }
   const v2Triggered = Boolean(
     event.v2_control?.announced_within_two_sessions || event.v2_control?.price_anomaly_detected,
   );
@@ -299,6 +292,13 @@ export function applyCorporateAction(ledgerState, event) {
       ? haltLedgerRejection(ledgerState, reason, event.instrument_id, pos.symbol)
       : rejectAction(ledgerState, reason)
   );
+  const symbolInLineage = (sym) => sym === pos.symbol
+    || (Array.isArray(pos.ticker_history) && pos.ticker_history.includes(sym));
+  const isHistoricalDividendSymbol = event.action_type === "dividend_payment"
+    && symbolInLineage(event.symbol);
+  if (pos.symbol !== event.symbol && !isHistoricalDividendSymbol) {
+    return failAction("instrument_symbol_mismatch");
+  }
 
   const preUnits = ratFromText(event.pre_units);
   const postUnits = ratFromText(event.post_units);
@@ -318,7 +318,7 @@ export function applyCorporateAction(ledgerState, event) {
   const divRecLeg = parseActionLeg(event.incremental_dividend_receivable);
   const payLeg = parseActionLeg(event.payment_transfer_usd);
   if (!cilLeg.ok || !divRecLeg.ok || !payLeg.ok) {
-    return rejectAction(ledgerState, "malformed_action_leg");
+    return failAction("malformed_action_leg");
   }
 
   const preNotional = ratMul(preUnits, preRef);
@@ -375,6 +375,9 @@ export function applyCorporateAction(ledgerState, event) {
   } else if (event.action_type === "cash_dividend") {
     if (cilLeg.applicable || payLeg.applicable || !divRecLeg.applicable) {
       return failAction("invalid_ex_date_dividend_legs");
+    }
+    if (ratCmp(preUnits, postUnits) !== 0) {
+      return failAction("unexpected_position_change_on_cash_dividend");
     }
     const eligible = ratFromText(event.eligible_units);
     const dpu = ratFromText(event.dividend_per_unit_usd);
@@ -435,6 +438,8 @@ export function applyCorporateAction(ledgerState, event) {
     if (
       event.ticker_lineage.instrument_id !== event.instrument_id
       || event.ticker_lineage.prior_symbol !== pos.symbol
+      || ratCmp(preUnits, postUnits) !== 0
+      || ratCmp(preRef, postRef) !== 0
       || ratCmp(preNotional, postNotional) !== 0
     ) {
       return failAction("ticker_lineage_mismatch");
@@ -451,23 +456,65 @@ export function applyCorporateAction(ledgerState, event) {
     if (!event.delisting || event.delisting.invoked_v3 !== true) {
       return failAction("delisting_requires_v3_flag");
     }
-    if (ratCmp(preNotional, postNotional) !== 0) {
-      return failAction("delisting_conservation_mismatch");
+    let finalUnits = postUnits;
+    let finalRef = postRef;
+    if (!event.delisting.resolved) {
+      if (event.delisting.terminal_valuation_usd !== null) {
+        return failAction("unresolved_delisting_must_have_null_valuation");
+      }
+      if (ratCmp(preUnits, postUnits) !== 0 || ratCmp(preRef, postRef) !== 0 || ratCmp(preNotional, postNotional) !== 0) {
+        return failAction("delisting_conservation_mismatch");
+      }
+      nextLedger.positions[event.instrument_id].unresolved_pending_evidence = true;
+      nextLedger.v3.triggered = true;
+      if (!nextLedger.v3.unresolved_instruments.includes(event.instrument_id)) {
+        nextLedger.v3.unresolved_instruments.push(event.instrument_id);
+      }
+    } else {
+      if (event.delisting.terminal_valuation_usd === null) {
+        return failAction("delisting_requires_terminal_valuation");
+      }
+      const termVal = ratFromText(String(event.delisting.terminal_valuation_usd));
+      if (!termVal || termVal.n < 0n) {
+        return failAction("invalid_delisting_terminal_valuation");
+      }
+      const settledToCash = postUnits.n === 0n && postNotional.n === 0n;
+      const markedAtTerminal = ratCmp(postUnits, preUnits) === 0 && ratCmp(postNotional, termVal) === 0;
+      if (!settledToCash && !markedAtTerminal) {
+        return failAction("delisting_terminal_valuation_mismatch");
+      }
+      if (settledToCash || termVal.n === 0n) {
+        const legCash = payLeg.applicable ? payLeg.rat : (cilLeg.applicable ? cilLeg.rat : null);
+        if (legCash !== null && ratCmp(legCash, termVal) !== 0) {
+          return failAction("delisting_terminal_valuation_mismatch");
+        }
+        if (settledToCash) {
+          nextSettled = ratAdd(settledBefore, termVal);
+        }
+        finalUnits = ZERO;
+        finalRef = ZERO;
+      }
+      nextLedger.positions[event.instrument_id].unresolved_pending_evidence = false;
+      nextLedger.positions[event.instrument_id].delisted_settled = true;
+      nextLedger.v3.triggered = true;
+      nextLedger.v3.unresolved_instruments = nextLedger.v3.unresolved_instruments.filter(
+        (id) => id !== event.instrument_id,
+      );
     }
-    const unresolved = !event.delisting.resolved || event.delisting.terminal_valuation_usd === null;
-    nextLedger.positions[event.instrument_id].unresolved_pending_evidence = unresolved;
-    nextLedger.v3.triggered = true;
-    if (unresolved && !nextLedger.v3.unresolved_instruments.includes(event.instrument_id)) {
-      nextLedger.v3.unresolved_instruments.push(event.instrument_id);
-    }
+    nextLedger.settled_cash_usd = formatUsdAmount(nextSettled);
+    nextLedger.dividend_receivable_usd = formatUsdAmount(nextRec);
+    nextLedger.positions[event.instrument_id].units = formatUnits(finalUnits);
+    nextLedger.positions[event.instrument_id].ref_price_usd = formatUsdAmount(finalRef);
   } else {
     return rejectAction(ledgerState, "unsupported_action_type");
   }
 
-  nextLedger.settled_cash_usd = formatUsdAmount(nextSettled);
-  nextLedger.dividend_receivable_usd = formatUsdAmount(nextRec);
-  nextLedger.positions[event.instrument_id].units = formatUnits(postUnits);
-  nextLedger.positions[event.instrument_id].ref_price_usd = formatUsdAmount(postRef);
+  if (event.action_type !== "delisting") {
+    nextLedger.settled_cash_usd = formatUsdAmount(nextSettled);
+    nextLedger.dividend_receivable_usd = formatUsdAmount(nextRec);
+    nextLedger.positions[event.instrument_id].units = formatUnits(postUnits);
+    nextLedger.positions[event.instrument_id].ref_price_usd = formatUsdAmount(postRef);
+  }
 
   if (v2Triggered) {
     const existingHalted = Array.isArray(nextLedger.v2?.halted_instruments)

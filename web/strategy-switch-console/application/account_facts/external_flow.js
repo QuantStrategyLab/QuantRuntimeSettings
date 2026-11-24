@@ -168,7 +168,9 @@ export function putExternalFlow(sql, context, raw) {
 export function externalFlowContinuityIntervals(flow, context = {}) {
   const windows = Array.isArray(flow?.windows) ? flow.windows : [];
   const accountId = context.account_id ?? context.account_key ?? null;
-  const brokerEnv = context.broker_environment === "paper" ? "paper" : "live";
+  const brokerEnv = context.broker_environment === "live" || context.broker_environment === "paper"
+    ? context.broker_environment
+    : null;
   const bindingId = context.binding_id ?? context.source_binding_id ?? null;
   const sourceClass = context.source_class || "synthetic";
   return windows

@@ -247,8 +247,11 @@ function evaluateXnysInterval(startExclusiveInput, endInclusiveInput, calendarPr
         return { covered: false, age_sessions: null, touched_sessions: null, reason: "calendar_close_utc_missing" };
       }
       const openNs = typeof session.open_utc === "string" ? parseInstantNs(session.open_utc) : null;
-      if (openNs === null || openNs >= closeNs) {
+      if (openNs === null) {
         return { covered: false, age_sessions: null, touched_sessions: null, reason: "calendar_open_utc_missing" };
+      }
+      if (toNyDateFromNs(openNs) !== cursor || toNyDateFromNs(closeNs) !== cursor || openNs >= closeNs) {
+        return { covered: false, age_sessions: null, touched_sessions: null, reason: "calendar_session_bounds_mismatch" };
       }
       const closedInInterval = closeNs > loNs && closeNs <= hiNs;
       const openedInInterval = openNs > loNs && openNs <= hiNs;

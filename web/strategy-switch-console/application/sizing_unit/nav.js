@@ -248,6 +248,12 @@ function runFreshnessCheck(account, options = {}) {
     evaluated_at: evaluatedAt,
     last_observed_value: account.nav_usd ?? account.balances?.[0]?.net_assets ?? null,
   };
+  if (account?.source_available !== undefined) {
+    payload.source_available = account.source_available;
+  }
+  if (account?.input_available !== undefined) {
+    payload.input_available = account.input_available;
+  }
   const fn = typeof options.evaluateFreshness === "function"
     ? options.evaluateFreshness
     : evaluateSessionFreshness;
@@ -270,20 +276,28 @@ function normalizeManagementView(account) {
 export function classifyAccountEligibility(account, { require_live_cohort = true } = {}) {
   const view = normalizeManagementView(account);
   const rawEnv = account?.broker_environment;
+  const hasSecondaryEnv = Object.prototype.hasOwnProperty.call(account ?? {}, "environment");
+  const secondaryEnv = account?.environment;
   const env = rawEnv === "live" || rawEnv === "paper" ? rawEnv : null;
   const paper = account?.paper === true
     || account?.is_paper === true
     || rawEnv === "paper"
+    || secondaryEnv === "paper"
     || account?.account_scope === "paper"
     || account?.scope === "paper";
   const contradictoryPaperLive = (account?.paper === false || account?.is_paper === false)
-    && (rawEnv === "paper" || account?.account_scope === "paper" || account?.scope === "paper");
+    && (rawEnv === "paper" || secondaryEnv === "paper" || account?.account_scope === "paper" || account?.scope === "paper");
+  const contradictoryEnvFields = hasSecondaryEnv && (
+    secondaryEnv !== rawEnv
+    || (secondaryEnv !== "live" && secondaryEnv !== "paper")
+  );
   const contradictoryScopeEnv = (account?.account_scope === "paper" && rawEnv === "live")
     || (account?.account_scope === "live" && rawEnv === "paper")
     || (account?.scope === "paper" && rawEnv === "live")
     || (account?.scope === "live" && rawEnv === "paper");
   const invalidEnv = rawEnv != null && rawEnv !== "live" && rawEnv !== "paper";
   const conflict = contradictoryPaperLive
+    || contradictoryEnvFields
     || contradictoryScopeEnv
     || invalidEnv
     || scopeConflict({ paper, environment: env }, view);

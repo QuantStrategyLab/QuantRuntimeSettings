@@ -25,7 +25,7 @@
   "properties": {
     "schema_version": { "const": "qsl.sizing_unit_continuity.v1" },
     "account_id": { "type": "string", "pattern": "^[A-Za-z0-9._:/-]{1,128}$" },
-    "broker_environment": { "enum": ["live", "paper"] },
+    "broker_environment": { "enum": ["live", "paper", null] },
     "requested_interval": { "$ref": "#/$defs/halfOpenInterval" },
     "retention_clip": {
       "type": "object",

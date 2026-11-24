@@ -451,6 +451,72 @@ const handlers = {
     assert.equal(wrongSymRec.v2.halted, true);
     assert.equal(wrongSymRec.v2.state, "HALT");
     assert.equal(wrongSymRec.v2.human_rearm_required, true);
+
+    // R5-2: instrument_symbol_mismatch under v2Triggered triggers V2 HALT
+    for (const flagKey of ["announced_within_two_sessions", "price_anomaly_detected"]) {
+      const symMismatchPay = structuredClone(spec.subcases[3].event);
+      symMismatchPay.event_id = `ca-a03-r5-sym-${flagKey}`;
+      symMismatchPay.symbol = "SOXL";
+      symMismatchPay.v2_control[flagKey] = true;
+      const symMismatchRes = applyCorporateAction(exDiv.ledger, symMismatchPay);
+      assert.equal(symMismatchRes.ok, false);
+      assert.equal(symMismatchRes.reason, "instrument_symbol_mismatch");
+      assert.equal(symMismatchRes.v2.state, "HALT", flagKey);
+      assert.equal(symMismatchRes.ledger.v2.state, "HALT", flagKey);
+      assert.equal(symMismatchRes.ledger.v2.halted_instruments.some((h) => h.instrument_id === "inst_dist"), true, flagKey);
+    }
+
+    // R5-5: cash_dividend and ticker_change cannot rewrite share counts (or ref_price on ticker_change)
+    const divDoubleShares = structuredClone(spec.subcases[2].event);
+    divDoubleShares.event_id = "ca-a03-r5-cashdiv-rewrite";
+    divDoubleShares.post_units = "200";
+    divDoubleShares.post_ref = "24.50";
+    const divRewriteRes = applyCorporateAction(freshSplitLedger, divDoubleShares);
+    assert.equal(divRewriteRes.ok, false);
+    assert.equal(divRewriteRes.reason, "unexpected_position_change_on_cash_dividend");
+    assert.equal(divRewriteRes.ledger.positions.inst_dist.units, "100");
+
+    const renameDoubleShares = structuredClone(spec.subcases.find((s) => s.name === "ticker_change").event);
+    renameDoubleShares.event_id = "ca-a03-r5-rename-rewrite";
+    renameDoubleShares.post_units = "100";
+    renameDoubleShares.post_ref = "20.00";
+    const renameRewriteRes = applyCorporateAction(freshSplitLedger, renameDoubleShares);
+    assert.equal(renameRewriteRes.ok, false);
+    assert.equal(renameRewriteRes.reason, "ticker_lineage_mismatch");
+    assert.equal(renameRewriteRes.ledger.positions.inst_rename.units, "50");
+
+    // R5-8: resolved delisting validates & settles terminal valuation out of position equity
+    const unresolvedEvt = spec.subcases.find((s) => s.name === "delisting_v3").event;
+    const contradictoryDelist = structuredClone(unresolvedEvt);
+    contradictoryDelist.event_id = "ca-a03-r5-delist-contradiction";
+    contradictoryDelist.delisting = { invoked_v3: true, resolved: true, terminal_valuation_usd: "0" };
+    const contradictoryDelistRes = applyCorporateAction(freshSplitLedger, contradictoryDelist);
+    assert.equal(contradictoryDelistRes.ok, false);
+    assert.equal(contradictoryDelistRes.reason, "delisting_terminal_valuation_mismatch");
+
+    const zeroResolvedDelist = structuredClone(unresolvedEvt);
+    zeroResolvedDelist.event_id = "ca-a03-r5-delist-zero";
+    zeroResolvedDelist.post_units = "0";
+    zeroResolvedDelist.post_ref = "0";
+    zeroResolvedDelist.delisting = { invoked_v3: true, resolved: true, terminal_valuation_usd: "0" };
+    assert.ok(validateCorpActionSchema(zeroResolvedDelist));
+    const zeroDelistRes = applyCorporateAction(freshSplitLedger, zeroResolvedDelist);
+    assert.equal(zeroDelistRes.ok, true, zeroDelistRes.reason);
+    assert.equal(zeroDelistRes.ledger.positions.inst_delist.units, "0");
+    assert.equal(zeroDelistRes.ledger.positions.inst_delist.ref_price_usd, "0");
+    assert.equal(zeroDelistRes.ledger.positions.inst_delist.unresolved_pending_evidence, false);
+    assert.equal(zeroDelistRes.ledger.v3.unresolved_instruments.includes("inst_delist"), false);
+
+    const cashResolvedDelist = structuredClone(unresolvedEvt);
+    cashResolvedDelist.event_id = "ca-a03-r5-delist-cash";
+    cashResolvedDelist.post_units = "0";
+    cashResolvedDelist.post_ref = "0";
+    cashResolvedDelist.delisting = { invoked_v3: true, resolved: true, terminal_valuation_usd: "75.00" };
+    assert.ok(validateCorpActionSchema(cashResolvedDelist));
+    const cashDelistRes = applyCorporateAction(freshSplitLedger, cashResolvedDelist);
+    assert.equal(cashDelistRes.ok, true, cashDelistRes.reason);
+    assert.equal(cashDelistRes.ledger.positions.inst_delist.units, "0");
+    assert.equal(cashDelistRes.ledger.settled_cash_usd, "1075.00");
   },
 
   async "SA-A06"() {
@@ -837,6 +903,52 @@ const handlers = {
       assert.equal(projRes.status, "unavailable");
       assert.equal(projRes.processing_eligible, false);
       assert.equal(projRes.nav_usd, null);
+    }
+
+    // R5-3 & R5-7: secondary environment conflicts & source_available/input_available=false fail closed
+    const nullPrimaryLiveSecondary = {
+      ...structuredClone(spec.accounts[0]),
+      broker_environment: null,
+      environment: "live",
+    };
+    const livePrimaryPaperSecondary = {
+      ...structuredClone(spec.accounts[0]),
+      broker_environment: "live",
+      environment: "paper",
+    };
+    const sourceUnavailableAcct = { ...structuredClone(spec.accounts[0]), source_available: false };
+    const inputUnavailableAcct = { ...structuredClone(spec.accounts[0]), input_available: false };
+    for (const r5Acct of [nullPrimaryLiveSecondary, livePrimaryPaperSecondary]) {
+      const sRes = evalNavDirect(r5Acct, { evaluated_at: spec.evaluated_at, calendarProvider: provider, require_live_cohort: true });
+      assert.equal(sRes.status, "unavailable");
+      assert.equal(sRes.processing_eligible, false);
+      assert.equal(sRes.management_status, "unknown");
+      assert.equal(sRes.reason, "management_status_unknown");
+      assert.equal(sRes.nav_usd, null);
+      const pRes = projectSizingUnitAccountFacts([r5Acct], {
+        evaluated_at: spec.evaluated_at,
+        calendarProvider: provider,
+        require_live_cohort: true,
+      });
+      assert.equal(pRes.status, "unavailable");
+      assert.equal(pRes.processing_eligible, false);
+      assert.equal(pRes.nav_usd, null);
+    }
+    for (const [r5Acct, expectedReason] of [[sourceUnavailableAcct, "source_missing"], [inputUnavailableAcct, "input_missing"]]) {
+      const sRes = evalNavDirect(r5Acct, { evaluated_at: spec.evaluated_at, calendarProvider: provider, require_live_cohort: true });
+      assert.equal(sRes.status, "unavailable");
+      assert.equal(sRes.data_status, "missing");
+      assert.equal(sRes.reason, expectedReason);
+      assert.equal(sRes.nav_usd, null);
+      const pRes = projectSizingUnitAccountFacts([r5Acct], {
+        evaluated_at: spec.evaluated_at,
+        calendarProvider: provider,
+        require_live_cohort: true,
+      });
+      assert.equal(pRes.status, "unavailable");
+      assert.equal(pRes.data_status, "missing");
+      assert.equal(pRes.reason, expectedReason);
+      assert.equal(pRes.nav_usd, null);
     }
   },
 
@@ -1242,6 +1354,49 @@ const handlers = {
     assert.equal(subvalPeakLedger.sessions.at(-1).c_t, threeValPeakLedger.sessions.at(-1).c_t);
     assert.equal(subvalPeakLedger.sessions.at(-1).w_ref_usd, threeValPeakLedger.sessions.at(-1).w_ref_usd);
 
+    // R5-1: trading session open_utc falling on wrong NY calendar date fails closed
+    const shiftedOpenCal = structuredClone(pinnedCalendar);
+    shiftedOpenCal.sessions["2025-01-08"].open_utc = "2025-01-06T14:30:00.000Z";
+    const shiftedOpenProv = createPinnedCalendarProvider(shiftedOpenCal);
+    const shiftedPeriodRes = evaluatePeriod7aReturn(skippedPeriod, { calendarProvider: shiftedOpenProv });
+    assert.equal(shiftedPeriodRes.status, "partial");
+    assert.equal(shiftedPeriodRes.return_pct, null);
+    assert.equal(shiftedPeriodRes.sizing_eligible, false);
+    assert.equal(shiftedPeriodRes.breaker_eligible, false);
+    assert.equal(shiftedPeriodRes.verdict_eligible, false);
+    assert.equal(shiftedPeriodRes.unavailable_reason, "calendar_session_bounds_mismatch");
+    const shiftedLedgerRes = evaluateTwrLedger({
+      initialState: { e_prev_usd: "100.00", e_star_prev_usd: "100.00", h_usd: "0", tier_drawdown_limit_d: "0.30" },
+      valuations: jan6to8PreClose,
+      flows: [],
+      calendarProvider: shiftedOpenProv,
+    });
+    assert.equal(shiftedLedgerRes.status, "partial");
+    assert.equal(shiftedLedgerRes.sizing_eligible, false);
+    assert.equal(shiftedLedgerRes.unavailable_reason, "calendar_session_bounds_mismatch");
+
+    // R5-4: session.h_usd cannot override ledger reserve h to dilute drawdown
+    const reserveBypassLedger = evaluateTwrLedger({
+      initialState: { e_prev_usd: "100.00", e_star_prev_usd: "100.00", h_usd: "0", tier_drawdown_limit_d: "0.30" },
+      sessions: [
+        {
+          period_start_utc: "2025-01-06T21:00:00.000Z",
+          period_end_utc: "2025-01-07T21:00:00.000Z",
+          ending_equity_usd: "60.00",
+          h_usd: "900",
+          intraday_subvaluations: [],
+          flows: [],
+        },
+      ],
+      calendarProvider: calProv,
+    });
+    assert.equal(reserveBypassLedger.status, "unavailable");
+    assert.equal(reserveBypassLedger.return_pct, null);
+    assert.equal(reserveBypassLedger.sizing_eligible, false);
+    assert.equal(reserveBypassLedger.breaker_eligible, false);
+    assert.equal(reserveBypassLedger.verdict_eligible, false);
+    assert.equal(reserveBypassLedger.unavailable_reason, "session_reserve_mismatch");
+
     // S6: Dietz -64% period followed by exact 0% period never regains eligibility or dd_b="0"
     const dietzThenExactSessions = [
       {
@@ -1513,6 +1668,75 @@ const handlers = {
     assert.equal(usdComplete.continuity_status, "continuous");
     assert.equal(usdComplete.result.status, "eligible");
     assert.equal(usdComplete.result.return_pct, "20");
+
+    // R5-6: missing/null broker_environment never silently becomes "live" in externalFlowContinuityIntervals or continuity
+    const { externalFlowContinuityIntervals } = await import(
+      "../web/strategy-switch-console/application/account_facts/external_flow.js"
+    );
+    const nullCtxIntervals = externalFlowContinuityIntervals(
+      normalizeExternalFlow({
+        schema_version: "external_flow.v1",
+        windows: [
+          {
+            currency: "USD",
+            date: "2025-01-03",
+            period_start: "2025-01-02T00:00:00.000Z",
+            period_end: "2025-01-03T00:00:00.000Z",
+            coverage: "complete",
+            source: "ibkr_flex",
+            records: [],
+          },
+        ],
+      }),
+      { account_id: "synth-sizing-01", broker_environment: null, binding_id: "b_flow_1" },
+    );
+    assert.equal(nullCtxIntervals[0].broker_environment, null);
+    const nullEnvContinuity = buildAccountFactsContinuityReadModel({
+      account_id: "synth-sizing-01",
+      broker_environment: null,
+      requested_interval: { start_utc: "2025-01-02T00:00:00.000Z", end_utc: "2025-01-03T00:00:00.000Z" },
+      desk_view: false,
+      current_valuation_binding_id: "b_val_1",
+      history_source_binding_ids: [],
+      current_flow_binding_id: "b_flow_1",
+      flow_history_source_binding_ids: [],
+      valuation_intervals: [
+        {
+          start_utc: "2025-01-02T00:00:00.000Z",
+          end_utc: "2025-01-03T00:00:00.000Z",
+          account_id: "synth-sizing-01",
+          broker_environment: "live",
+          binding_id: "b_val_1",
+          coverage: "complete",
+          precision: "exact",
+          source_class: "synthetic",
+        },
+      ],
+      externalFlow: normalizeExternalFlow({
+        schema_version: "external_flow.v1",
+        windows: [
+          {
+            currency: "USD",
+            date: "2025-01-03",
+            period_start: "2025-01-02T00:00:00.000Z",
+            period_end: "2025-01-03T00:00:00.000Z",
+            coverage: "complete",
+            source: "ibkr_flex",
+            records: [],
+          },
+        ],
+      }),
+      candidate_return_pct: "20",
+      origin: "synthetic",
+      source_class: "synthetic",
+      evidence_ref: "sa1:a11:r5-null-env",
+    });
+    assert.ok(validateContinuitySchema(nullEnvContinuity));
+    assert.equal(nullEnvContinuity.broker_environment, null);
+    assert.equal(nullEnvContinuity.continuity_status, "insufficient_history");
+    assert.equal(nullEnvContinuity.result.status, "insufficient_history");
+    assert.equal(nullEnvContinuity.result.return_pct, null);
+    assert.equal(nullEnvContinuity.result.unavailable_reason, "broker_environment_missing_or_unverified");
   },
 };
 

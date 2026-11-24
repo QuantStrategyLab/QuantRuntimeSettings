@@ -213,7 +213,9 @@ function findTransitionMismatches(valCovered, flowCovered, evalEndIso) {
  */
 export function evaluateHistoryContinuity(input = {}) {
   const accountId = safePublicText(input.account_id, "redacted-account");
-  const brokerEnv = input.broker_environment === "paper" ? "paper" : "live";
+  const rawBrokerEnv = input.broker_environment;
+  const brokerEnvValid = rawBrokerEnv === "live" || rawBrokerEnv === "paper";
+  const brokerEnv = brokerEnvValid ? rawBrokerEnv : null;
   const origin = input.origin === "production" ? "production" : "synthetic";
   const sourceClass = input.source_class || "synthetic";
   const evidenceRef = safePublicText(input.evidence_ref, `sa1:continuity:${accountId}`);
@@ -255,6 +257,47 @@ export function evaluateHistoryContinuity(input = {}) {
   const deskEffectiveStartMs = deskTruncated ? deskFloorMs : reqStartMs;
 
   const truncated = retentionTruncated || deskTruncated;
+
+  if (!brokerEnvValid) {
+    return {
+      schema_version: CONTINUITY_SCHEMA,
+      account_id: accountId,
+      broker_environment: null,
+      requested_interval: { start_utc: reqStartIso, end_utc: reqEndIso },
+      retention_clip: {
+        limit_days: RETENTION_LIMIT_DAYS,
+        effective_start_utc: new Date(retentionEffectiveStartMs).toISOString(),
+        effective_end_utc: reqEndIso,
+        truncated: retentionTruncated,
+      },
+      desk_window_clip: {
+        limit_months: DESK_LIMIT_MONTHS,
+        applicable: deskApplicable,
+        effective_start_utc: new Date(deskEffectiveStartMs).toISOString(),
+        effective_end_utc: reqEndIso,
+        truncated: deskTruncated,
+      },
+      truncated,
+      continuity_status: "insufficient_history",
+      covered_intervals: [],
+      gap_intervals: [{
+        start_utc: reqStartIso,
+        end_utc: reqEndIso,
+        evidence_kind: "both",
+        reason: "broker_environment_missing_or_unverified",
+        binding_id: null,
+      }],
+      rejected_intervals: [],
+      result: {
+        status: "insufficient_history",
+        return_pct: null,
+        unavailable_reason: "broker_environment_missing_or_unverified",
+      },
+      origin,
+      source_class: sourceClass,
+      evidence_ref: evidenceRef,
+    };
+  }
 
   // Bindings are strictly scoped by evidence kind: valuation history bindings
   // never authorize external-flow continuity.
