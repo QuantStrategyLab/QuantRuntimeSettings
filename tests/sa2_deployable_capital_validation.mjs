@@ -848,6 +848,137 @@ assert.equal(DEPLOYABLE_CAPITAL_SCHEMA, "qsl.deployable_capital_sizing.v1");
   assert.equal(untimedBuyBlocked.capital.c_avail_usd, "0");
   assert.equal(untimedBuyBlocked.orders[0].delta_q_buy, "0");
   assert.equal(untimedBuyBlocked.orders[0].buy_blocked_reason, "zero_deployable_cash");
+
+  // Codex round-4 #1 (PRRT_kwDOSZeN-M67pKBv): Reject NAV observed/evaluated after sizing boundary & re-check freshness.
+  const providerR4 = createPinnedCalendarProvider(pinnedCalendar);
+  const futureNav2100 = evaluateSizingUnitNav(
+    {
+      account_id: "ibkr:live:a1",
+      platform: "ibkr",
+      broker_environment: "live",
+      management_status: "managed",
+      evidence_state: "known",
+      currency: "USD",
+      nav_usd: "5000.00",
+      settled_cash_usd: "5000.00",
+      unsettled_cash_usd: "0",
+      tbill_nav_usd: "0",
+      etf_market_value_usd: "0",
+      accrued_fees_usd: "0",
+      margin_debt_usd: "0",
+      margin_enabled: false,
+      positions: [],
+      observed_at: "2025-01-08T21:00:00.000Z",
+      fetched_at: "2025-01-08T21:00:05.000Z",
+      evaluated_at: "2025-01-08T21:01:00.000Z",
+      origin: "synthetic",
+      source_class: "synthetic",
+      evidence_ref: "sa2:codex-r4:nav-2100",
+    },
+    { calendarProvider: providerR4, require_live_cohort: true },
+  );
+  assert.equal(futureNav2100.status, "available");
+
+  const earlyBoundarySizing = evaluateDeployableCapitalSizing({
+    sizing_unit_nav: futureNav2100,
+    r_cash_usd: "0",
+    proceeds_eligible_usd: "0",
+    k_pend_usd: "0",
+    fee_schedule: { provenance: "synthetic_fixture", c_min_usd: "1.00", c_per_share_usd: "0.01", c_reg: "0.25", b_exec_usd: "0" },
+    targets: [{ symbol: "AAPL", q_pre: "0", price_ref: "50.00", price_lim: "50.00", w_target: "1" }],
+    evaluated_at: "2025-01-08T20:00:00.000Z",
+    origin: "synthetic",
+    source_class: "synthetic",
+    evidence_ref: "sa2:codex-r4:early-sizing",
+  });
+  assert.ok(validateSchema(earlyBoundarySizing), ajv.errorsText(validateSchema.errors));
+  assert.equal(earlyBoundarySizing.status, "unavailable");
+  assert.equal(earlyBoundarySizing.reason, "nav_observed_after_sizing_boundary");
+  assert.equal(earlyBoundarySizing.orders.length, 0);
+
+  // Pre-close NAV (20:30 observed, 20:31 fresh) becomes stale after 21:00Z XNYS close when sizing runs at 21:30Z.
+  const preCloseNav = evaluateSizingUnitNav(
+    {
+      account_id: "ibkr:live:a1",
+      platform: "ibkr",
+      broker_environment: "live",
+      management_status: "managed",
+      evidence_state: "known",
+      currency: "USD",
+      nav_usd: "5000.00",
+      settled_cash_usd: "5000.00",
+      unsettled_cash_usd: "0",
+      tbill_nav_usd: "0",
+      etf_market_value_usd: "0",
+      accrued_fees_usd: "0",
+      margin_debt_usd: "0",
+      margin_enabled: false,
+      positions: [],
+      observed_at: "2025-01-08T20:30:00.000Z",
+      fetched_at: "2025-01-08T20:30:05.000Z",
+      evaluated_at: "2025-01-08T20:31:00.000Z",
+      origin: "synthetic",
+      source_class: "synthetic",
+      evidence_ref: "sa2:codex-r4:nav-pre-close",
+    },
+    { calendarProvider: providerR4, require_live_cohort: true },
+  );
+  assert.equal(preCloseNav.status, "available");
+  assert.equal(preCloseNav.freshness.data_status, "fresh");
+
+  const staleAfterClose = evaluateDeployableCapitalSizing(
+    {
+      sizing_unit_nav: preCloseNav,
+      r_cash_usd: "0",
+      proceeds_eligible_usd: "0",
+      k_pend_usd: "0",
+      fee_schedule: { provenance: "synthetic_fixture", c_min_usd: "1.00", c_per_share_usd: "0.01", c_reg: "0.25", b_exec_usd: "0" },
+      targets: [{ symbol: "AAPL", q_pre: "0", price_ref: "50.00", price_lim: "50.00", w_target: "1" }],
+      evaluated_at: "2025-01-08T21:30:00.000Z",
+      origin: "synthetic",
+      source_class: "synthetic",
+      evidence_ref: "sa2:codex-r4:stale-after-close",
+    },
+    { calendarProvider: providerR4 },
+  );
+  assert.ok(validateSchema(staleAfterClose), ajv.errorsText(validateSchema.errors));
+  assert.equal(staleAfterClose.status, "unavailable");
+  assert.equal(staleAfterClose.reason, "snapshot_stale");
+  assert.equal(staleAfterClose.orders.length, 0);
+
+  // Later sizing timestamp without calendarProvider also fails closed rather than trusting cached freshness.
+  const laterWithoutCal = evaluateDeployableCapitalSizing({
+    sizing_unit_nav: preCloseNav,
+    r_cash_usd: "0",
+    proceeds_eligible_usd: "0",
+    k_pend_usd: "0",
+    fee_schedule: { provenance: "synthetic_fixture", c_min_usd: "1.00", c_per_share_usd: "0.01", c_reg: "0.25", b_exec_usd: "0" },
+    targets: [{ symbol: "AAPL", q_pre: "0", price_ref: "50.00", price_lim: "50.00", w_target: "1" }],
+    evaluated_at: "2025-01-08T21:30:00.000Z",
+    origin: "synthetic",
+    source_class: "synthetic",
+    evidence_ref: "sa2:codex-r4:no-cal",
+  });
+  assert.ok(validateSchema(laterWithoutCal));
+  assert.equal(laterWithoutCal.status, "unavailable");
+  assert.equal(laterWithoutCal.reason, "calendar_provider_unavailable");
+
+  // NAV observed before sizing (20:30) but evaluated_at after sizing (20:31 vs 20:30:10) also fails closed.
+  const navEvaluatedAfterSizing = evaluateDeployableCapitalSizing({
+    sizing_unit_nav: preCloseNav,
+    r_cash_usd: "0",
+    proceeds_eligible_usd: "0",
+    k_pend_usd: "0",
+    fee_schedule: { provenance: "synthetic_fixture", c_min_usd: "1.00", c_per_share_usd: "0.01", c_reg: "0.25", b_exec_usd: "0" },
+    targets: [],
+    evaluated_at: "2025-01-08T20:30:10.000Z",
+    origin: "synthetic",
+    source_class: "synthetic",
+    evidence_ref: "sa2:codex-r4:nav-eval-after",
+  });
+  assert.ok(validateSchema(navEvaluatedAfterSizing));
+  assert.equal(navEvaluatedAfterSizing.status, "unavailable");
+  assert.equal(navEvaluatedAfterSizing.reason, "nav_evaluated_after_sizing_boundary");
 }
 
 console.log("sa2_deployable_capital_validation: PASS (SA-A13)");

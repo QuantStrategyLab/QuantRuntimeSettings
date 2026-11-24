@@ -10,6 +10,7 @@
  */
 
 import { isRawAccountIdentifier, isUnsafePrivateLocator } from "../naming_canonical/helpers.js";
+import { evaluateFreshness } from "./freshness.js";
 import {
   parseInstantNs,
   ratAdd,
@@ -166,6 +167,121 @@ function resolveEvaluatedAt(input, options) {
   if (typeof candidate !== "string") return null;
   const ns = parseInstantNs(candidate);
   return ns === null ? null : toUtcIsoFromNs(ns);
+}
+
+function validateNavAtSizingBoundary(nav, { evaluatedAt, sizingEvalNs, options, raw }) {
+  const topObserved = nav.observed_at ?? null;
+  const freshObserved = nav.freshness?.observed_at ?? null;
+  if (topObserved !== null && freshObserved !== null && parseInstantNs(topObserved) !== parseInstantNs(freshObserved)) {
+    return { ok: false, reason: "nav_timestamp_mismatch" };
+  }
+  const navObservedRaw = topObserved ?? freshObserved ?? nav.as_of ?? nav.snapshot_at ?? null;
+  const navObservedNs = typeof navObservedRaw === "string" ? parseInstantNs(navObservedRaw) : null;
+  if (navObservedNs === null) {
+    return { ok: false, reason: "nav_missing_or_invalid_timestamp" };
+  }
+
+  const topEvaluated = nav.evaluated_at ?? null;
+  const freshEvaluated = nav.freshness?.evaluated_at ?? null;
+  if (topEvaluated !== null && freshEvaluated !== null && parseInstantNs(topEvaluated) !== parseInstantNs(freshEvaluated)) {
+    return { ok: false, reason: "nav_timestamp_mismatch" };
+  }
+  const navEvaluatedRaw = topEvaluated ?? freshEvaluated ?? null;
+  const navEvaluatedNs = typeof navEvaluatedRaw === "string" ? parseInstantNs(navEvaluatedRaw) : null;
+  if (navEvaluatedNs === null) {
+    return { ok: false, reason: "nav_missing_or_invalid_timestamp" };
+  }
+
+  const topFetched = nav.fetched_at ?? null;
+  const freshFetched = nav.freshness?.fetched_at ?? null;
+  if (topFetched !== null && freshFetched !== null && parseInstantNs(topFetched) !== parseInstantNs(freshFetched)) {
+    return { ok: false, reason: "nav_timestamp_mismatch" };
+  }
+  const navFetchedRaw = topFetched ?? freshFetched ?? null;
+  let navFetchedNs = null;
+  if (navFetchedRaw !== null) {
+    navFetchedNs = typeof navFetchedRaw === "string" ? parseInstantNs(navFetchedRaw) : null;
+    if (navFetchedNs === null) {
+      return { ok: false, reason: "nav_missing_or_invalid_timestamp" };
+    }
+  }
+
+  if (sizingEvalNs !== null) {
+    if (navObservedNs > sizingEvalNs) {
+      return { ok: false, reason: "nav_observed_after_sizing_boundary" };
+    }
+    if (navFetchedNs !== null && navFetchedNs > sizingEvalNs) {
+      return { ok: false, reason: "nav_fetched_after_sizing_boundary" };
+    }
+    if (navEvaluatedNs > sizingEvalNs) {
+      return { ok: false, reason: "nav_evaluated_after_sizing_boundary" };
+    }
+  }
+
+  if (nav.coverage_window?.end_utc !== undefined && nav.coverage_window?.end_utc !== null) {
+    const covEndNs = typeof nav.coverage_window.end_utc === "string"
+      ? parseInstantNs(nav.coverage_window.end_utc)
+      : null;
+    if (covEndNs === null) {
+      return { ok: false, reason: "nav_missing_or_invalid_timestamp" };
+    }
+    if (sizingEvalNs !== null && covEndNs > sizingEvalNs) {
+      return { ok: false, reason: "nav_observed_after_sizing_boundary" };
+    }
+  }
+
+  if (Array.isArray(nav.observations)) {
+    for (const obs of nav.observations) {
+      if (obs && typeof obs === "object") {
+        if (obs.observed_at !== undefined && obs.observed_at !== null) {
+          const obsNs = typeof obs.observed_at === "string" ? parseInstantNs(obs.observed_at) : null;
+          if (obsNs === null || (sizingEvalNs !== null && obsNs > sizingEvalNs)) {
+            return { ok: false, reason: obsNs === null ? "nav_missing_or_invalid_timestamp" : "nav_observed_after_sizing_boundary" };
+          }
+        }
+        if (obs.fetched_at !== undefined && obs.fetched_at !== null) {
+          const obsFetchedNs = typeof obs.fetched_at === "string" ? parseInstantNs(obs.fetched_at) : null;
+          if (obsFetchedNs === null || (sizingEvalNs !== null && obsFetchedNs > sizingEvalNs)) {
+            return { ok: false, reason: obsFetchedNs === null ? "nav_missing_or_invalid_timestamp" : "nav_fetched_after_sizing_boundary" };
+          }
+        }
+      }
+    }
+  }
+
+  if (typeof nav.freshness?.age_sessions === "number" && nav.freshness.age_sessions !== 0) {
+    return { ok: false, reason: "snapshot_stale" };
+  }
+
+  const maxAgeRaw = options?.max_nav_age_seconds ?? raw?.max_nav_age_seconds;
+  if (maxAgeRaw !== undefined && maxAgeRaw !== null) {
+    const maxAgeRat = typeof maxAgeRaw === "number"
+      ? (Number.isFinite(maxAgeRaw) && maxAgeRaw >= 0 ? ratFromText(String(maxAgeRaw)) : null)
+      : ratFromText(maxAgeRaw);
+    if (!maxAgeRat || maxAgeRat.n < 0n || sizingEvalNs === null) {
+      return { ok: false, reason: "invalid_max_nav_age_seconds" };
+    }
+    const ageNsRat = { n: sizingEvalNs - navObservedNs, d: 1_000_000_000n };
+    if (ratCmp(ageNsRat, maxAgeRat) > 0) {
+      return { ok: false, reason: "sizing_unit_nav_max_age_exceeded" };
+    }
+  }
+
+  if (options?.calendarProvider || (sizingEvalNs !== null && sizingEvalNs !== navEvaluatedNs)) {
+    const freshCheck = evaluateFreshness(
+      {
+        observed_at: toUtcIsoFromNs(navObservedNs),
+        fetched_at: toUtcIsoFromNs(navFetchedNs ?? navObservedNs),
+        evaluated_at: evaluatedAt,
+      },
+      options ?? {},
+    );
+    if (freshCheck.data_status !== "fresh" || freshCheck.sizing_eligible !== true) {
+      return { ok: false, reason: sanitizePublicReason(freshCheck.reason, "sizing_unit_nav_stale") };
+    }
+  }
+
+  return { ok: true };
 }
 
 function normalizeFeeSchedule(rawSchedule) {
@@ -971,6 +1087,28 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
       sourceClass,
       evidenceRef,
     });
+  }
+  if (nav) {
+    const navBoundaryCheck = validateNavAtSizingBoundary(nav, {
+      evaluatedAt,
+      sizingEvalNs,
+      options,
+      raw,
+    });
+    if (!navBoundaryCheck.ok) {
+      return buildUnavailableResult({
+        reason: navBoundaryCheck.reason,
+        accountId,
+        broker,
+        environment,
+        evaluatedAt,
+        feeScheduleView: feeParsed.view,
+        orderUnknownSymbols,
+        origin,
+        sourceClass,
+        evidenceRef,
+      });
+    }
   }
 
   // Fee schedule (OI-COST-3) must be explicitly provided with provenance

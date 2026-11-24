@@ -2434,4 +2434,68 @@ assert.ok(ORDER_LIFECYCLE_STATES.includes("ORDER_UNKNOWN"));
   );
 }
 
+// 10. Codex round-4 regression guard (PRRT_kwDOSZeN-M67pKB0: untimed terminal observation must NOT clear ORDER_UNKNOWN lock)
+{
+  let untimedLockStore = createOrderUnknownLockStore();
+  untimedLockStore = applyOrderUnknownObservation(untimedLockStore, {
+    broker: "longbridge",
+    environment: "paper",
+    account: "longbridge:paper:pilot",
+    client_order_id: "ord-lock-untimed",
+    broker_order_id: null,
+    symbol: "AAPL",
+    side: "BUY",
+    state: "ORDER_UNKNOWN",
+    qty_submitted: "10",
+    limit_price: "50.00",
+    estimated_fee_usd: "0",
+    currency: "USD",
+    submitted_at: "2026-11-24T14:55:00.000Z",
+    evidence_ref: "sa2:codex-r4:lock-create",
+  });
+
+  const untimedTerminalEvent = {
+    broker: "longbridge",
+    environment: "paper",
+    account: "longbridge:paper:pilot",
+    client_order_id: "ord-lock-untimed",
+    symbol: "AAPL",
+    state: "CANCELED",
+  };
+  const retainedWithEval = applyOrderUnknownObservation(
+    untimedLockStore,
+    untimedTerminalEvent,
+    { evaluatedAt: "2026-11-24T15:00:00.000Z" },
+  );
+  assert.deepEqual(
+    lockedSymbolsForAccount(retainedWithEval, { broker: "longbridge", environment: "paper", account: "longbridge:paper:pilot" }),
+    ["AAPL"],
+  );
+  const retainedCheck = checkSymbolOrderAllowed(retainedWithEval, {
+    broker: "longbridge",
+    environment: "paper",
+    account: "longbridge:paper:pilot",
+    symbol: "AAPL",
+  });
+  assert.equal(retainedCheck.allowed, false);
+  assert.equal(retainedCheck.lock.k_pend_usd, "500.00");
+
+  const retainedWithoutEval = applyOrderUnknownObservation(untimedLockStore, untimedTerminalEvent);
+  assert.deepEqual(
+    lockedSymbolsForAccount(retainedWithoutEval, { broker: "longbridge", environment: "paper", account: "longbridge:paper:pilot" }),
+    ["AAPL"],
+  );
+
+  // Positive control: timestamped terminal evidence <= evaluatedAt clears the lock cleanly.
+  const clearedTimestamped = applyOrderUnknownObservation(
+    retainedWithEval,
+    { ...untimedTerminalEvent, resolved_at: "2026-11-24T14:59:00.000Z" },
+    { evaluatedAt: "2026-11-24T15:00:00.000Z" },
+  );
+  assert.deepEqual(
+    lockedSymbolsForAccount(clearedTimestamped, { broker: "longbridge", environment: "paper", account: "longbridge:paper:pilot" }),
+    [],
+  );
+}
+
 console.log("sa2_orders_fills_validation: PASS (SA-A12)");

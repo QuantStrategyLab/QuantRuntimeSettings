@@ -382,7 +382,7 @@ export function applyOrderUnknownObservation(store, event, options = {}) {
   }
 
   if (TERMINAL_STATE_SET.has(event.state)) {
-    if (evalAtNs !== null && maxEventNs !== null && maxEventNs > evalAtNs) {
+    if (maxEventNs === null || (evalAtNs !== null && maxEventNs > evalAtNs)) {
       return { schema_version: ORDER_UNKNOWN_LOCK_STORE_SCHEMA, locks: nextLocks };
     }
     delete nextLocks[targetKey];
