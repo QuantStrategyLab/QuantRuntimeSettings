@@ -150,9 +150,10 @@
       "work_item": "Adoption step 3: wire-only constructor, observation dispatch before initialization, explicit command initialization; alarm and command initialization preserved",
       "acceptance_test": "Real Worker/DO suite with read-only trap installed before construction: cold, old, partial and current schemas; every operation listed here accounted for; write and alarm initialization still covered",
       "expires_on": "2027-01-13",
+      "expiry_basis": "Owner-approved pre-2026-12-14 disposition: the N1 interim deadline is consolidated to 2027-01-13 (within ADR 0002's 60-day window from 2026-11-14) with full B0 because routing the 5 N1 paths before initializeStorage() changes the reviewed RuntimeInstances preamble contract and requires read-only missing-table handling across all N1 backing tables.",
       "interim_deadlines": [
         {
-          "due_on": "2026-12-14",
+          "due_on": "2027-01-13",
           "scope": "N1 projections and other declared no-write paths: route:/api/desk/ribbon#GET, route:/api/desk/overview#GET, route:/api/desk/accounts#GET, route:/api/desk/performance#GET, route:/api/desk/switch/targets/:id/strategies#GET"
         }
       ]
@@ -197,7 +198,8 @@
       ],
       "work_item": "Adoption step 4: explicit versioned risk-authority import with no-write preflight",
       "acceptance_test": "Reading an absent authority performs no INSERT and does not report initialized authority; revision and policy tests retained",
-      "expires_on": "2026-12-14"
+      "expires_on": "2027-01-13",
+      "expiry_basis": "Owner-approved bounded 60-day re-date from 2026-12-14 to 2027-01-13 (within ADR 0002's 60-day window from 2026-11-14): retiring B1 requires introducing an explicit versioned risk-authority import command with no-write preflight, changing absent-authority GET semantics across 8 operations protected by tests/account_settings_worker_validation.mjs, and re-anchoring the member-method witness suite built on ensureRiskProfileAuthority."
     },
     {
       "id": "B2",
@@ -219,7 +221,8 @@
       ],
       "work_item": "Adoption step 4: explicit cycle-health migration command",
       "acceptance_test": "GET state-equality proof; explicit migration preserves all attempts, partitions, coverage uncertainty and rollback (reuse the 400-attempt and bad-sibling cases)",
-      "expires_on": "2026-12-14"
+      "expires_on": "2027-01-13",
+      "expiry_basis": "Owner-approved bounded 60-day re-date from 2026-12-14 to 2027-01-13 (within ADR 0002's 60-day window from 2026-11-14): retiring B2 requires introducing an explicit privileged cycle-health migration command and defining unmigrated legacy v1 GET read semantics (including history_page over runtime_cycle_health_attempt), changing existing GET behaviour covered by tests/runtime_cycle_health_worker_validation.mjs on a dormant, production-blocked receiver."
     },
     {
       "id": "B3",
@@ -246,7 +249,8 @@
       ],
       "work_item": "Adoption step 4: stored-status read plus explicit reconcile command/job",
       "acceptance_test": "Stored-status read is observational; explicit reconcile keeps request identity, receipts, replay handling and no-redispatch; pending operations keep a servicing path",
-      "expires_on": "2026-12-14"
+      "expires_on": "2027-01-13",
+      "expiry_basis": "Owner-approved bounded 60-day re-date from 2026-12-14 to 2027-01-13 (within ADR 0002's 60-day window from 2026-11-14): decoupling polling GET receipt reconciliation into a stored-status read and explicit reconcile servicing path requires preserving pending runtime-control settlement."
     },
     {
       "id": "B4",
@@ -274,39 +278,8 @@
       ],
       "work_item": "Adoption step 4: explicit rotation reconcile command",
       "acceptance_test": "GET is observational; maintenance-revision conflicts, secret handling, step-up and replay unchanged; no forced completion or cancellation of pending rotation",
-      "expires_on": "2026-12-14"
-    },
-    {
-      "id": "B5",
-      "kind": "effect",
-      "title": "Binance detail read creates its table",
-      "effect_type": "CREATE TABLE binance_detail_daily inside binanceDetailCommand before branching to binance_detail_read",
-      "reachable_operations": [
-        "route:/api/internal/binance-account-facts/archive#GET",
-        "route:/api/internal/binance-account-facts/digest#GET",
-        "action:binance_detail_read"
-      ],
-      "helpers": [
-        {
-          "file": "web/strategy-switch-console/binance_detail_archive.js",
-          "symbol": "binanceDetailCommand",
-          "sites": {
-            "web/strategy-switch-console/application/runtime_instances/durable_object.js": 1
-          }
-        },
-        {
-          "file": "web/strategy-switch-console/binance_detail_archive.js",
-          "literal": "binance_detail_read",
-          "sites": {
-            "web/strategy-switch-console/application/runtime_instances/durable_object.js": 1,
-            "web/strategy-switch-console/application/worker/runtime_support.js": 4,
-            "web/strategy-switch-console/binance_detail_archive.js": 2
-          }
-        }
-      ],
-      "work_item": "With B0: move table creation to the write path",
-      "acceptance_test": "Empty and old-schema reads return a declared state without DDL; binance_detail_put creates or upgrades explicitly",
-      "expires_on": "2026-12-14"
+      "expires_on": "2027-01-13",
+      "expiry_basis": "Owner-approved bounded 60-day re-date from 2026-12-14 to 2027-01-13 (within ADR 0002's 60-day window from 2026-11-14): decoupling credential-rotation GET settlement into an explicit reconcile command requires preserving step-up, maintenance-revision conflicts, secret handling, and pending rotation servicing."
     },
     {
       "id": "B6",
@@ -404,9 +377,10 @@
           }
         }
       ],
-      "work_item": "impl-d1 bounded presentation correction (adoption step 2); canonical identity later (R3)",
+      "work_item": "impl-d1 bounded presentation correction (adoption step 2, IBKR landed in PR #1172); non-IBKR fallback and schema defaults aligned with canonical identity (R3)",
       "acceptance_test": "UI rendering tests reject raw technical aliases as IBKR account titles; label changes cannot change selection, requests or fingerprints",
-      "expires_on": "2026-12-14"
+      "expires_on": "2027-01-13",
+      "expiry_basis": "Owner-approved bounded 60-day re-date from 2026-12-14 to 2027-01-13 (within ADR 0002's 60-day window from 2026-11-14): IBKR display and typed-confirmation isolation landed in PR #1172 and is verified by tests/account_config_label_validation.mjs; the remaining three sites govern non-IBKR fallback labels (pinned by tests/account_config_label_validation.mjs) and account-options schema defaults relied on by existing stored payloads and backend target_name lookups, deferred to align with the 2027-01-13 R3/I2 checkpoint."
     },
     {
       "id": "I2",

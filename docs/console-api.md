@@ -34,7 +34,6 @@ can still do today:
   account with dispatch configured, `GET /api/accounts/run-controls` can
   advance runtime-control receipts (B3).
 - `GET /api/credential-rotation/...` can settle a pending operation (B4).
-- The Binance archive and digest reads can create their table (B5).
 - GET on Desk target readbacks can start a fresh collection with admission and
   an alarm (B6).
 - `/api/config` and the Console read routes that use current strategies can

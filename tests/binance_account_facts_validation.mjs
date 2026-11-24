@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import worker, { __test } from '../web/strategy-switch-console/worker.js';
 import { normalizeBinanceFactsBinding, normalizeBinanceAccountFacts, projectBinanceAccountFacts, filterBinanceDigestAssets,
   BINANCE_FACTS_KEY, binanceWalletHistoryEntry, binanceWalletHistoryStorageKey } from '../web/strategy-switch-console/binance_account_facts.js';
+import { binanceDetailCommand } from '../web/strategy-switch-console/binance_detail_archive.js';
 import { binanceProviderProductTypeForDisplay } from '../web/strategy-switch-console/frontend/src/types.ts';
 import { verifyBinanceAccountFactsReceiver } from '../scripts/verify_binance_account_facts_receiver.mjs';
 
@@ -683,6 +684,36 @@ assert.deepEqual(
   ['BTC', 'O', 'LDO', 'LDUSDT'],
   'filterBinanceDigestAssets removes LD<base> duplicates when <base> exists while retaining LDO and unpaired LD* tokens',
 );
+{
+  const statements = [];
+  const missingTableSql = {
+    exec(query) {
+      statements.push(String(query));
+      throw new Error('no such table: binance_detail_daily: SQLITE_ERROR');
+    },
+  };
+  assert.deepEqual(
+    binanceDetailCommand(missingTableSql, { action: 'binance_detail_read', binding, date: reportDay }),
+    { ok: true, report: null },
+    'empty/old-schema archive read returns null without DDL',
+  );
+  assert.deepEqual(
+    binanceDetailCommand(missingTableSql, { action: 'binance_detail_read', binding, date: closedDay, business_day: true }),
+    { ok: true, report: null },
+    'empty/old-schema digest read returns null without DDL',
+  );
+  assert.equal(statements.some(statement => /^\s*CREATE\b/i.test(statement)), false, 'binance_detail_read never runs DDL');
+  assert.throws(
+    () => binanceDetailCommand({ exec() { throw new Error('no such column: payload_json'); } }, { action: 'binance_detail_read', binding, date: reportDay }),
+    /no such column/,
+    'non-missing-table SQL errors are not swallowed on read',
+  );
+  const putStatements = [];
+  assert.throws(
+    () => binanceDetailCommand({ exec(query) { putStatements.push(String(query)); } }, { action: 'binance_detail_put', binding, date: reportDay, report: {} }),
+  );
+  assert.deepEqual(putStatements, [], 'invalid binance_detail_put rejects before DDL');
+}
 console.log(`Binance account facts: native decimals, ${invalid.length + invalidNativeAssets.length} rejection cases, privacy, token isolation, binding and worker tests PASS`);
 await mf.dispose();
 rmSync(persist, { recursive: true, force: true });

@@ -285,8 +285,8 @@ readbacks, credentials and alert-delivery routes intact.
   lifecycle. Each of the five routes reaches the `RuntimeInstances` Durable
   Object, whose constructor still initializes schema before any command runs
   (exception B0 in `tests/fixtures/read-contract-exceptions.json`). These routes
-  are therefore not yet no-write under rule R1; the interim deadline for them
-  is 2026-12-14. Their responses are unchanged, and this contract is the
+  are therefore not yet no-write under rule R1; their deadline is consolidated
+  with full B0 on 2027-01-13. Their responses are unchanged, and this contract is the
   declared scope/completeness contract the operation registry cites for them.
 
 ## 6. Frontend wiring
