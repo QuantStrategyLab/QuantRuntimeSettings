@@ -608,6 +608,246 @@ assert.equal(DEPLOYABLE_CAPITAL_SCHEMA, "qsl.deployable_capital_sizing.v1");
   assert.equal(freshBuyAllowed.status, "available");
   assert.equal(freshBuyAllowed.orders[0].action, "BUY");
   assert.equal(freshBuyAllowed.orders[0].delta_q_buy, "10");
+
+  // Codex round-3 #2 (PRRT_kwDOSZeN-M67o1UW): Reject orders_fills evaluated after sizing boundary (no look-ahead cash release).
+  const ofAt1602 = evaluateAuthoritativeOrdersAndFills({
+    broker: "ibkr",
+    environment: "live",
+    account: "ibkr:live:a1",
+    as_of: "2026-11-24T16:02:00.000Z",
+    evaluated_at: "2026-11-24T16:02:00.000Z",
+    origin: "synthetic",
+    source_class: "authorized_live_broker",
+    evidence_ref: "sa2:codex-r3:of-1602",
+    domains: {
+      submissions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T16:02:00.000Z",
+        source: "ibkr_subs",
+        scope: "account_submissions",
+        cap: 256,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            client_order_id: "ord-fill-1600",
+            broker_order_id: "brk-fill-1600",
+            symbol: "AAPL",
+            side: "BUY",
+            state: "FILLED",
+            qty_submitted: "10",
+            limit_price: "50",
+            currency: "USD",
+            fee_native: null,
+            fee_currency: null,
+            submitted_at: "2026-11-24T14:55:00.000Z",
+            resolved_at: "2026-11-24T16:00:00.000Z",
+            evidence_ref: "sa2:codex-r3:sub-1600",
+          },
+        ],
+      },
+      executions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T16:02:00.000Z",
+        source: "ibkr_execs",
+        scope: "account_executions",
+        cap: 512,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            execution_ref: "exec-fill-1600",
+            client_order_id: "ord-fill-1600",
+            broker_order_id: "brk-fill-1600",
+            symbol: "AAPL",
+            side: "BUY",
+            qty: "10",
+            price: "50",
+            currency: "USD",
+            fee_native: "0",
+            fee_currency: "USD",
+            executed_at: "2026-11-24T16:00:00.000Z",
+            evidence_ref: "sa2:codex-r3:ex-1600",
+          },
+        ],
+      },
+      cutoff_open_orders: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T16:02:00.000Z",
+        source: "ibkr_open",
+        scope: "cutoff_open_orders",
+        cap: 256,
+        count: 0,
+        truncated: false,
+        completeness: "complete",
+        records: [],
+      },
+    },
+  });
+  assert.equal(ofAt1602.summary.k_pend_usd, "0");
+
+  const lookaheadRejectedRawEval = evaluateDeployableCapitalSizing({
+    broker: "ibkr",
+    environment: "live",
+    account_id: "ibkr:live:a1",
+    evaluated_at: "2026-11-24T15:02:00.000Z",
+    equity_usd: "1000.00",
+    cash_settled_usd: "500.00",
+    proceeds_eligible_usd: "0",
+    r_cash_usd: "0",
+    orders_fills: ofAt1602,
+    fee_schedule: { provenance: "synthetic_fixture", c_min_usd: "1.00", c_per_share_usd: "0.01", c_reg: "0.25", b_exec_usd: "0" },
+    targets: [{ symbol: "AAPL", q_pre: "0", price_ref: "50.00", price_lim: "50.50", w_target: "1" }],
+    origin: "synthetic",
+    source_class: "synthetic",
+    evidence_ref: "sa2:codex-r3:lookahead-raw",
+  });
+  assert.ok(validateSchema(lookaheadRejectedRawEval), ajv.errorsText(validateSchema.errors));
+  assert.equal(lookaheadRejectedRawEval.status, "unavailable");
+  assert.equal(lookaheadRejectedRawEval.reason, "orders_fills_evaluated_after_sizing_boundary");
+  assert.equal(lookaheadRejectedRawEval.orders.length, 0);
+
+  const lookaheadRejectedOptEval = evaluateDeployableCapitalSizing({
+    broker: "ibkr",
+    environment: "live",
+    account_id: "ibkr:live:a1",
+    equity_usd: "1000.00",
+    cash_settled_usd: "500.00",
+    proceeds_eligible_usd: "0",
+    r_cash_usd: "0",
+    orders_fills: ofAt1602,
+    fee_schedule: { provenance: "synthetic_fixture", c_min_usd: "1.00", c_per_share_usd: "0.01", c_reg: "0.25", b_exec_usd: "0" },
+    targets: [{ symbol: "AAPL", q_pre: "0", price_ref: "50.00", price_lim: "50.50", w_target: "1" }],
+    origin: "synthetic",
+    source_class: "synthetic",
+    evidence_ref: "sa2:codex-r3:lookahead-opt",
+  }, { evaluated_at: "2026-11-24T15:02:00.000Z" });
+  assert.ok(validateSchema(lookaheadRejectedOptEval), ajv.errorsText(validateSchema.errors));
+  assert.equal(lookaheadRejectedOptEval.status, "unavailable");
+  assert.equal(lookaheadRejectedOptEval.reason, "orders_fills_evaluated_after_sizing_boundary");
+  assert.equal(lookaheadRejectedOptEval.orders.length, 0);
+
+  // Positive control: orders_fills evaluated at 16:02 composed into sizing at 16:02 succeeds cleanly.
+  const sameBoundaryOk = evaluateDeployableCapitalSizing({
+    broker: "ibkr",
+    environment: "live",
+    account_id: "ibkr:live:a1",
+    evaluated_at: "2026-11-24T16:02:00.000Z",
+    equity_usd: "1000.00",
+    cash_settled_usd: "500.00",
+    proceeds_eligible_usd: "0",
+    r_cash_usd: "0",
+    orders_fills: ofAt1602,
+    fee_schedule: { provenance: "synthetic_fixture", c_min_usd: "1.00", c_per_share_usd: "0.01", c_reg: "0.25", b_exec_usd: "0" },
+    targets: [{ symbol: "AAPL", q_pre: "0", price_ref: "50.00", price_lim: "50.50", w_target: "0.5" }],
+    origin: "synthetic",
+    source_class: "synthetic",
+    evidence_ref: "sa2:codex-r3:same-boundary-ok",
+  });
+  assert.ok(validateSchema(sameBoundaryOk), ajv.errorsText(validateSchema.errors));
+  assert.equal(sameBoundaryOk.status, "available");
+
+  // Compose Codex round-3 #1 into sizing: untimed execution without cutoff keeps $500 reserved so other buys cannot spend it.
+  const untimedOrdersFills = evaluateAuthoritativeOrdersAndFills({
+    broker: "ibkr",
+    environment: "live",
+    account: "ibkr:live:a1",
+    as_of: "2026-11-24T15:02:00.000Z",
+    evaluated_at: "2026-11-24T15:02:00.000Z",
+    origin: "synthetic",
+    source_class: "authorized_live_broker",
+    evidence_ref: "sa2:codex-r3:untimed-sizing",
+    domains: {
+      submissions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "ibkr_subs",
+        scope: "account_submissions",
+        cap: 256,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            client_order_id: "ord-untimed-sz",
+            broker_order_id: "brk-untimed-sz",
+            symbol: "MSFT",
+            side: "BUY",
+            state: "ACCEPTED",
+            qty_submitted: "10",
+            limit_price: "50",
+            estimated_fee_usd: "0",
+            currency: "USD",
+            fee_native: null,
+            fee_currency: null,
+            submitted_at: "2026-11-24T15:01:00.000Z",
+            evidence_ref: "sa2:codex-r3:sub-untimed-sz",
+          },
+        ],
+      },
+      executions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "ibkr_execs",
+        scope: "account_executions",
+        cap: 512,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            execution_ref: "exec-untimed-sz",
+            client_order_id: "ord-untimed-sz",
+            broker_order_id: "brk-untimed-sz",
+            symbol: "MSFT",
+            side: "BUY",
+            qty: "10",
+            price: "50",
+            currency: "USD",
+            fee_native: "0",
+            fee_currency: "USD",
+            executed_at: null,
+            evidence_ref: "sa2:codex-r3:ex-untimed-sz",
+          },
+        ],
+      },
+      cutoff_open_orders: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:00:00.000Z",
+        source: "ibkr_open",
+        scope: "cutoff_open_orders",
+        cap: 256,
+        count: 0,
+        truncated: false,
+        completeness: "complete",
+        records: [],
+      },
+    },
+  });
+  const untimedBuyBlocked = evaluateDeployableCapitalSizing({
+    broker: "ibkr",
+    environment: "live",
+    account_id: "ibkr:live:a1",
+    evaluated_at: "2026-11-24T15:02:00.000Z",
+    equity_usd: "1000.00",
+    cash_settled_usd: "500.00",
+    proceeds_eligible_usd: "0",
+    r_cash_usd: "0",
+    orders_fills: untimedOrdersFills,
+    fee_schedule: { provenance: "synthetic_fixture", c_min_usd: "1.00", c_per_share_usd: "0.01", c_reg: "0.25", b_exec_usd: "0" },
+    targets: [{ symbol: "AAPL", q_pre: "0", price_ref: "50.00", price_lim: "50.50", w_target: "0.5" }],
+    origin: "synthetic",
+    source_class: "synthetic",
+    evidence_ref: "sa2:codex-r3:untimed-buy-blocked",
+  });
+  assert.ok(validateSchema(untimedBuyBlocked), ajv.errorsText(validateSchema.errors));
+  assert.equal(untimedBuyBlocked.capital.k_pend_usd, "500.00");
+  assert.equal(untimedBuyBlocked.capital.k_pend_release_allowed, false);
+  assert.equal(untimedBuyBlocked.capital.c_avail_usd, "0");
+  assert.equal(untimedBuyBlocked.orders[0].delta_q_buy, "0");
+  assert.equal(untimedBuyBlocked.orders[0].buy_blocked_reason, "zero_deployable_cash");
 }
 
 console.log("sa2_deployable_capital_validation: PASS (SA-A13)");

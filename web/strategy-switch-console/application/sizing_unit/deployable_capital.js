@@ -774,6 +774,61 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
       evidenceRef,
     });
   }
+  const sizingEvalNs = parseInstantNs(evaluatedAt);
+  if (ordersFills) {
+    const ordersEvalNs = typeof ordersFills.evaluated_at === "string"
+      ? parseInstantNs(ordersFills.evaluated_at)
+      : null;
+    if (ordersEvalNs === null) {
+      return buildUnavailableResult({
+        reason: "orders_fills_missing_or_invalid_evaluated_at",
+        accountId,
+        broker,
+        environment,
+        evaluatedAt,
+        feeScheduleView: feeParsed.view,
+        orderUnknownSymbols,
+        origin,
+        sourceClass,
+        evidenceRef,
+      });
+    }
+    if (sizingEvalNs !== null && ordersEvalNs > sizingEvalNs) {
+      return buildUnavailableResult({
+        reason: "orders_fills_evaluated_after_sizing_boundary",
+        accountId,
+        broker,
+        environment,
+        evaluatedAt,
+        feeScheduleView: feeParsed.view,
+        orderUnknownSymbols,
+        origin,
+        sourceClass,
+        evidenceRef,
+      });
+    }
+    if (ordersFills.as_of !== undefined && ordersFills.as_of !== null) {
+      const ordersAsOfNs = typeof ordersFills.as_of === "string"
+        ? parseInstantNs(ordersFills.as_of)
+        : null;
+      if (ordersAsOfNs === null || (sizingEvalNs !== null && ordersAsOfNs > sizingEvalNs)) {
+        return buildUnavailableResult({
+          reason: ordersAsOfNs === null
+            ? "orders_fills_invalid_as_of"
+            : "orders_fills_as_of_after_sizing_boundary",
+          accountId,
+          broker,
+          environment,
+          evaluatedAt,
+          feeScheduleView: feeParsed.view,
+          orderUnknownSymbols,
+          origin,
+          sourceClass,
+          evidenceRef,
+        });
+      }
+    }
+  }
   if (ordersFills?.account_binding) {
     const ab = ordersFills.account_binding;
     const expectedAccount = parsedOrdersAccount.value ?? accountId;
@@ -961,11 +1016,13 @@ export function evaluateDeployableCapitalSizing(input = {}, options = {}) {
   let kPendUnknown = false;
   if (ordersFills) {
     const cutoffDom = ordersFills.domains?.cutoff_open_orders;
+    const cutoffDomAsOfNs = cutoffDom?.as_of ? parseInstantNs(cutoffDom.as_of) : null;
     const cutoffCoverageUnproven = Boolean(
       cutoffDom && (
         cutoffDom.domain_capability !== "supported"
         || cutoffDom.completeness !== "complete"
         || cutoffDom.truncated !== false
+        || (cutoffDomAsOfNs !== null && sizingEvalNs !== null && cutoffDomAsOfNs > sizingEvalNs)
         || (typeof cutoffDom.cap === "number" && typeof cutoffDom.count === "number" && cutoffDom.count >= cutoffDom.cap)
       ),
     );

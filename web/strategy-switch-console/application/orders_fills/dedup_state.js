@@ -401,14 +401,15 @@ export function reconcileOrdersAndFills({
     const sub = entry.submission;
     const cutoff = entry.cutoff;
     const matchingExecs = entry.executions;
-    const effectiveExecs = evalNs === null
-      ? matchingExecs
-      : matchingExecs.filter((ex) => {
-        if (ex.executed_at === null || ex.executed_at === undefined) return true;
-        const exNs = parseInstantNs(ex.executed_at);
-        return exNs !== null && exNs <= evalNs;
-      });
-    const orderHasUnknownExecTs = effectiveExecs.some((ex) => ex.executed_at === null || ex.executed_at === undefined);
+    const effectiveExecs = matchingExecs.filter((ex) => {
+      if (ex.executed_at === null || ex.executed_at === undefined) return false;
+      if (evalNs === null) return true;
+      const exNs = parseInstantNs(ex.executed_at);
+      return exNs !== null && exNs <= evalNs;
+    });
+    const orderHasUnknownExecTs = matchingExecs.some(
+      (ex) => ex.executed_at === null || ex.executed_at === undefined,
+    );
     const lockFromClient = lockByClientId.get(entry.client_order_id) ?? null;
     const lockFromBroker = entry.broker_order_id !== null ? (lockByBrokerId.get(entry.broker_order_id) ?? null) : null;
     if (lockFromClient && lockFromBroker && lockFromClient.client_order_id !== lockFromBroker.client_order_id) {
@@ -495,6 +496,22 @@ export function reconcileOrdersAndFills({
       }
     }
 
+    if (cmpDec(filledDec, subDec) > 0 || cmpDec(addDecimal(filledDec, canceledDec), subDec) > 0) {
+      throw new OrdersFillsError("order_quantities_exceed_submitted", 400);
+    }
+
+    const isDefinitiveFilled = !entry.sawFutureTransition && (
+      (cutoff && !cutoffIsFuture && cutoff.state === "FILLED")
+      || (sub?.state === "FILLED" && (!cutoff || postCutoffSubTerminal))
+    );
+    if (isDefinitiveFilled) {
+      if (canceledDec.num > 0n) {
+        throw new OrdersFillsError("conflicting_duplicate_order", 409);
+      }
+      filledDec = subDec;
+      canceledDec = ZERO_DEC;
+    }
+
     const remainingDec = subDecimal(subDecimal(subDec, filledDec), canceledDec);
     if (remainingDec.num < 0n) {
       throw new OrdersFillsError("order_quantities_exceed_submitted", 400);
@@ -525,9 +542,9 @@ export function reconcileOrdersAndFills({
       }
     }
 
-    // Avg fill price across effective (<= evaluatedAt) executions
+    // Avg fill price across effective executions only when execution qty backs reconciled fills
     let avgFillPrice = null;
-    if (effectiveExecs.length > 0 && filledFromExecs.num > 0n) {
+    if (effectiveExecs.length > 0 && filledFromExecs.num > 0n && eqDecimal(filledFromExecs, filledDec)) {
       let totalVal = { n: 0n, d: 1n };
       let totalQty = { n: 0n, d: 1n };
       for (const ex of effectiveExecs) {
@@ -543,11 +560,11 @@ export function reconcileOrdersAndFills({
       }
     }
 
-    // Fees: preserve null whenever any fee is missing or non-USD without qualified basis.
+    // Fees: preserve null whenever any fee is missing or execution details lag filled qty.
     let feeNative = null;
     let feeCurrency = null;
     let feeUsd = null;
-    if (effectiveExecs.length > 0) {
+    if (effectiveExecs.length > 0 && eqDecimal(filledFromExecs, filledDec)) {
       const anyNullFee = effectiveExecs.some((ex) => ex.fee_native === null);
       const feeCurrencies = [...new Set(effectiveExecs.map((ex) => ex.fee_currency).filter(Boolean))];
       if (!anyNullFee && feeCurrencies.length === 1) {
@@ -566,7 +583,7 @@ export function reconcileOrdersAndFills({
         }
         feeUsd = formatUsdExact(sumUsd);
       }
-    } else if (sub && sub.fee_native !== null) {
+    } else if (effectiveExecs.length === 0 && filledFromExecs.num === 0n && sub && sub.fee_native !== null) {
       feeNative = sub.fee_native;
       feeCurrency = sub.fee_currency;
       feeUsd = sub.fee_usd;
@@ -575,16 +592,20 @@ export function reconcileOrdersAndFills({
     let notionalUsd = null;
     let usdBasisQualified = entry.currency === "USD" || entry.usd_basis_qualified;
     if (entry.currency === "USD") {
-      if (filledFromExecs.num > 0n) {
+      if (filledFromExecs.num > 0n && eqDecimal(filledFromExecs, filledDec)) {
         let sumNotional = ZERO_DEC;
         for (const ex of effectiveExecs) {
           sumNotional = addDecimal(sumNotional, parseDecimal(ex.notional_usd));
         }
         notionalUsd = formatUsdExact(sumNotional);
-      } else if (entry.limit_price !== null) {
+      } else if (filledDec.num === 0n && entry.limit_price !== null) {
         notionalUsd = formatUsdExact(mulDecimal(subDec, parseDecimal(entry.limit_price)));
       }
-    } else if (effectiveExecs.length > 0 && effectiveExecs.every((ex) => ex.notional_usd !== null)) {
+    } else if (
+      effectiveExecs.length > 0
+      && eqDecimal(filledFromExecs, filledDec)
+      && effectiveExecs.every((ex) => ex.notional_usd !== null)
+    ) {
       let sumNotional = ZERO_DEC;
       for (const ex of effectiveExecs) {
         sumNotional = addDecimal(sumNotional, parseDecimal(ex.notional_usd));
@@ -791,7 +812,10 @@ export function reconcileOrdersAndFills({
     && !hasUnknownExecTimestamps
   );
 
-  if (!cutoffDomainProvenComplete && (priorKPendUsd === null || priorKPendUsd === undefined)) {
+  if (
+    (!cutoffDomainProvenComplete || (hasUnknownExecTimestamps && overlapVisibleDec.num === 0n && newNonOverlappingDec.num === 0n))
+    && (priorKPendUsd === null || priorKPendUsd === undefined)
+  ) {
     kPendUnavailable = true;
   }
 

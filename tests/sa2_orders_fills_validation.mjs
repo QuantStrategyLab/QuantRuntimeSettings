@@ -2069,4 +2069,369 @@ assert.ok(ORDER_LIFECYCLE_STATES.includes("ORDER_UNKNOWN"));
   assert.equal(mixedFeeUnqualified.orders[0].fee_usd, null);
 }
 
+// 9. Codex round-3 regression guards (untimed execution reservation & lagging FILLED reconciliation)
+{
+  // R3 #1 (PRRT_kwDOSZeN-M67o1UQ): Untimed execution (executed_at: null) without cutoff must NEVER mark FILLED or zero K_pend.
+  const untimedBuyInput = ({ includeFeeReserve }) => ({
+    broker: "longbridge",
+    environment: "paper",
+    account: "longbridge:paper:pilot",
+    as_of: "2026-11-24T15:02:00.000Z",
+    evaluated_at: "2026-11-24T15:02:00.000Z",
+    origin: "synthetic",
+    source_class: "paper_broker",
+    evidence_ref: `sa2:codex-r3:untimed-buy:${includeFeeReserve ? "reserved" : "null"}`,
+    domains: {
+      submissions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "lb_subs",
+        scope: "account_submissions",
+        cap: 256,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            client_order_id: "ord-untimed-1",
+            broker_order_id: "brk-untimed-1",
+            symbol: "AAPL",
+            side: "BUY",
+            state: "ACCEPTED",
+            qty_submitted: "10",
+            limit_price: "50",
+            ...(includeFeeReserve ? { estimated_fee_usd: "0" } : {}),
+            currency: "USD",
+            fee_native: null,
+            fee_currency: null,
+            fee_usd: null,
+            submitted_at: "2026-11-24T15:01:00.000Z",
+            evidence_ref: "sa2:codex-r3:sub-untimed",
+          },
+        ],
+      },
+      executions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "lb_execs",
+        scope: "account_executions",
+        cap: 512,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            execution_ref: "exec-untimed-1",
+            client_order_id: "ord-untimed-1",
+            broker_order_id: "brk-untimed-1",
+            symbol: "AAPL",
+            side: "BUY",
+            qty: "10",
+            price: "50",
+            currency: "USD",
+            fee_native: "0",
+            fee_currency: "USD",
+            executed_at: null,
+            evidence_ref: "sa2:codex-r3:ex-untimed",
+          },
+        ],
+      },
+      cutoff_open_orders: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:00:00.000Z",
+        source: "lb_open",
+        scope: "cutoff_open_orders",
+        cap: 256,
+        count: 0,
+        truncated: false,
+        completeness: "complete",
+        records: [],
+      },
+    },
+  });
+
+  const untimedReserved = evaluateAuthoritativeOrdersAndFills(untimedBuyInput({ includeFeeReserve: true }));
+  assert.ok(validateSchema(untimedReserved), ajv.errorsText(validateSchema.errors));
+  assert.equal(untimedReserved.orders[0].state, "ACCEPTED");
+  assert.equal(untimedReserved.orders[0].qty_filled, "0");
+  assert.equal(untimedReserved.orders[0].qty_remaining, "10");
+  assert.equal(untimedReserved.orders[0].k_pend_usd, "500.00");
+  assert.equal(untimedReserved.summary.k_pend_usd, "500.00");
+  assert.equal(untimedReserved.summary.k_pend_release_allowed, false);
+
+  const untimedNoFee = evaluateAuthoritativeOrdersAndFills(untimedBuyInput({ includeFeeReserve: false }));
+  assert.ok(validateSchema(untimedNoFee), ajv.errorsText(validateSchema.errors));
+  assert.equal(untimedNoFee.orders[0].state, "ACCEPTED");
+  assert.equal(untimedNoFee.orders[0].qty_filled, "0");
+  assert.equal(untimedNoFee.orders[0].qty_remaining, "10");
+  assert.equal(untimedNoFee.orders[0].k_pend_usd, null);
+  assert.equal(untimedNoFee.summary.k_pend_usd, null);
+  assert.equal(untimedNoFee.summary.k_pend_release_allowed, false);
+
+  // Unlinked untimed execution + empty complete cutoff without prior K_pend must still fail closed (never "0").
+  const untimedUnlinked = evaluateAuthoritativeOrdersAndFills({
+    broker: "longbridge",
+    environment: "paper",
+    account: "longbridge:paper:pilot",
+    as_of: "2026-11-24T15:02:00.000Z",
+    evaluated_at: "2026-11-24T15:02:00.000Z",
+    origin: "synthetic",
+    source_class: "paper_broker",
+    evidence_ref: "sa2:codex-r3:untimed-unlinked",
+    domains: {
+      submissions: { domain_capability: "unsupported", as_of: null, source: "omitted", scope: "account_submissions" },
+      executions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "lb_execs",
+        scope: "account_executions",
+        cap: 512,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            execution_ref: "exec-untimed-unlinked",
+            client_order_id: null,
+            broker_order_id: null,
+            symbol: "AAPL",
+            side: "BUY",
+            qty: "10",
+            price: "50",
+            currency: "USD",
+            fee_native: "0",
+            fee_currency: "USD",
+            executed_at: null,
+            evidence_ref: "sa2:codex-r3:ex-unlinked",
+          },
+        ],
+      },
+      cutoff_open_orders: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:00:00.000Z",
+        source: "lb_open",
+        scope: "cutoff_open_orders",
+        cap: 256,
+        count: 0,
+        truncated: false,
+        completeness: "complete",
+        records: [],
+      },
+    },
+  });
+  assert.ok(validateSchema(untimedUnlinked), ajv.errorsText(validateSchema.errors));
+  assert.equal(untimedUnlinked.summary.k_pend_release_allowed, false);
+  assert.equal(untimedUnlinked.summary.k_pend_usd, null);
+
+  // R3 #3 (PRRT_kwDOSZeN-M67o1Ua): Definitive FILLED submission with unsupported/lagging executions reconciles qty_filled & leaves avg_fill_price null.
+  const filledUnsupportedExecs = evaluateAuthoritativeOrdersAndFills({
+    broker: "longbridge",
+    environment: "paper",
+    account: "longbridge:paper:pilot",
+    as_of: "2026-11-24T15:02:00.000Z",
+    evaluated_at: "2026-11-24T15:02:00.000Z",
+    origin: "synthetic",
+    source_class: "paper_broker",
+    evidence_ref: "sa2:codex-r3:filled-unsupported-execs",
+    domains: {
+      submissions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "lb_subs",
+        scope: "account_submissions",
+        cap: 256,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            client_order_id: "ord-filled-no-exec",
+            broker_order_id: "brk-filled-no-exec",
+            symbol: "AAPL",
+            side: "BUY",
+            state: "FILLED",
+            qty_submitted: "10",
+            limit_price: "50",
+            currency: "USD",
+            fee_native: null,
+            fee_currency: null,
+            fee_usd: null,
+            submitted_at: "2026-11-24T14:55:00.000Z",
+            resolved_at: "2026-11-24T15:01:00.000Z",
+            evidence_ref: "sa2:codex-r3:sub-filled-no-exec",
+          },
+        ],
+      },
+      executions: { domain_capability: "unsupported", as_of: null, source: "omitted", scope: "account_executions" },
+      cutoff_open_orders: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "lb_open",
+        scope: "cutoff_open_orders",
+        cap: 256,
+        count: 0,
+        truncated: false,
+        completeness: "complete",
+        records: [],
+      },
+    },
+  });
+  assert.ok(validateSchema(filledUnsupportedExecs), ajv.errorsText(validateSchema.errors));
+  assert.equal(filledUnsupportedExecs.orders[0].state, "FILLED");
+  assert.equal(filledUnsupportedExecs.orders[0].qty_submitted, "10");
+  assert.equal(filledUnsupportedExecs.orders[0].qty_filled, "10");
+  assert.equal(filledUnsupportedExecs.orders[0].qty_canceled, "0");
+  assert.equal(filledUnsupportedExecs.orders[0].qty_remaining, "0");
+  assert.equal(filledUnsupportedExecs.orders[0].avg_fill_price, null);
+  assert.equal(filledUnsupportedExecs.orders[0].notional_usd, null);
+  assert.equal(filledUnsupportedExecs.orders[0].k_pend_usd, "0");
+  assert.equal(filledUnsupportedExecs.summary.k_pend_usd, "0");
+  assert.equal(filledUnsupportedExecs.summary.k_pend_release_allowed, true);
+
+  // Post-cutoff FILLED via updated_at with only partial (4 of 10) lagging executions: qty_filled="10", avg_fill_price=null.
+  const filledPartialLagExecs = evaluateAuthoritativeOrdersAndFills({
+    broker: "longbridge",
+    environment: "paper",
+    account: "longbridge:paper:pilot",
+    as_of: "2026-11-24T15:02:00.000Z",
+    evaluated_at: "2026-11-24T15:02:00.000Z",
+    origin: "synthetic",
+    source_class: "paper_broker",
+    evidence_ref: "sa2:codex-r3:filled-partial-lag",
+    domains: {
+      submissions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "lb_subs",
+        scope: "account_submissions",
+        cap: 256,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            client_order_id: "ord-filled-lag",
+            broker_order_id: "brk-filled-lag",
+            symbol: "AAPL",
+            side: "BUY",
+            state: "FILLED",
+            qty_submitted: "10",
+            limit_price: "50",
+            currency: "USD",
+            fee_native: null,
+            fee_currency: null,
+            fee_usd: null,
+            submitted_at: "2026-11-24T14:55:00.000Z",
+            updated_at: "2026-11-24T15:01:30.000Z",
+            evidence_ref: "sa2:codex-r3:sub-filled-lag",
+          },
+        ],
+      },
+      executions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "lb_execs",
+        scope: "account_executions",
+        cap: 512,
+        count: 1,
+        truncated: false,
+        completeness: "incomplete",
+        records: [
+          {
+            execution_ref: "exec-lag-partial",
+            client_order_id: "ord-filled-lag",
+            broker_order_id: "brk-filled-lag",
+            symbol: "AAPL",
+            side: "BUY",
+            qty: "4",
+            price: "49.50",
+            currency: "USD",
+            fee_native: "0",
+            fee_currency: "USD",
+            executed_at: "2026-11-24T15:01:00.000Z",
+            evidence_ref: "sa2:codex-r3:ex-lag",
+          },
+        ],
+      },
+      cutoff_open_orders: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:00:00.000Z",
+        source: "lb_open",
+        scope: "cutoff_open_orders",
+        cap: 256,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            client_order_id: "ord-filled-lag",
+            broker_order_id: "brk-filled-lag",
+            symbol: "AAPL",
+            side: "BUY",
+            state: "ACCEPTED",
+            qty_submitted: "10",
+            qty_filled: "0",
+            qty_canceled: "0",
+            qty_remaining: "10",
+            limit_price: "50",
+            reserved_fee_usd: "0",
+            currency: "USD",
+            as_of: "2026-11-24T15:00:00.000Z",
+            evidence_ref: "sa2:codex-r3:open-lag",
+          },
+        ],
+      },
+    },
+  });
+  assert.ok(validateSchema(filledPartialLagExecs), ajv.errorsText(validateSchema.errors));
+  assert.equal(filledPartialLagExecs.orders[0].state, "FILLED");
+  assert.equal(filledPartialLagExecs.orders[0].qty_filled, "10");
+  assert.equal(filledPartialLagExecs.orders[0].qty_remaining, "0");
+  assert.equal(filledPartialLagExecs.orders[0].avg_fill_price, null);
+  assert.equal(filledPartialLagExecs.orders[0].k_pend_usd, "0");
+  assert.equal(filledPartialLagExecs.summary.k_pend_usd, "0");
+  assert.equal(filledPartialLagExecs.summary.k_pend_release_allowed, true);
+
+  // Over-fill execution (> qty_submitted) on FILLED submission still fails closed.
+  assert.throws(
+    () => evaluateAuthoritativeOrdersAndFills({
+      broker: "longbridge",
+      environment: "paper",
+      account: "longbridge:paper:pilot",
+      as_of: "2026-11-24T15:02:00.000Z",
+      evaluated_at: "2026-11-24T15:02:00.000Z",
+      origin: "synthetic",
+      source_class: "paper_broker",
+      evidence_ref: "sa2:codex-r3:overfill-fail",
+      domains: {
+        submissions: filledPartialLagExecs.domains.submissions,
+        executions: {
+          ...filledPartialLagExecs.domains.executions,
+          completeness: "complete",
+          records: [
+            {
+              ...filledPartialLagExecs.domains.executions.records[0],
+              execution_ref: "exec-overfill-1",
+              client_order_id: "ord-filled-lag",
+              qty: "11",
+            },
+          ],
+        },
+        cutoff_open_orders: {
+          domain_capability: "supported",
+          as_of: "2026-11-24T15:02:00.000Z",
+          source: "lb_open",
+          scope: "cutoff_open_orders",
+          cap: 256,
+          count: 0,
+          truncated: false,
+          completeness: "complete",
+          records: [],
+        },
+      },
+    }),
+    /order_quantities_exceed_submitted/,
+  );
+}
+
 console.log("sa2_orders_fills_validation: PASS (SA-A12)");
