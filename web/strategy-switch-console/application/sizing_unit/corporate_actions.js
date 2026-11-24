@@ -456,9 +456,18 @@ export function applyCorporateAction(ledgerState, event) {
     if (!event.delisting || event.delisting.invoked_v3 !== true) {
       return failAction("delisting_requires_v3_flag");
     }
+    if (pos.delisted_settled === true) {
+      return failAction("delisting_already_settled_or_empty_position");
+    }
+    if (divRecLeg.applicable) {
+      return failAction("unexpected_dividend_leg_on_delisting");
+    }
     let finalUnits = postUnits;
     let finalRef = postRef;
     if (!event.delisting.resolved) {
+      if (cilLeg.applicable || payLeg.applicable) {
+        return failAction("delisting_conservation_mismatch");
+      }
       if (event.delisting.terminal_valuation_usd !== null) {
         return failAction("unresolved_delisting_must_have_null_valuation");
       }
@@ -471,6 +480,9 @@ export function applyCorporateAction(ledgerState, event) {
         nextLedger.v3.unresolved_instruments.push(event.instrument_id);
       }
     } else {
+      if (preUnits.n <= 0n) {
+        return failAction("delisting_already_settled_or_empty_position");
+      }
       if (event.delisting.terminal_valuation_usd === null) {
         return failAction("delisting_requires_terminal_valuation");
       }
@@ -483,6 +495,9 @@ export function applyCorporateAction(ledgerState, event) {
       if (!settledToCash && !markedAtTerminal) {
         return failAction("delisting_terminal_valuation_mismatch");
       }
+      if (payLeg.applicable && cilLeg.applicable) {
+        return failAction("delisting_terminal_valuation_mismatch");
+      }
       if (settledToCash || termVal.n === 0n) {
         const legCash = payLeg.applicable ? payLeg.rat : (cilLeg.applicable ? cilLeg.rat : null);
         if (legCash !== null && ratCmp(legCash, termVal) !== 0) {
@@ -493,6 +508,8 @@ export function applyCorporateAction(ledgerState, event) {
         }
         finalUnits = ZERO;
         finalRef = ZERO;
+      } else if (payLeg.applicable || cilLeg.applicable) {
+        return failAction("delisting_terminal_valuation_mismatch");
       }
       nextLedger.positions[event.instrument_id].unresolved_pending_evidence = false;
       nextLedger.positions[event.instrument_id].delisted_settled = true;

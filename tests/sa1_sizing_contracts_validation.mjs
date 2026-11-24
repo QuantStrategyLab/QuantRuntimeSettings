@@ -517,6 +517,49 @@ const handlers = {
     assert.equal(cashDelistRes.ok, true, cashDelistRes.reason);
     assert.equal(cashDelistRes.ledger.positions.inst_delist.units, "0");
     assert.equal(cashDelistRes.ledger.settled_cash_usd, "1075.00");
+
+    // R6-3 / R5-8a: cannot settle an already delisted/empty zero-unit position a second time
+    const repeatDelist = structuredClone(unresolvedEvt);
+    repeatDelist.event_id = "ca-a03-r6-delist-repeat";
+    repeatDelist.pre_units = "0";
+    repeatDelist.post_units = "0";
+    repeatDelist.pre_ref = "0";
+    repeatDelist.post_ref = "0";
+    repeatDelist.delisting = { invoked_v3: true, resolved: true, terminal_valuation_usd: "75.00" };
+    const repeatDelistRes = applyCorporateAction(cashDelistRes.ledger, repeatDelist);
+    assert.equal(repeatDelistRes.ok, false);
+    assert.equal(repeatDelistRes.reason, "delisting_already_settled_or_empty_position");
+    assert.equal(repeatDelistRes.ledger.settled_cash_usd, "1075.00");
+
+    // R6-4 / R5-8b: kept-units resolved delisting rejects contradictory payment/CIL legs
+    const keptUnitsBadPay = structuredClone(unresolvedEvt);
+    keptUnitsBadPay.event_id = "ca-a03-r6-kept-pay";
+    keptUnitsBadPay.post_units = "25";
+    keptUnitsBadPay.post_ref = "3.00";
+    keptUnitsBadPay.delisting = { invoked_v3: true, resolved: true, terminal_valuation_usd: "75.00" };
+    keptUnitsBadPay.payment_transfer_usd = { applicable: true, amount_usd: "750.00" };
+    const keptBadPayRes = applyCorporateAction(freshSplitLedger, keptUnitsBadPay);
+    assert.equal(keptBadPayRes.ok, false);
+    assert.equal(keptBadPayRes.reason, "delisting_terminal_valuation_mismatch");
+    assert.equal(keptBadPayRes.ledger.settled_cash_usd, "1000.00");
+
+    const keptUnitsBadCil = structuredClone(keptUnitsBadPay);
+    keptUnitsBadCil.event_id = "ca-a03-r6-kept-cil";
+    keptUnitsBadCil.payment_transfer_usd = { applicable: false, amount_usd: null, reason: "delisted_position_marked" };
+    keptUnitsBadCil.incremental_cash_in_lieu = { applicable: true, amount_usd: "750.00" };
+    const keptBadCilRes = applyCorporateAction(freshSplitLedger, keptUnitsBadCil);
+    assert.equal(keptBadCilRes.ok, false);
+    assert.equal(keptBadCilRes.reason, "delisting_terminal_valuation_mismatch");
+
+    const keptUnitsClean = structuredClone(keptUnitsBadPay);
+    keptUnitsClean.event_id = "ca-a03-r6-kept-clean";
+    keptUnitsClean.payment_transfer_usd = { applicable: false, amount_usd: null, reason: "delisted_position_marked" };
+    assert.ok(validateCorpActionSchema(keptUnitsClean));
+    const keptCleanRes = applyCorporateAction(freshSplitLedger, keptUnitsClean);
+    assert.equal(keptCleanRes.ok, true, keptCleanRes.reason);
+    assert.equal(keptCleanRes.ledger.positions.inst_delist.units, "25");
+    assert.equal(keptCleanRes.ledger.positions.inst_delist.ref_price_usd, "3.00");
+    assert.equal(keptCleanRes.ledger.settled_cash_usd, "1000.00");
   },
 
   async "SA-A06"() {
@@ -911,6 +954,9 @@ const handlers = {
       broker_environment: null,
       environment: "live",
     };
+    const omittedBrokerLiveSecondary = structuredClone(spec.accounts[0]);
+    delete omittedBrokerLiveSecondary.broker_environment;
+    omittedBrokerLiveSecondary.environment = "live";
     const livePrimaryPaperSecondary = {
       ...structuredClone(spec.accounts[0]),
       broker_environment: "live",
@@ -918,7 +964,7 @@ const handlers = {
     };
     const sourceUnavailableAcct = { ...structuredClone(spec.accounts[0]), source_available: false };
     const inputUnavailableAcct = { ...structuredClone(spec.accounts[0]), input_available: false };
-    for (const r5Acct of [nullPrimaryLiveSecondary, livePrimaryPaperSecondary]) {
+    for (const r5Acct of [nullPrimaryLiveSecondary, omittedBrokerLiveSecondary, livePrimaryPaperSecondary]) {
       const sRes = evalNavDirect(r5Acct, { evaluated_at: spec.evaluated_at, calendarProvider: provider, require_live_cohort: true });
       assert.equal(sRes.status, "unavailable");
       assert.equal(sRes.processing_eligible, false);
@@ -933,6 +979,7 @@ const handlers = {
       assert.equal(pRes.status, "unavailable");
       assert.equal(pRes.processing_eligible, false);
       assert.equal(pRes.nav_usd, null);
+      assert.equal(pRes.cohort.excluded_accounts[0].reason, "management_status_unknown");
     }
     for (const [r5Acct, expectedReason] of [[sourceUnavailableAcct, "source_missing"], [inputUnavailableAcct, "input_missing"]]) {
       const sRes = evalNavDirect(r5Acct, { evaluated_at: spec.evaluated_at, calendarProvider: provider, require_live_cohort: true });
@@ -1737,6 +1784,17 @@ const handlers = {
     assert.equal(nullEnvContinuity.result.status, "insufficient_history");
     assert.equal(nullEnvContinuity.result.return_pct, null);
     assert.equal(nullEnvContinuity.result.unavailable_reason, "broker_environment_missing_or_unverified");
+
+    // R6-2 / R5-6: JSON Schema forbids broker_environment: null combined with continuous/eligible
+    assert.equal(validateContinuitySchema({ ...usdComplete, broker_environment: null }), false);
+    assert.equal(
+      validateContinuitySchema({
+        ...usdComplete,
+        broker_environment: null,
+        continuity_status: "insufficient_history",
+      }),
+      false,
+    );
   },
 };
 

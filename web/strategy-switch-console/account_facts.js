@@ -1468,7 +1468,7 @@ export function projectSizingUnitAccountFacts(accountsOrReadModel, options = {})
     account_key: entry?.account_key ?? entry?.account_id ?? null,
     broker_environment: Object.prototype.hasOwnProperty.call(entry ?? {}, "broker_environment")
       ? entry.broker_environment
-      : (entry?.paper ? "paper" : entry?.environment ?? null),
+      : (entry?.paper === true ? "paper" : null),
     observed_at: entry?.observed_at ?? entry?.observed_finished_at ?? null,
     fetched_at: entry?.fetched_at ?? null,
   }));

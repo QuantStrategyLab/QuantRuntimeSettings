@@ -152,6 +152,44 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "broker_environment": { "const": null }
+        },
+        "required": ["broker_environment"]
+      },
+      "then": {
+        "properties": {
+          "continuity_status": { "const": "insufficient_history" },
+          "result": {
+            "properties": {
+              "status": { "const": "insufficient_history" },
+              "return_pct": { "type": "null" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "result": {
+            "properties": {
+              "status": { "const": "eligible" }
+            },
+            "required": ["status"]
+          }
+        },
+        "required": ["result"]
+      },
+      "then": {
+        "properties": {
+          "broker_environment": { "enum": ["live", "paper"] },
+          "continuity_status": { "const": "continuous" }
+        }
+      }
     }
   ],
   "$defs": {
