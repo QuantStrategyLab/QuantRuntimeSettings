@@ -13,8 +13,10 @@ problems in several layers, not one isolated bug:
   once per instance, at the start of the ordinary `fetch` path and of `alarm`,
   and construction runs no SQL. Every ordinary read of either named object
   (`runtime-instances`, `console-kv-directory-v1`) still inherits those
-  writes; only the account-identity inventory path is dispatched before them. `binance_detail_read`
-  creates its own table as well.
+  writes; only the account-identity inventory and account-management readback
+  paths are dispatched before them. `binance_detail_read` originally created
+  its own table as well; table creation has moved to `binance_detail_put`
+  (B5 retired).
 - Six read families also repair, migrate, reconcile, refresh or collect: risk
   authority import, cycle-health checkpoint migration, runtime-stop receipt
   reconciliation, credential-rotation settlement, the fresh Desk readback and
@@ -84,26 +86,42 @@ recomputed.
 
 | Id | Debt | Expires |
 | --- | --- | --- |
-| B0 | Shared lazy-initialization DDL/ALTER before ordinary dispatch on both named objects | 2027-01-13; N1 and other declared no-write paths by 2026-12-14 |
-| B1 | Risk-authority import in risk and settings reads | 2026-12-14 |
-| B2 | Cycle-health lazy checkpoint migration | 2026-12-14 |
-| B3 | Runtime-stop receipt reconciliation on GET | 2026-12-14 |
-| B4 | Credential-rotation settlement on GET | 2026-12-14 |
-| B5 | `binance_detail_read` table creation | 2026-12-14 |
+| B0 | Shared lazy-initialization DDL/ALTER before ordinary dispatch on both named objects | 2027-01-13 (N1 interim deadline consolidated from 2026-12-14 within the 60-day window) |
+| B1 | Risk-authority import in risk and settings reads | 2027-01-13 (bounded re-date from 2026-12-14 within the 60-day window) |
+| B2 | Cycle-health lazy checkpoint migration | 2027-01-13 (bounded re-date from 2026-12-14 within the 60-day window) |
+| B3 | Runtime-stop receipt reconciliation on GET | 2027-01-13 (bounded re-date from 2026-12-14 within the 60-day window) |
+| B4 | Credential-rotation settlement on GET | 2027-01-13 (bounded re-date from 2026-12-14 within the 60-day window) |
+| B5 | `binance_detail_read` table creation | Retired (table creation moved to `binance_detail_put`; missing-table reads return empty without DDL) |
 | B6 | Fresh Desk readback admission, snapshot and alarm on GET | 2027-01-13 |
 | B7 | Config/current-strategy durable cache refresh on GET | 2027-01-13 |
-| I1 | Technical keys rendered as account names | 2026-12-14 |
+| I1 | Technical keys rendered as account names (IBKR isolated in PR #1172; non-IBKR fallback and schema defaults remain) | 2027-01-13 (bounded re-date from 2026-12-14 within the 60-day window) |
 | I2 | Legacy `(platform, key)` joins without a canonical boundary | 2027-01-13 (review checkpoint) |
 | P1 | Projections without a declared scope/completeness contract | 2027-01-13 |
+
+Pre-`2026-12-14` disposition summary: `B5` is retired (`binance_detail_read`
+performs no DDL and returns `{ ok: true, report: null }` when
+`binance_detail_daily` is absent, while `binance_detail_put` validates input
+and creates the table explicitly). `B0` (N1 interim), `B1`, `B2`, `B3`, `B4`,
+and `I1` are re-dated inside ADR 0002's 60-day window from `2026-11-14` to
+`2027-01-13` with per-entry `expiry_basis` records in
+`tests/fixtures/read-contract-exceptions.json`: `B1` and `B2` require new
+explicit import/migration commands and GET contract changes on absent or
+legacy v1 rows; `B3` and `B4` require decoupling polling GET side-effects
+while preserving pending-operation servicing paths; `B0`'s N1 interim scope
+consolidates with full `B0` preamble/missing-table work; and `I1`'s remaining
+non-IBKR fallback and schema defaults align with the `R3`/`I2` checkpoint
+after PR `#1172` isolated IBKR titles and confirmations. `B6`, `B7`, `I2`,
+`P1`, and full `B0` remain at `2027-01-13`.
 
 `tests/read_contract_boundaries_validation.mjs` runs in the `Validate`
 workflow. It fails when a route branch or internal action is unclassified or
 stale, when an operation reaches an exception the register does not list, when
 an excepted helper gains or loses a call site without a register change, when a
 helper no longer exists, and once a deadline has passed. A deadline is an
-inclusive UTC date: an entry due 2026-12-14 is still valid on that date and
-fails the suite from 2026-12-15 (UTC). B0, B1 and B5 are also
-reproduced under the read-only trap in `tests/helpers/read_only_storage.mjs`;
+inclusive UTC date: an entry due 2027-01-13 is still valid on that date and
+fails the suite from 2027-01-14 (UTC). B0 and B1 are also
+reproduced under the read-only trap in `tests/helpers/read_only_storage.mjs`
+(while retired B5 is verified zero-write under the same trap);
 when a write disappears the suite fails until the entry is closed. With the
 trap armed before construction, construction writes nothing and B0 reproduces
 on the first ordinary initialization, `fetch` and `alarm`. The runtime

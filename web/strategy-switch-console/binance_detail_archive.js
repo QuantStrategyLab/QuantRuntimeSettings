@@ -1,6 +1,7 @@
 import { normalizeBinanceAccountFacts, normalizeBinanceFactsBinding } from './binance_account_facts.js';
 
 const businessDay = timestamp => new Date(Date.parse(timestamp) + 7200000).toISOString().slice(0, 10);
+const isMissingTableError = error => /no such table:\s*binance_detail_daily/i.test(String(error?.message || error));
 
 // Separate from the 366-day valuation projection and the two-day latest cache.
 // Daily native detail has no automatic expiration. No new trading authority.
@@ -12,13 +13,16 @@ export function binanceDetailCommand(sql, command) {
       || new Date(`${day}T00:00:00Z`).toISOString().slice(0, 10) !== day) {
     throw new Error('binance_detail_date_invalid');
   }
-  sql.exec(`CREATE TABLE IF NOT EXISTS binance_detail_daily (
-    account_key TEXT NOT NULL, binding_id TEXT NOT NULL, observation_date TEXT NOT NULL,
-    payload_json TEXT NOT NULL, PRIMARY KEY(account_key, binding_id, observation_date))`);
-  const read = (key, retainedDay = null) => {
-    const row = sql.exec(`SELECT payload_json FROM binance_detail_daily
-      WHERE account_key = ? AND binding_id = ? AND observation_date = ?`,
-    binding.account_key, binding.source_binding.id, key).toArray()[0];
+  const read = (key, retainedDay = null, { allowMissingTable = false } = {}) => {
+    let row;
+    try {
+      row = sql.exec(`SELECT payload_json FROM binance_detail_daily
+        WHERE account_key = ? AND binding_id = ? AND observation_date = ?`,
+      binding.account_key, binding.source_binding.id, key).toArray()[0];
+    } catch (error) {
+      if (allowMissingTable && isMissingTableError(error)) return null;
+      throw error;
+    }
     if (!row) return null;
     const report = normalizeBinanceAccountFacts(JSON.parse(row.payload_json), binding);
     if (retainedDay === null ? report.observed_finished_at.slice(0, 10) !== key
@@ -28,10 +32,19 @@ export function binanceDetailCommand(sql, command) {
     return report;
   };
   if (command.action === 'binance_detail_read') {
-    return { ok: true, report: command.business_day === true ? read(`digest:${day}`, day) : read(day) };
+    return {
+      ok: true,
+      report: command.business_day === true
+        ? read(`digest:${day}`, day, { allowMissingTable: true })
+        : read(day, null, { allowMissingTable: true }),
+    };
   }
+  if (command.action !== 'binance_detail_put') throw new Error('binance_detail_action_unsupported');
   const report = normalizeBinanceAccountFacts(command.report, binding);
   if (report.observed_finished_at.slice(0, 10) !== day) throw new Error('binance_detail_date_mismatch');
+  sql.exec(`CREATE TABLE IF NOT EXISTS binance_detail_daily (
+    account_key TEXT NOT NULL, binding_id TEXT NOT NULL, observation_date TEXT NOT NULL,
+    payload_json TEXT NOT NULL, PRIMARY KEY(account_key, binding_id, observation_date))`);
   const canonical = value => JSON.stringify(value, function (key, item) {
     return item && typeof item === 'object' && !Array.isArray(item)
       ? Object.fromEntries(Object.keys(item).sort().map(name => [name, item[name]])) : item;

@@ -92,13 +92,6 @@
    "kind": "function"
   },
   {
-   "id": "B5.binanceDetailCommand",
-   "effect": "B5",
-   "symbol": "binanceDetailCommand",
-   "file": "web/strategy-switch-console/binance_detail_archive.js",
-   "kind": "function"
-  },
-  {
    "id": "B6.DeskReadbackStore.constructor",
    "effect": "B6",
    "symbol": "DeskReadbackStore",
@@ -602,24 +595,15 @@
    }
   },
   {
-   "id": "debt-b5-binance-detail-read",
-   "group": "debt",
+   "id": "pristine-binance-detail-read",
+   "group": "pristine-control",
    "fixture": "pristine",
-   "provenance": "registered B5 debt: POST action binance_detail_read on a ready instance",
+   "provenance": "retired B5: POST action binance_detail_read on a ready instance performs zero writers and zero SQL DDL",
    "phases": [
     {
-     "name": "debt",
-     "mode": "debt",
-     "label": "B5 debt reproduction",
-     "allow": [
-      "B5.binanceDetailCommand"
-     ],
-     "debt": [
-      {
-       "exception": "B5",
-       "operation": "action:binance_detail_read"
-      }
-     ],
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance binance_detail_read phase",
      "steps": [
       {
        "request": {
@@ -657,15 +641,6 @@
       "status": 200,
       "ok": true
      }
-    ],
-    "writers": [
-     {
-      "id": "B5.binanceDetailCommand",
-      "phase": "debt"
-     }
-    ],
-    "storage": [
-     "debt:sql_ddl CREATE TABLE IF NOT"
     ],
     "detection": "none"
    }
@@ -3521,44 +3496,6 @@
     "writers": [
      {
       "id": "B4.credentialRotationResponse",
-      "phase": "invoke"
-     }
-    ],
-    "detection": "writer_latch"
-   }
-  },
-  {
-   "id": "positive-entry-B5.binanceDetailCommand",
-   "group": "positive-control",
-   "fixture": "pristine",
-   "provenance": "isolated invocation of B5.binanceDetailCommand with sentinel receiver and arguments; the latch precedes every parameter and body operation",
-   "phases": [
-    {
-     "name": "invoke",
-     "mode": "zero-writer",
-     "label": "isolated invocation phase",
-     "steps": [
-      {
-       "invoke": "B5.binanceDetailCommand"
-      }
-     ]
-    }
-   ],
-   "expected": {
-    "static": "admit",
-    "steps": [
-     {
-      "outcome": "threw",
-      "error": "WriterEntryViolation",
-      "latched_before_return": [
-       "B5.binanceDetailCommand"
-      ],
-      "touched": []
-     }
-    ],
-    "writers": [
-     {
-      "id": "B5.binanceDetailCommand",
       "phase": "invoke"
      }
     ],

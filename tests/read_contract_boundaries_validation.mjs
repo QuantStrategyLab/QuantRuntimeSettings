@@ -33,8 +33,8 @@
 // module rules, indirect-edge attribution, and the discover/reject/pass
 // matrix with its full-exit children, compared by case name with
 // `tests/fixtures/read-contract-probe-oracle.json`. W, B and T are in
-// `tests/fixtures/read-contract-runtime-manifest.json`: the fourteen
-// registered callables of B0-B7, reconciled with the exception register on
+// `tests/fixtures/read-contract-runtime-manifest.json`: the thirteen
+// registered callables of B0-B4 and B6-B7 (B5 retired), reconciled with the exception register on
 // every run, the frozen time and task bounds, and the case corpus. G is
 // built by `tests/helpers/read_contract_instrument.mjs` and run by
 // `tests/helpers/read_contract_runtime.mjs` (section 5).
@@ -93,8 +93,9 @@
 //    dates), points at helpers that still exist, and lists the exact call sites
 //    of each excepted helper under its counted spelling. A new counted caller
 //    therefore needs a register change in the same review.
-// 3. Debt that can be reproduced cheaply (B0, B1, B5) still reproduces under the
-//    read-only trap; when it stops, close the register entry. Indirect edges
+// 3. Debt that can be reproduced cheaply (B0, B1) still reproduces under the
+//    read-only trap; when it stops, close the register entry. Retired B5 is
+//    verified zero-write under the trap. Indirect edges
 //    (dependency injection, callbacks) behind B1, B3 and I2 are anchored and
 //    must stay attributed.
 // 4. The read-only trap adapter catches each write class, and each check above
@@ -790,8 +791,21 @@ assert.deepEqual(Object.fromEntries(surface.sections), Object.fromEntries(Object
     account_scope_sha256: "a".repeat(64), reader_revision: "b".repeat(40), approved_application_revision: "c".repeat(40),
     source_binding: { kind: "binance_readonly_scope_revision", id: "d".repeat(64) },
   };
-  assert.throws(() => binanceDetailCommand(binance.storage.sql, { action: "binance_detail_read", binding, date: "2030-01-02" }), ReadOnlyViolation);
-  assert.equal(binance.violations[0]?.kind, "sql_ddl", "B5: binance_detail_read still creates its table");
+  assert.deepEqual(
+    binanceDetailCommand(binance.storage.sql, { action: "binance_detail_read", binding, date: "2030-01-02" }),
+    { ok: true, report: null },
+    "B5 retired: binance_detail_read returns a declared empty state without DDL",
+  );
+  assert.deepEqual(binance.violations, [], "B5 retired: binance_detail_read performs zero storage writes");
+  const binanceCold = createReadOnlyStorage({
+    sqlRows: () => { throw new Error("no such table: binance_detail_daily: SQLITE_ERROR"); },
+  });
+  assert.deepEqual(
+    binanceDetailCommand(binanceCold.storage.sql, { action: "binance_detail_read", binding, date: "2030-01-02", business_day: true }),
+    { ok: true, report: null },
+    "B5 retired: missing-table binance_detail_read returns null without DDL",
+  );
+  assert.deepEqual(binanceCold.violations, [], "B5 retired: missing-table binance_detail_read performs zero storage writes");
 }
 
 // 3a. The account-identity inventory is served cold, before initialization,
@@ -1084,8 +1098,8 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
   expectError(extraFamily.errors, /family_unknown: unknown action family PROBE_DO_ACTIONS/, "probe (a) family");
 
   // (b) A new excepted operation or a new caller without a register change.
-  const internalPlus = { ...registry.INTERNAL_OPERATIONS, "action:hk_stop_read": { effect: ["B5", "B0"], scope: "undeclared" } };
-  expectError(run({ internal: internalPlus }), /exception B5: operation action:hk_stop_read reaches this exception but the register does not list it/, "probe (b) exception entry");
+  const internalPlus = { ...registry.INTERNAL_OPERATIONS, "action:hk_stop_read": { effect: ["B3", "B0"], scope: "undeclared" } };
+  expectError(run({ internal: internalPlus }), /exception B3: operation action:hk_stop_read reaches this exception but the register does not list it/, "probe (b) exception entry");
   expectError(run({ internal: { ...registry.INTERNAL_OPERATIONS, "action:hk_stop_read": { effect: "B9", scope: "undeclared" } } }), /effect B9 is not a registered exception id/, "probe (b) new id");
   const sourcesPlus = new Map(sources);
   sourcesPlus.set(`${CONSOLE}/application/probe_new_caller.js`, "export const probe = env => readCurrentStrategies(null, env, null);\n");
@@ -1376,15 +1390,15 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
   rejectBinding("escaped spelling of the helper", beforeWorkerDefault("export const probePersist = env => \\u0077riteCurrentStrategiesCache(env, { probe: true }, 0);"),
     /^helper binding: uncounted_call: writeCurrentStrategiesCache is called under an escaped spelling/);
   rejectBinding("bound method helper", inHk("const probeEnsure = this.ensureRiskProfileAuthority;"), /^helper binding: alias: ensureRiskProfileAuthority is referenced other than by a counted call/);
-  // binance_detail_archive.js exports a helper and no action family, so the
+  // application/account_facts/executions.js exports a helper and no action family, so the
   // module-graph family checks do not see these.
-  const archiveReader = body => withFiles(sources, { "application/probe_archive_reader.js": `import * as probeArchive from "../binance_detail_archive.js";\n${body}\n` });
-  rejectBinding("computed namespace member", archiveReader('export const probeRead = sql => probeArchive["binanceDetail" + "Command"](sql, { action: "probe" });'),
-    /^helper binding: computed_name: string "binanceDetailCommand" selects helper binanceDetailCommand/);
-  rejectBinding("namespace read by a runtime key", archiveReader("export const probeMember = key => probeArchive[key];"),
-    /^helper binding: namespace: probeArchive exports a registered helper and is read other than by member or destructuring .*probe_archive_reader\.js/);
-  rejectBinding("dynamic import of the helper module", withFiles(sources, { "application/probe_archive_loader.js": 'export const probeLoad = () => import("../binance_detail_archive.js");\n' }),
-    /^helper binding: namespace: dynamic import of \.\.\/binance_detail_archive\.js, which may export a registered helper, is not admitted/);
+  const executionsReader = body => withFiles(sources, { "application/probe_executions_reader.js": `import * as probeExecutions from "./account_facts/executions.js";\n${body}\n` });
+  rejectBinding("computed namespace member", executionsReader('export const probeInit = sql => probeExecutions["initialize" + "Executions"](sql);'),
+    /^helper binding: computed_name: string "initializeExecutions" selects helper initializeExecutions/);
+  rejectBinding("namespace read by a runtime key", executionsReader("export const probeMember = key => probeExecutions[key];"),
+    /^helper binding: namespace: probeExecutions exports a registered helper and is read other than by member or destructuring .*probe_executions_reader\.js/);
+  rejectBinding("dynamic import of the helper module", withFiles(sources, { "application/probe_executions_loader.js": 'export const probeLoad = () => import("./account_facts/executions.js");\n' }),
+    /^helper binding: namespace: dynamic import of \.\/account_facts\/executions\.js, which may export a registered helper, is not admitted/);
   rejectBinding("namespace of a star barrel read by a runtime key", withFiles(sources, {
     "application/worker/probe_barrel.js": 'export * from "./runtime_support.js";\n',
     "application/probe_barrel_reader.js": 'import * as probeNs from "./worker/probe_barrel.js";\nexport const probeMember = key => probeNs[key];\n',
@@ -1396,15 +1410,15 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
   rejectBinding("renamed import escaping its wrapper in a closure", edit(RUNTIME_SUPPORT, CONTROL_WRAPPER, "  const probeLater = () => readPlatformRuntimeControlImpl(env, platform, targetName, runtimeControlRuntimeDeps());\n  return probeLater();\n}\n"),
     /^helper binding: renamed: readPlatformRuntimeControlImpl, the renamed import of readPlatformRuntimeControl/);
   // Value literals: a dispatch value is used in place, under the counted spelling.
-  const DIGEST_READ = 'action: "binance_detail_read", binding, date: day, business_day: true,';
+  const ROTATION_RECONCILE = "action: 'rotation_complete', operation_id: read.reconcile";
   rejectBinding("literal action bound to a name and reused", applyEdits(sources, [
-    { file: RUNTIME_SUPPORT, from: DIGEST_READ, to: DIGEST_READ.replace('"binance_detail_read"', "PROBE_ACTION") },
-    { file: RUNTIME_SUPPORT, from: SESSION_HANDLER, to: `const PROBE_ACTION = "binance_detail_read";\nexport const probeRead = (env, binding) => runtimeInstanceCommand(env, { action: PROBE_ACTION, binding });\n${SESSION_HANDLER}` }]),
-  /^helper binding: literal_alias: value "binance_detail_read" is bound or returned instead of used in place/);
+    { file: "secretRotation.js", from: ROTATION_RECONCILE, to: ROTATION_RECONCILE.replace("'rotation_complete'", "PROBE_ACTION") },
+    { file: "secretRotation.js", from: "export async function durableRotationCommand(", to: "const PROBE_ACTION = 'rotation_complete';\nexport const probeComplete = env => command(env, { action: PROBE_ACTION });\nexport async function durableRotationCommand(" }]),
+  /^helper binding: literal_alias: value "rotation_complete" is bound or returned instead of used in place/);
   rejectBinding("literal action in another quote style", edit("secretRotation.js", "export async function durableRotationCommand(", 'export const probeComplete = env => command(env, { action: "rotation_complete" });\nexport async function durableRotationCommand('),
     /^helper binding: literal_spelling: value "rotation_complete" is not spelled 'rotation_complete'/);
-  rejectBinding("literal action built from parts", edit(RUNTIME_SUPPORT, SESSION_HANDLER, `export const probeRead = (env, binding) => runtimeInstanceCommand(env, { action: "binance_detail_" + "read", binding });\n${SESSION_HANDLER}`),
-    /^helper binding: literal_spelling: value "binance_detail_read" is not spelled binance_detail_read/);
+  rejectBinding("literal action built from parts", edit("secretRotation.js", "export async function durableRotationCommand(", "export const probeComplete = env => command(env, { action: 'rotation_' + 'complete' });\nexport async function durableRotationCommand("),
+    /^helper binding: literal_spelling: value "rotation_complete" is not spelled 'rotation_complete'/);
   rejectBinding("Durable Object name passed through a variable", edit("application/runtime_instances/command.js", '    const stub = namespace.get(namespace.idFromName("runtime-instances"));', '    const probeName = "runtime-instances";\n    namespace.get(namespace.idFromName(probeName));\n    const stub = namespace.get(namespace.idFromName("runtime-instances"));'),
     /^helper binding: literal_argument: idFromName takes one string literal/);
   pass("helper name in an inert string", edit(RUNTIME_SUPPORT, SESSION_HANDLER, `const probeNote = "writeCurrentStrategiesCache";\n${SESSION_HANDLER}`));
