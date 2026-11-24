@@ -371,7 +371,12 @@ export function normalizeExecutionRecord(raw, identity) {
   const qty = validateDecimalString(raw.qty, "qty", { positive: true });
   const price = validateDecimalString(raw.price, "price", { nonNegative: true });
   const currency = validateCurrency(raw.currency);
-  const executedAt = parseStrictUtcString(raw.executed_at, "executed_at");
+  if (raw.executed_at === undefined) {
+    throw new OrdersFillsError("missing_executed_at", 400);
+  }
+  const executedAt = raw.executed_at === null
+    ? null
+    : parseStrictUtcString(raw.executed_at, "executed_at");
   const evidenceRef = assertSafeIdentifier(raw.evidence_ref, "evidence_ref", { allowSha256: true });
 
   const fee = resolveFeeFields(raw);
@@ -528,6 +533,102 @@ export function normalizeOrderDomain(domainName, rawDomain, identity, options = 
  * into C-SA-25 multi-domain input without mutating legacy contracts or exposing
  * private storage locators (source_ref / source_binding_id) or raw account selectors.
  */
+const LEGACY_LOCAL_TIME_RE = /^(?:(\d{4}-\d{2}-\d{2})T)?(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?$/;
+
+function validateLegacyTradeDate(tradeDate) {
+  if (typeof tradeDate !== "string") {
+    throw new OrdersFillsError("invalid_legacy_execution_trade_date", 400);
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(tradeDate);
+  if (!match) {
+    throw new OrdersFillsError("invalid_legacy_execution_trade_date", 400);
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  if (
+    probe.getUTCFullYear() !== year
+    || probe.getUTCMonth() !== month - 1
+    || probe.getUTCDate() !== day
+  ) {
+    throw new OrdersFillsError("invalid_legacy_execution_trade_date", 400);
+  }
+  return { year, month, day };
+}
+
+function parseLegacyLocalTime(localTime, tradeDate) {
+  if (typeof localTime !== "string") {
+    throw new OrdersFillsError("invalid_legacy_execution_local_time", 400);
+  }
+  const match = LEGACY_LOCAL_TIME_RE.exec(localTime);
+  if (!match) {
+    throw new OrdersFillsError("invalid_legacy_execution_local_time", 400);
+  }
+  if (match[1] !== undefined && match[1] !== tradeDate) {
+    throw new OrdersFillsError("invalid_legacy_execution_local_time", 400);
+  }
+  const hour = Number(match[2]);
+  const minute = Number(match[3]);
+  const second = Number(match[4]);
+  const ms = match[5] ? Number(match[5].padEnd(3, "0")) : 0;
+  if (hour > 23 || minute > 59 || second > 59 || ms > 999) {
+    throw new OrdersFillsError("invalid_legacy_execution_local_time", 400);
+  }
+  return { hour, minute, second, ms };
+}
+
+function buildLegacyZoneFormatter(timeZone) {
+  if (typeof timeZone !== "string" || timeZone.length === 0 || timeZone.length > 64) {
+    throw new OrdersFillsError("invalid_legacy_execution_time_zone", 400);
+  }
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    });
+  } catch {
+    throw new OrdersFillsError("invalid_legacy_execution_time_zone", 400);
+  }
+}
+
+function extractZonedWallUtcMs(instantMs, dtf) {
+  const parts = {};
+  for (const part of dtf.formatToParts(new Date(instantMs))) {
+    if (part.type !== "literal") {
+      parts[part.type] = Number(part.value);
+    }
+  }
+  const hour = parts.hour === 24 ? 0 : parts.hour;
+  return Date.UTC(parts.year, parts.month - 1, parts.day, hour, parts.minute, parts.second, 0);
+}
+
+function convertLocalTimeWithZoneToUtc(dateParts, timeParts, dtf) {
+  const targetWholeSecMs = Date.UTC(
+    dateParts.year,
+    dateParts.month - 1,
+    dateParts.day,
+    timeParts.hour,
+    timeParts.minute,
+    timeParts.second,
+    0,
+  );
+  const offset1 = extractZonedWallUtcMs(targetWholeSecMs, dtf) - targetWholeSecMs;
+  const guess2 = targetWholeSecMs - offset1;
+  const offset2 = extractZonedWallUtcMs(guess2, dtf) - guess2;
+  const guess3 = targetWholeSecMs - offset2;
+  if (extractZonedWallUtcMs(guess3, dtf) !== targetWholeSecMs) {
+    throw new OrdersFillsError("invalid_legacy_execution_local_time", 400);
+  }
+  return toUtcIsoFromNs(BigInt(guess3 + timeParts.ms) * 1_000_000n);
+}
+
 export function adaptLegacyBrokerExecutionPayload(legacyPayload, context = {}) {
   if (!legacyPayload || typeof legacyPayload !== "object" || Array.isArray(legacyPayload)) {
     throw new OrdersFillsError("invalid_legacy_broker_executions", 400);
@@ -589,10 +690,22 @@ export function adaptLegacyBrokerExecutionPayload(legacyPayload, context = {}) {
       throw new OrdersFillsError("invalid_legacy_execution_quantity", 400);
     }
     const positiveQty = formatQtyExact(absDecimal(qtyDec));
-    if (typeof row.trade_date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(row.trade_date)) {
-      throw new OrdersFillsError("invalid_legacy_execution_trade_date", 400);
+    const dateParts = validateLegacyTradeDate(row.trade_date);
+    const localTimeParts = row.local_time !== undefined && row.local_time !== null
+      ? parseLegacyLocalTime(row.local_time, row.trade_date)
+      : null;
+    const zoneFormatter = row.time_zone !== undefined && row.time_zone !== null
+      ? buildLegacyZoneFormatter(row.time_zone)
+      : null;
+
+    let executedAt = null;
+    if (row.executed_at !== undefined) {
+      executedAt = row.executed_at === null
+        ? null
+        : parseStrictUtcString(row.executed_at, "legacy_executed_at");
+    } else if (localTimeParts !== null && zoneFormatter !== null) {
+      executedAt = convertLocalTimeWithZoneToUtc(dateParts, localTimeParts, zoneFormatter);
     }
-    const executedAt = `${row.trade_date}T00:00:00.000Z`;
     return {
       broker: identity.broker,
       environment: identity.environment,

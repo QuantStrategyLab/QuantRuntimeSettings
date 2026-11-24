@@ -50,13 +50,19 @@ function mergeTwoExecutions(prev, next) {
   ) {
     throw new OrdersFillsError("execution_dedup_key_mismatch", 409);
   }
+  const prevExecNs = prev.executed_at !== null && prev.executed_at !== undefined
+    ? parseInstantNs(prev.executed_at)
+    : null;
+  const nextExecNs = next.executed_at !== null && next.executed_at !== undefined
+    ? parseInstantNs(next.executed_at)
+    : null;
   if (
     prev.symbol !== next.symbol
     || prev.side !== next.side
     || !decEqNullable(prev.qty, next.qty)
     || !decEqNullable(prev.price, next.price)
     || prev.currency !== next.currency
-    || parseInstantNs(prev.executed_at) !== parseInstantNs(next.executed_at)
+    || (prevExecNs !== null && nextExecNs !== null && prevExecNs !== nextExecNs)
   ) {
     throw new OrdersFillsError("conflicting_duplicate_execution", 409);
   }
@@ -102,12 +108,14 @@ function mergeTwoExecutions(prev, next) {
     feeCurrency = next.fee_currency;
   }
 
+  const executedAt = prev.executed_at ?? next.executed_at ?? null;
   const enriched = (
     feeNative !== prev.fee_native
     || feeCurrency !== prev.fee_currency
     || feeUsd !== prev.fee_usd
     || (prev.client_order_id === null && next.client_order_id !== null)
     || (prev.broker_order_id === null && next.broker_order_id !== null)
+    || ((prev.executed_at ?? null) === null && (next.executed_at ?? null) !== null)
   );
 
   return {
@@ -118,9 +126,17 @@ function mergeTwoExecutions(prev, next) {
     fee_currency: feeCurrency,
     fee_usd: feeUsd,
     usd_basis_qualified: usdBasisQualified,
+    executed_at: executedAt,
     report_ref: enriched && next.report_ref !== null ? next.report_ref : (prev.report_ref ?? next.report_ref ?? null),
     evidence_ref: enriched ? next.evidence_ref : prev.evidence_ref,
   };
+}
+
+function compareNullableIso(aIso, bIso) {
+  if (aIso === bIso) return 0;
+  if (aIso === null || aIso === undefined) return 1;
+  if (bIso === null || bIso === undefined) return -1;
+  return aIso.localeCompare(bIso);
 }
 
 /**
@@ -144,7 +160,7 @@ export function deduplicateExecutions(incomingExecutions = [], existingExecution
     a.broker.localeCompare(b.broker)
     || a.environment.localeCompare(b.environment)
     || a.account.localeCompare(b.account)
-    || a.executed_at.localeCompare(b.executed_at)
+    || compareNullableIso(a.executed_at ?? null, b.executed_at ?? null)
     || a.execution_ref.localeCompare(b.execution_ref)
   ));
 }
@@ -319,18 +335,8 @@ export function reconcileOrdersAndFills({
       byBrokerOrderId.set(entry.broker_order_id, entry);
     }
   }
-  for (const exec of dedupedExecs) {
-    const execNs = parseInstantNs(exec.executed_at);
-    if (evalNs !== null && execNs !== null && execNs > evalNs) {
-      hasFutureEvents = true;
-    }
-    let target = null;
-    if (exec.client_order_id !== null) {
-      target = orderMap.get(`${identity.binding_key}|${exec.client_order_id}`) ?? null;
-    } else if (exec.broker_order_id !== null) {
-      target = byBrokerOrderId.get(exec.broker_order_id) ?? null;
-    }
-    if (!target) continue;
+  let hasUnknownExecTimestamps = false;
+  const linkExecutionToTarget = (exec, target) => {
     if (target.symbol !== exec.symbol || target.side !== exec.side || target.currency !== exec.currency) {
       throw new OrdersFillsError("execution_order_mismatch", 409);
     }
@@ -346,6 +352,42 @@ export function reconcileOrdersAndFills({
       byBrokerOrderId.set(exec.broker_order_id, target);
     }
     target.executions.push(exec);
+  };
+
+  // Pass 1: link client_order_id-bearing executions first so they populate missing
+  // broker_order_id mappings before retrying broker_order_id-only executions.
+  const unmatchedBrokerExecs = [];
+  for (const exec of dedupedExecs) {
+    const execNs = exec.executed_at !== null && exec.executed_at !== undefined
+      ? parseInstantNs(exec.executed_at)
+      : null;
+    if (execNs === null) {
+      hasUnknownExecTimestamps = true;
+    } else if (evalNs !== null && execNs > evalNs) {
+      hasFutureEvents = true;
+    }
+    if (exec.client_order_id !== null) {
+      const target = orderMap.get(`${identity.binding_key}|${exec.client_order_id}`) ?? null;
+      if (target) {
+        linkExecutionToTarget(exec, target);
+      }
+    } else if (exec.broker_order_id !== null) {
+      unmatchedBrokerExecs.push(exec);
+    }
+  }
+  for (const exec of unmatchedBrokerExecs) {
+    const target = byBrokerOrderId.get(exec.broker_order_id) ?? null;
+    if (target) {
+      linkExecutionToTarget(exec, target);
+    }
+  }
+  for (const entry of orderMap.values()) {
+    if (entry.executions.length > 1) {
+      entry.executions.sort((a, b) => (
+        compareNullableIso(a.executed_at ?? null, b.executed_at ?? null)
+        || a.execution_ref.localeCompare(b.execution_ref)
+      ));
+    }
   }
 
   const activeLocks = lockStore ? listActiveOrderUnknownLocks(lockStore, identity) : [];
@@ -361,7 +403,12 @@ export function reconcileOrdersAndFills({
     const matchingExecs = entry.executions;
     const effectiveExecs = evalNs === null
       ? matchingExecs
-      : matchingExecs.filter((ex) => parseInstantNs(ex.executed_at) <= evalNs);
+      : matchingExecs.filter((ex) => {
+        if (ex.executed_at === null || ex.executed_at === undefined) return true;
+        const exNs = parseInstantNs(ex.executed_at);
+        return exNs !== null && exNs <= evalNs;
+      });
+    const orderHasUnknownExecTs = effectiveExecs.some((ex) => ex.executed_at === null || ex.executed_at === undefined);
     const lockFromClient = lockByClientId.get(entry.client_order_id) ?? null;
     const lockFromBroker = entry.broker_order_id !== null ? (lockByBrokerId.get(entry.broker_order_id) ?? null) : null;
     if (lockFromClient && lockFromBroker && lockFromClient.client_order_id !== lockFromBroker.client_order_id) {
@@ -392,8 +439,13 @@ export function reconcileOrdersAndFills({
     if (cutoff && !cutoffIsFuture) {
       let filledUpToCutoffFromExecs = ZERO_DEC;
       for (const ex of effectiveExecs) {
-        const exNs = parseInstantNs(ex.executed_at);
-        if (exNs !== null && exNs <= cutoffNs) {
+        const exNs = ex.executed_at !== null && ex.executed_at !== undefined
+          ? parseInstantNs(ex.executed_at)
+          : null;
+        if (exNs === null) {
+          continue;
+        }
+        if (exNs <= cutoffNs) {
           filledUpToCutoffFromExecs = addDecimal(filledUpToCutoffFromExecs, parseDecimal(ex.qty));
         } else {
           filledAfterCutoff = addDecimal(filledAfterCutoff, parseDecimal(ex.qty));
@@ -412,19 +464,23 @@ export function reconcileOrdersAndFills({
 
       filledDec = addDecimal(filledAtCutoffDec, filledAfterCutoff);
       canceledDec = canceledAtCutoffDec;
+      const subTransitionNs = sub
+        ? (subMeta?.effective_at_ns ?? parseInstantNs(sub.submitted_at))
+        : null;
       if (
         !entry.sawFutureTransition
         && sub
-        && subMeta?.resolved_at_ns !== null
-        && subMeta.resolved_at_ns !== undefined
-        && subMeta.resolved_at_ns > cutoffNs
+        && subTransitionNs !== null
+        && subTransitionNs > cutoffNs
       ) {
         if (subMeta?.qty_canceled !== undefined) {
           canceledDec = maxDec(canceledAtCutoffDec, parseDecimal(subMeta.qty_canceled));
         } else if (sub.state === "CANCELED" || sub.state === "REJECTED") {
           canceledDec = maxDec(canceledAtCutoffDec, subDecimal(subDec, filledDec));
+        } else if (sub.state === "PARTIAL_CANCEL" && filledDec.num > 0n) {
+          canceledDec = maxDec(canceledAtCutoffDec, subDecimal(subDec, filledDec));
         }
-        if (TERMINAL_STATE_SET.has(sub.state)) {
+        if (TERMINAL_STATE_SET.has(sub.state) || sub.state === "PARTIAL_CANCEL") {
           postCutoffSubTerminal = true;
         }
       }
@@ -501,14 +557,14 @@ export function reconcileOrdersAndFills({
         }
         feeCurrency = feeCurrencies[0];
         feeNative = feeCurrency === "USD" ? formatUsdExact(sumNative) : formatQtyExact(sumNative);
-        const allUsd = effectiveExecs.every((ex) => ex.fee_usd !== null);
-        if (allUsd) {
-          let sumUsd = ZERO_DEC;
-          for (const ex of effectiveExecs) {
-            sumUsd = addDecimal(sumUsd, parseDecimal(ex.fee_usd));
-          }
-          feeUsd = formatUsdExact(sumUsd);
+      }
+      const allUsd = effectiveExecs.every((ex) => ex.fee_usd !== null);
+      if (allUsd) {
+        let sumUsd = ZERO_DEC;
+        for (const ex of effectiveExecs) {
+          sumUsd = addDecimal(sumUsd, parseDecimal(ex.fee_usd));
         }
+        feeUsd = formatUsdExact(sumUsd);
       }
     } else if (sub && sub.fee_native !== null) {
       feeNative = sub.fee_native;
@@ -546,6 +602,8 @@ export function reconcileOrdersAndFills({
       kPendUsd = usdBasisQualified ? "0" : null;
     } else if (isTerminalZeroRemaining) {
       kPendUsd = usdBasisQualified ? "0" : null;
+    } else if (orderHasUnknownExecTs && cutoff && !cutoffIsFuture) {
+      kPendUsd = null;
     } else if (activeLock && activeLock.k_pend_usd !== null) {
       kPendUsd = activeLock.k_pend_usd;
     } else if (cutoff && !cutoffIsFuture && cutoff.k_pend_usd !== null && filledAfterCutoff.num === 0n) {
@@ -566,9 +624,18 @@ export function reconcileOrdersAndFills({
       }
     }
 
+    const subEventIso = !entry.sawFutureTransition
+      ? (subMeta?.effective_at_ns !== null && subMeta?.effective_at_ns !== undefined
+        ? toUtcIsoFromNs(subMeta.effective_at_ns)
+        : (sub?.submitted_at ?? null))
+      : (sub?.submitted_at ?? null);
+    let latestExecAt = null;
+    for (const ex of effectiveExecs) {
+      latestExecAt = maxTimestampIso(latestExecAt, ex.executed_at);
+    }
     const updatedAt = maxTimestampIso(
-      maxTimestampIso(sub?.submitted_at ?? null, cutoff && !cutoffIsFuture ? cutoff.as_of : null),
-      effectiveExecs.length > 0 ? effectiveExecs[effectiveExecs.length - 1].executed_at : null,
+      maxTimestampIso(subEventIso, cutoff && !cutoffIsFuture ? cutoff.as_of : null),
+      latestExecAt,
     ) ?? evaluatedAt;
 
     const queryTarget = state === "ORDER_UNKNOWN"
@@ -717,7 +784,12 @@ export function reconcileOrdersAndFills({
     hasFutureEvents = true;
   }
   const cutoffDomainProvenComplete = Boolean(cutoffCoverage?.k_pend_release_allowed) && !cutoffCoverageIsFuture;
-  const coverageAllowsRelease = cutoffDomainProvenComplete && orderUnknownLocks.length === 0 && !hasFutureEvents;
+  const coverageAllowsRelease = (
+    cutoffDomainProvenComplete
+    && orderUnknownLocks.length === 0
+    && !hasFutureEvents
+    && !hasUnknownExecTimestamps
+  );
 
   if (!cutoffDomainProvenComplete && (priorKPendUsd === null || priorKPendUsd === undefined)) {
     kPendUnavailable = true;

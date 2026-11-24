@@ -583,7 +583,7 @@
         "fee_currency": { "$ref": "#/$defs/nullableCurrency" },
         "fee_usd": { "$ref": "#/$defs/nullableDecimal" },
         "usd_basis_qualified": { "type": "boolean" },
-        "executed_at": { "$ref": "#/$defs/utcTime" },
+        "executed_at": { "$ref": "#/$defs/nullableUtcTime" },
         "evidence_ref": { "$ref": "#/$defs/evidenceRef" }
       }
     },

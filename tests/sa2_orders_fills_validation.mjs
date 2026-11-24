@@ -1392,4 +1392,681 @@ assert.ok(ORDER_LIFECYCLE_STATES.includes("ORDER_UNKNOWN"));
   assert.equal(omittedNoPrior.summary.k_pend_usd, null);
 }
 
+// 8. Codex round-2 P2 regression guards (two-pass exec link, updated_at cancel, legacy TZ, mixed fee_usd)
+{
+  // P2 #1: Two-pass execution linking when submission & cutoff lack broker_order_id and earlier exec omits client_order_id.
+  const twoPassInput = {
+    broker: "longbridge",
+    environment: "paper",
+    account: "longbridge:paper:pilot",
+    as_of: "2026-11-24T15:02:00.000Z",
+    evaluated_at: "2026-11-24T15:02:00.000Z",
+    origin: "synthetic",
+    source_class: "paper_broker",
+    evidence_ref: "sa2:codex-r2:p2-1-twopass",
+    domains: {
+      submissions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "lb_subs",
+        scope: "account_submissions",
+        cap: 256,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            client_order_id: "ord-twopass-1",
+            broker_order_id: null,
+            symbol: "AAPL",
+            side: "BUY",
+            state: "SUBMITTED",
+            qty_submitted: "10",
+            limit_price: "50",
+            estimated_fee_usd: "0",
+            currency: "USD",
+            fee_native: null,
+            fee_currency: null,
+            fee_usd: null,
+            submitted_at: "2026-11-24T14:55:00.000Z",
+            evidence_ref: "sa2:codex-r2:sub1",
+          },
+        ],
+      },
+      executions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "lb_execs",
+        scope: "account_executions",
+        cap: 512,
+        count: 2,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            execution_ref: "exec-twopass-early",
+            client_order_id: null,
+            broker_order_id: "brk-twopass-1",
+            symbol: "AAPL",
+            side: "BUY",
+            qty: "2",
+            price: "50",
+            currency: "USD",
+            fee_native: "0",
+            fee_currency: "USD",
+            executed_at: "2026-11-24T14:58:00.000Z",
+            evidence_ref: "sa2:codex-r2:ex-early",
+          },
+          {
+            execution_ref: "exec-twopass-late",
+            client_order_id: "ord-twopass-1",
+            broker_order_id: "brk-twopass-1",
+            symbol: "AAPL",
+            side: "BUY",
+            qty: "2",
+            price: "50",
+            currency: "USD",
+            fee_native: "0",
+            fee_currency: "USD",
+            executed_at: "2026-11-24T15:00:00.000Z",
+            evidence_ref: "sa2:codex-r2:ex-late",
+          },
+        ],
+      },
+      cutoff_open_orders: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T14:56:00.000Z",
+        source: "lb_open",
+        scope: "cutoff_open_orders",
+        cap: 256,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            client_order_id: "ord-twopass-1",
+            broker_order_id: null,
+            symbol: "AAPL",
+            side: "BUY",
+            state: "ACCEPTED",
+            qty_submitted: "10",
+            qty_filled: "0",
+            qty_canceled: "0",
+            qty_remaining: "10",
+            limit_price: "50",
+            reserved_fee_usd: "0",
+            currency: "USD",
+            as_of: "2026-11-24T14:56:00.000Z",
+            evidence_ref: "sa2:codex-r2:open1",
+          },
+        ],
+      },
+    },
+  };
+  const twoPassRes = evaluateAuthoritativeOrdersAndFills(twoPassInput);
+  assert.ok(validateSchema(twoPassRes), ajv.errorsText(validateSchema.errors));
+  assert.equal(twoPassRes.orders.length, 1);
+  assert.equal(twoPassRes.orders[0].broker_order_id, "brk-twopass-1");
+  assert.equal(twoPassRes.orders[0].qty_filled, "4");
+  assert.equal(twoPassRes.orders[0].qty_remaining, "6");
+  assert.equal(twoPassRes.orders[0].state, "PARTIAL_FILL");
+  assert.equal(twoPassRes.orders[0].k_pend_usd, "300.00");
+  assert.equal(twoPassRes.summary.k_pend_usd, "300.00");
+  assert.equal(twoPassRes.summary.k_pend_release_allowed, true);
+
+  // P2 #2: Post-cutoff terminal/cancel update identified via updated_at advances cutoff snapshot & releases K_pend.
+  const updatedAtCancelRes = evaluateAuthoritativeOrdersAndFills({
+    broker: "longbridge",
+    environment: "paper",
+    account: "longbridge:paper:pilot",
+    as_of: "2026-11-24T15:02:00.000Z",
+    evaluated_at: "2026-11-24T15:02:00.000Z",
+    origin: "synthetic",
+    source_class: "paper_broker",
+    evidence_ref: "sa2:codex-r2:p2-2-updated-at",
+    domains: {
+      submissions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "lb_subs",
+        scope: "account_submissions",
+        cap: 256,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            client_order_id: "ord-upd-cancel",
+            broker_order_id: "brk-upd-cancel",
+            symbol: "AAPL",
+            side: "BUY",
+            state: "CANCELED",
+            qty_submitted: "10",
+            limit_price: "50",
+            estimated_fee_usd: "0",
+            currency: "USD",
+            fee_native: null,
+            fee_currency: null,
+            fee_usd: null,
+            submitted_at: "2026-11-24T14:55:00.000Z",
+            updated_at: "2026-11-24T15:01:00.000Z",
+            evidence_ref: "sa2:codex-r2:sub-upd-cancel",
+          },
+        ],
+      },
+      executions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "lb_execs",
+        scope: "account_executions",
+        cap: 512,
+        count: 0,
+        truncated: false,
+        completeness: "complete",
+        records: [],
+      },
+      cutoff_open_orders: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:00:00.000Z",
+        source: "lb_open",
+        scope: "cutoff_open_orders",
+        cap: 256,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            client_order_id: "ord-upd-cancel",
+            broker_order_id: "brk-upd-cancel",
+            symbol: "AAPL",
+            side: "BUY",
+            state: "ACCEPTED",
+            qty_submitted: "10",
+            qty_filled: "0",
+            qty_canceled: "0",
+            qty_remaining: "10",
+            limit_price: "50",
+            reserved_fee_usd: "0",
+            currency: "USD",
+            as_of: "2026-11-24T15:00:00.000Z",
+            evidence_ref: "sa2:codex-r2:open-upd-cancel",
+          },
+        ],
+      },
+    },
+  }, { priorKPendUsd: "500.00" });
+  assert.ok(validateSchema(updatedAtCancelRes), ajv.errorsText(validateSchema.errors));
+  assert.equal(updatedAtCancelRes.orders[0].state, "CANCELED");
+  assert.equal(updatedAtCancelRes.orders[0].qty_canceled, "10");
+  assert.equal(updatedAtCancelRes.orders[0].qty_remaining, "0");
+  assert.equal(updatedAtCancelRes.orders[0].k_pend_usd, "0");
+  assert.equal(updatedAtCancelRes.orders[0].updated_at, "2026-11-24T15:01:00.000Z");
+  assert.equal(updatedAtCancelRes.summary.k_pend_usd, "0");
+  assert.equal(updatedAtCancelRes.summary.k_pend_release_allowed, true);
+
+  // Also cover PARTIAL_CANCEL reported via updated_at after cutoff with post-cutoff fill.
+  const updatedAtPartialCancelRes = evaluateAuthoritativeOrdersAndFills({
+    broker: "longbridge",
+    environment: "paper",
+    account: "longbridge:paper:pilot",
+    as_of: "2026-11-24T15:02:00.000Z",
+    evaluated_at: "2026-11-24T15:02:00.000Z",
+    origin: "synthetic",
+    source_class: "paper_broker",
+    evidence_ref: "sa2:codex-r2:p2-2-partial-cancel",
+    domains: {
+      submissions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "lb_subs",
+        scope: "account_submissions",
+        cap: 256,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            client_order_id: "ord-upd-pc",
+            broker_order_id: "brk-upd-pc",
+            symbol: "AAPL",
+            side: "BUY",
+            state: "PARTIAL_CANCEL",
+            qty_submitted: "10",
+            limit_price: "50",
+            estimated_fee_usd: "0",
+            currency: "USD",
+            fee_native: null,
+            fee_currency: null,
+            fee_usd: null,
+            submitted_at: "2026-11-24T14:55:00.000Z",
+            updated_at: "2026-11-24T15:01:30.000Z",
+            evidence_ref: "sa2:codex-r2:sub-upd-pc",
+          },
+        ],
+      },
+      executions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "lb_execs",
+        scope: "account_executions",
+        cap: 512,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            execution_ref: "exec-upd-pc-1",
+            client_order_id: "ord-upd-pc",
+            broker_order_id: "brk-upd-pc",
+            symbol: "AAPL",
+            side: "BUY",
+            qty: "4",
+            price: "50",
+            currency: "USD",
+            fee_native: "0",
+            fee_currency: "USD",
+            executed_at: "2026-11-24T15:01:00.000Z",
+            evidence_ref: "sa2:codex-r2:ex-upd-pc",
+          },
+        ],
+      },
+      cutoff_open_orders: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:00:00.000Z",
+        source: "lb_open",
+        scope: "cutoff_open_orders",
+        cap: 256,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            client_order_id: "ord-upd-pc",
+            broker_order_id: "brk-upd-pc",
+            symbol: "AAPL",
+            side: "BUY",
+            state: "ACCEPTED",
+            qty_submitted: "10",
+            qty_filled: "0",
+            qty_canceled: "0",
+            qty_remaining: "10",
+            limit_price: "50",
+            reserved_fee_usd: "0",
+            currency: "USD",
+            as_of: "2026-11-24T15:00:00.000Z",
+            evidence_ref: "sa2:codex-r2:open-upd-pc",
+          },
+        ],
+      },
+    },
+  });
+  assert.ok(validateSchema(updatedAtPartialCancelRes), ajv.errorsText(validateSchema.errors));
+  assert.equal(updatedAtPartialCancelRes.orders[0].state, "PARTIAL_CANCEL");
+  assert.equal(updatedAtPartialCancelRes.orders[0].qty_filled, "4");
+  assert.equal(updatedAtPartialCancelRes.orders[0].qty_canceled, "6");
+  assert.equal(updatedAtPartialCancelRes.orders[0].qty_remaining, "0");
+  assert.equal(updatedAtPartialCancelRes.orders[0].k_pend_usd, "0");
+  assert.equal(updatedAtPartialCancelRes.summary.k_pend_usd, "0");
+
+  // P2 #3: Legacy execution adapter converts local_time + time_zone deterministically & never fabricates T00:00:00Z.
+  const baseLegacy = {
+    ...matrix.cases.null_fee_and_non_usd_cases.legacy_ibkr_flex_payload,
+    account_selector: "U" + "100001",
+    observed_at: "2026-11-24T15:00:00.000Z",
+  };
+  const legacyUtcFuture = adaptLegacyBrokerExecutionPayload({
+    ...baseLegacy,
+    records: [
+      {
+        ...baseLegacy.records[0],
+        trade_date: "2026-11-24",
+        local_time: "2026-11-24T20:00:00",
+        time_zone: "UTC",
+      },
+    ],
+  }, { broker: "ibkr", environment: "live", account: "ibkr:live:a1" });
+  assert.equal(legacyUtcFuture.domains.executions.records[0].executed_at, "2026-11-24T20:00:00.000Z");
+  const evalUtcFuture = evaluateAuthoritativeOrdersAndFills(legacyUtcFuture);
+  assert.ok(validateSchema(evalUtcFuture), ajv.errorsText(validateSchema.errors));
+  assert.equal(evalUtcFuture.executions[0].executed_at, "2026-11-24T20:00:00.000Z");
+  assert.equal(evalUtcFuture.summary.k_pend_release_allowed, false);
+
+  // Verify the converted 20:00Z execution sits on the future side of a 15:00Z evaluation boundary
+  // even when paired with a complete empty cutoff snapshot, whereas 21:00Z allows release.
+  const completeEmptyBoundaryInput = (evaluatedAt) => ({
+    broker: "ibkr",
+    environment: "live",
+    account: "ibkr:live:a1",
+    as_of: evaluatedAt,
+    evaluated_at: evaluatedAt,
+    origin: "synthetic",
+    source_class: "authorized_live_broker",
+    evidence_ref: "sa2:codex-r2:legacy-boundary",
+    domains: {
+      submissions: { domain_capability: "unsupported", as_of: null, source: "omitted", scope: "account_submissions" },
+      executions: {
+        ...legacyUtcFuture.domains.executions,
+        as_of: evaluatedAt,
+        completeness: "complete",
+      },
+      cutoff_open_orders: {
+        domain_capability: "supported",
+        as_of: evaluatedAt,
+        source: "ibkr_open",
+        scope: "cutoff_open_orders",
+        cap: 256,
+        count: 0,
+        truncated: false,
+        completeness: "complete",
+        records: [],
+      },
+    },
+  });
+  const boundaryAt1500 = evaluateAuthoritativeOrdersAndFills(
+    completeEmptyBoundaryInput("2026-11-24T15:00:00.000Z"),
+    { priorKPendUsd: "100.00" },
+  );
+  assert.ok(validateSchema(boundaryAt1500));
+  assert.equal(boundaryAt1500.summary.k_pend_release_allowed, false);
+  assert.equal(boundaryAt1500.summary.k_pend_usd, "100.00");
+
+  const boundaryAt2100 = evaluateAuthoritativeOrdersAndFills(
+    completeEmptyBoundaryInput("2026-11-24T21:00:00.000Z"),
+    { priorKPendUsd: "100.00" },
+  );
+  assert.ok(validateSchema(boundaryAt2100));
+  assert.equal(boundaryAt2100.summary.k_pend_release_allowed, true);
+  assert.equal(boundaryAt2100.summary.k_pend_usd, "0");
+
+  const legacyNyDst = adaptLegacyBrokerExecutionPayload({
+    ...baseLegacy,
+    observed_at: "2026-11-24T21:00:00.000Z",
+    records: [
+      {
+        ...baseLegacy.records[0],
+        execution_ref: "a".repeat(64),
+        trade_date: "2026-11-24",
+        local_time: "2026-11-24T09:30:00",
+        time_zone: "America/New_York",
+      },
+      {
+        ...baseLegacy.records[0],
+        execution_ref: "b".repeat(64),
+        trade_date: "2026-07-15",
+        local_time: "2026-07-15T09:30:00",
+        time_zone: "America/New_York",
+      },
+    ],
+  }, { broker: "ibkr", environment: "live", account: "ibkr:live:a1" });
+  assert.equal(legacyNyDst.domains.executions.records[0].executed_at, "2026-11-24T14:30:00.000Z");
+  assert.equal(legacyNyDst.domains.executions.records[1].executed_at, "2026-07-15T13:30:00.000Z");
+
+  // Unknown time_zone leaves executed_at: null (never midnight UTC), supports enrichment, and blocks K_pend release.
+  const legacyUnknownZone = adaptLegacyBrokerExecutionPayload({
+    ...baseLegacy,
+    observed_at: "2026-10-23T16:00:00.000Z",
+    records: [
+      {
+        ...baseLegacy.records[0],
+        trade_date: "2026-10-23",
+        local_time: "2026-10-23T09:31:00",
+        time_zone: null,
+      },
+    ],
+  }, { broker: "ibkr", environment: "live", account: "ibkr:live:a1" });
+  assert.equal(legacyUnknownZone.domains.executions.records[0].executed_at, null);
+  const evalUnknownZone = evaluateAuthoritativeOrdersAndFills(legacyUnknownZone);
+  assert.ok(validateSchema(evalUnknownZone), ajv.errorsText(validateSchema.errors));
+  assert.equal(evalUnknownZone.executions[0].executed_at, null);
+
+  const enrichedUnknownToKnown = deduplicateExecutions(
+    [{ ...legacyUnknownZone.domains.executions.records[0], executed_at: "2026-10-23T13:31:00.000Z" }],
+    legacyUnknownZone.domains.executions.records,
+  );
+  assert.equal(enrichedUnknownToKnown.length, 1);
+  assert.equal(enrichedUnknownToKnown[0].executed_at, "2026-10-23T13:31:00.000Z");
+
+  const nullExecWithCompleteCutoff = evaluateAuthoritativeOrdersAndFills({
+    broker: "ibkr",
+    environment: "live",
+    account: "ibkr:live:a1",
+    as_of: "2026-11-24T15:00:00.000Z",
+    evaluated_at: "2026-11-24T15:00:05.000Z",
+    origin: "synthetic",
+    source_class: "authorized_live_broker",
+    evidence_ref: "sa2:codex-r2:null-exec-ts",
+    domains: {
+      submissions: { domain_capability: "unsupported", as_of: null, source: "omitted", scope: "account_submissions" },
+      executions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:00:00.000Z",
+        source: "ibkr_flex",
+        scope: "account_executions",
+        cap: 512,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+        records: [legacyUnknownZone.domains.executions.records[0]],
+      },
+      cutoff_open_orders: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:00:00.000Z",
+        source: "ibkr_open",
+        scope: "cutoff_open_orders",
+        cap: 256,
+        count: 0,
+        truncated: false,
+        completeness: "complete",
+        records: [],
+      },
+    },
+  }, { priorKPendUsd: "100.00" });
+  assert.ok(validateSchema(nullExecWithCompleteCutoff));
+  assert.equal(nullExecWithCompleteCutoff.summary.k_pend_release_allowed, false);
+  assert.equal(nullExecWithCompleteCutoff.summary.k_pend_usd, "100.00");
+
+  // Reject spring-forward DST gap, mismatched trade_date prefix, or invalid timezone.
+  for (const [badRow, expectedErr] of [
+    [{ trade_date: "2026-03-08", local_time: "2026-03-08T02:30:00", time_zone: "America/New_York" }, /invalid_legacy_execution_local_time/],
+    [{ trade_date: "2026-11-24", local_time: "2026-11-25T09:30:00", time_zone: "UTC" }, /invalid_legacy_execution_local_time/],
+    [{ trade_date: "2026-11-24", local_time: "2026-11-24T09:30:00", time_zone: "Mars/Olympus_Mons" }, /invalid_legacy_execution_time_zone/],
+  ]) {
+    assert.throws(
+      () => adaptLegacyBrokerExecutionPayload({
+        ...baseLegacy,
+        records: [{ ...baseLegacy.records[0], ...badRow }],
+      }, { broker: "ibkr", environment: "live", account: "ibkr:live:a1" }),
+      expectedErr,
+    );
+  }
+
+  // P2 #4: Mixed fee currencies still sum fee_usd when every fill carries fee_usd, keeping fee_native/fee_currency null.
+  const mixedFeeUsdRes = evaluateAuthoritativeOrdersAndFills({
+    broker: "ibkr",
+    environment: "paper",
+    account: "ibkr:paper:a1",
+    as_of: "2026-11-24T15:02:00.000Z",
+    evaluated_at: "2026-11-24T15:02:00.000Z",
+    origin: "synthetic",
+    source_class: "paper_broker",
+    evidence_ref: "sa2:codex-r2:p2-4-mixed-fee-usd",
+    domains: {
+      submissions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "ibkr_subs",
+        scope: "account_submissions",
+        cap: 256,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            client_order_id: "ord-mixed-fee",
+            broker_order_id: "brk-mixed-fee",
+            symbol: "AAPL",
+            side: "BUY",
+            state: "FILLED",
+            qty_submitted: "10",
+            limit_price: "50",
+            currency: "USD",
+            fee_native: null,
+            fee_currency: null,
+            fee_usd: null,
+            submitted_at: "2026-11-24T15:00:00.000Z",
+            resolved_at: "2026-11-24T15:01:00.000Z",
+            evidence_ref: "sa2:codex-r2:sub-mixed-fee",
+          },
+        ],
+      },
+      executions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "ibkr_execs",
+        scope: "account_executions",
+        cap: 512,
+        count: 2,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            execution_ref: "exec-mixed-fee-usd",
+            client_order_id: "ord-mixed-fee",
+            broker_order_id: "brk-mixed-fee",
+            symbol: "AAPL",
+            side: "BUY",
+            qty: "5",
+            price: "50",
+            currency: "USD",
+            fee_native: "1.00",
+            fee_currency: "USD",
+            executed_at: "2026-11-24T15:00:30.000Z",
+            evidence_ref: "sa2:codex-r2:ex-fee-1",
+          },
+          {
+            execution_ref: "exec-mixed-fee-hkd",
+            client_order_id: "ord-mixed-fee",
+            broker_order_id: "brk-mixed-fee",
+            symbol: "AAPL",
+            side: "BUY",
+            qty: "5",
+            price: "50",
+            currency: "USD",
+            fee_native: "7.80",
+            fee_currency: "HKD",
+            fee_usd: "1.00",
+            usd_basis_qualified: true,
+            executed_at: "2026-11-24T15:01:00.000Z",
+            evidence_ref: "sa2:codex-r2:ex-fee-2",
+          },
+        ],
+      },
+      cutoff_open_orders: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "ibkr_open",
+        scope: "cutoff_open_orders",
+        cap: 256,
+        count: 0,
+        truncated: false,
+        completeness: "complete",
+        records: [],
+      },
+    },
+  });
+  assert.ok(validateSchema(mixedFeeUsdRes), ajv.errorsText(validateSchema.errors));
+  assert.equal(mixedFeeUsdRes.orders[0].fee_native, null);
+  assert.equal(mixedFeeUsdRes.orders[0].fee_currency, null);
+  assert.equal(mixedFeeUsdRes.orders[0].fee_usd, "2.00");
+
+  // Unqualified non-USD fee on one fill still leaves aggregated fee_usd null.
+  const mixedFeeUnqualified = evaluateAuthoritativeOrdersAndFills({
+    broker: "ibkr",
+    environment: "paper",
+    account: "ibkr:paper:a1",
+    as_of: "2026-11-24T15:02:00.000Z",
+    evaluated_at: "2026-11-24T15:02:00.000Z",
+    origin: "synthetic",
+    source_class: "paper_broker",
+    evidence_ref: "sa2:codex-r2:p2-4-unqualified",
+    domains: {
+      submissions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "ibkr_subs",
+        scope: "account_submissions",
+        cap: 256,
+        count: 1,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            client_order_id: "ord-mixed-unq",
+            broker_order_id: "brk-mixed-unq",
+            symbol: "AAPL",
+            side: "BUY",
+            state: "FILLED",
+            qty_submitted: "10",
+            limit_price: "50",
+            currency: "USD",
+            fee_native: null,
+            fee_currency: null,
+            fee_usd: null,
+            submitted_at: "2026-11-24T15:00:00.000Z",
+            resolved_at: "2026-11-24T15:01:00.000Z",
+            evidence_ref: "sa2:codex-r2:sub-mixed-unq",
+          },
+        ],
+      },
+      executions: {
+        domain_capability: "supported",
+        as_of: "2026-11-24T15:02:00.000Z",
+        source: "ibkr_execs",
+        scope: "account_executions",
+        cap: 512,
+        count: 2,
+        truncated: false,
+        completeness: "complete",
+        records: [
+          {
+            execution_ref: "exec-mixed-unq-1",
+            client_order_id: "ord-mixed-unq",
+            broker_order_id: "brk-mixed-unq",
+            symbol: "AAPL",
+            side: "BUY",
+            qty: "5",
+            price: "50",
+            currency: "USD",
+            fee_native: "1.00",
+            fee_currency: "USD",
+            executed_at: "2026-11-24T15:00:30.000Z",
+            evidence_ref: "sa2:codex-r2:ex-unq-1",
+          },
+          {
+            execution_ref: "exec-mixed-unq-2",
+            client_order_id: "ord-mixed-unq",
+            broker_order_id: "brk-mixed-unq",
+            symbol: "AAPL",
+            side: "BUY",
+            qty: "5",
+            price: "50",
+            currency: "USD",
+            fee_native: "7.80",
+            fee_currency: "HKD",
+            fee_usd: null,
+            usd_basis_qualified: false,
+            executed_at: "2026-11-24T15:01:00.000Z",
+            evidence_ref: "sa2:codex-r2:ex-unq-2",
+          },
+        ],
+      },
+      cutoff_open_orders: { domain_capability: "unsupported", as_of: null, source: "omitted", scope: "cutoff_open_orders" },
+    },
+  });
+  assert.ok(validateSchema(mixedFeeUnqualified), ajv.errorsText(validateSchema.errors));
+  assert.equal(mixedFeeUnqualified.orders[0].fee_native, null);
+  assert.equal(mixedFeeUnqualified.orders[0].fee_currency, null);
+  assert.equal(mixedFeeUnqualified.orders[0].fee_usd, null);
+}
+
 console.log("sa2_orders_fills_validation: PASS (SA-A12)");
