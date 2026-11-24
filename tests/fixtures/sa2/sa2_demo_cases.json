@@ -1,0 +1,661 @@
+{
+  "schema_version": "qsl.sa2_demo_cases.v1",
+  "frozen_phase": "SA2-W1",
+  "origin": "synthetic",
+  "cases": {
+    "SA2-D1": {
+      "id": "SA2-D1",
+      "title": "C-SA-Q21 Zero deployable cash blocks buys, never reductions",
+      "zero_cash_case": {
+        "input": {
+          "account_id": "longbridge:paper:pilot",
+          "broker": "longbridge",
+          "environment": "paper",
+          "currency": "USD",
+          "margin_enabled": false,
+          "h_usd": "0",
+          "kelly_applied": false,
+          "live_trading_enabled": false,
+          "stop_loss_return_enabled": false,
+          "evaluated_at": "2026-11-24T15:00:00.000Z",
+          "equity_usd": "10000.00",
+          "cash_settled_usd": "5000.00",
+          "proceeds_eligible_usd": "0",
+          "r_cash_usd": "2000.00",
+          "k_pend_usd": "3000.00",
+          "k_pend_release_allowed": false,
+          "b_band": "0.20",
+          "emergency_bypass": true,
+          "fee_schedule": {
+            "provenance": "synthetic_fixture",
+            "c_min_usd": "1.00",
+            "c_per_share_usd": "0.01",
+            "c_reg": "0.25",
+            "b_exec_usd": "0"
+          },
+          "order_unknown_symbols": [],
+          "targets": [
+            {
+              "symbol": "TQQQ",
+              "q_pre": "10",
+              "price_ref": "50.00",
+              "price_lim": "50.50",
+              "w_target": "0.10"
+            },
+            {
+              "symbol": "SOXL",
+              "q_pre": "20",
+              "price_ref": "25.00",
+              "price_lim": "25.25",
+              "w_target": "0.045"
+            }
+          ],
+          "origin": "synthetic",
+          "source_class": "synthetic",
+          "evidence_ref": "sa2:demo:d1-zero-cash"
+        },
+        "expected": {
+          "status": "available",
+          "c_inv_usd": "1000.00",
+          "c_avail_usd": "0",
+          "total_buy_commit_usd": "0",
+          "tqqq": {
+            "q_ideal": "20",
+            "delta_q_raw": "10",
+            "delta_q_buy": "0",
+            "delta_q_final": "0",
+            "action": "BLOCKED_BUY",
+            "buy_blocked_reason": "zero_deployable_cash"
+          },
+          "soxl": {
+            "q_ideal": "18",
+            "delta_q_raw": "-2",
+            "delta_q_buy": "0",
+            "delta_q_sell": "2",
+            "delta_q_final": "-2",
+            "action": "SELL",
+            "band_suppressed": false,
+            "emergency_bypass_applied": true
+          }
+        }
+      },
+      "positive_control": {
+        "input": {
+          "account_id": "longbridge:paper:pilot",
+          "broker": "longbridge",
+          "environment": "paper",
+          "currency": "USD",
+          "margin_enabled": false,
+          "h_usd": "0",
+          "kelly_applied": false,
+          "live_trading_enabled": false,
+          "stop_loss_return_enabled": false,
+          "evaluated_at": "2026-11-24T15:00:00.000Z",
+          "equity_usd": "10000.00",
+          "cash_settled_usd": "5000.00",
+          "proceeds_eligible_usd": "0",
+          "r_cash_usd": "2000.00",
+          "k_pend_usd": "1000.00",
+          "k_pend_release_allowed": true,
+          "b_band": "0.20",
+          "emergency_bypass": true,
+          "fee_schedule": {
+            "provenance": "synthetic_fixture",
+            "c_min_usd": "1.00",
+            "c_per_share_usd": "0.01",
+            "c_reg": "0.25",
+            "b_exec_usd": "0"
+          },
+          "order_unknown_symbols": [],
+          "targets": [
+            {
+              "symbol": "TQQQ",
+              "q_pre": "10",
+              "price_ref": "50.00",
+              "price_lim": "50.50",
+              "w_target": "0.10"
+            },
+            {
+              "symbol": "SOXL",
+              "q_pre": "20",
+              "price_ref": "25.00",
+              "price_lim": "25.25",
+              "w_target": "0.045"
+            }
+          ],
+          "origin": "synthetic",
+          "source_class": "synthetic",
+          "evidence_ref": "sa2:demo:d1-positive"
+        },
+        "expected": {
+          "status": "available",
+          "c_avail_usd": "2000.00",
+          "total_buy_commit_usd": "506.25",
+          "tqqq_delta_q_buy": "10",
+          "tqqq_action": "BUY",
+          "soxl_delta_q_sell": "2",
+          "soxl_action": "SELL"
+        }
+      }
+    },
+    "SA2-D2": {
+      "id": "SA2-D2",
+      "title": "C-SA-Q21 Fee-and-collar whole-share rounding boundary",
+      "boundary_case": {
+        "input": {
+          "account_id": "longbridge:paper:pilot",
+          "broker": "longbridge",
+          "environment": "paper",
+          "currency": "USD",
+          "margin_enabled": false,
+          "h_usd": "0",
+          "kelly_applied": false,
+          "live_trading_enabled": false,
+          "stop_loss_return_enabled": false,
+          "evaluated_at": "2026-11-24T15:00:00.000Z",
+          "equity_usd": "2000.00",
+          "cash_settled_usd": "1000.00",
+          "proceeds_eligible_usd": "0",
+          "r_cash_usd": "0",
+          "k_pend_usd": "0",
+          "k_pend_release_allowed": true,
+          "fee_schedule": {
+            "provenance": "synthetic_fixture",
+            "c_min_usd": "1.00",
+            "c_per_share_usd": "0.01",
+            "c_reg": "0.25",
+            "b_exec_usd": "0"
+          },
+          "order_unknown_symbols": [],
+          "targets": [
+            {
+              "symbol": "TQQQ",
+              "q_pre": "0",
+              "price_ref": "100.00",
+              "price_lim": "101.00",
+              "w_target": "0.50"
+            }
+          ],
+          "origin": "synthetic",
+          "source_class": "synthetic",
+          "evidence_ref": "sa2:demo:d2-boundary"
+        },
+        "expected": {
+          "status": "available",
+          "c_avail_usd": "1000.00",
+          "q_ideal": "10",
+          "naive_shares_by_p_ref": "10",
+          "delta_q_buy": "9",
+          "q_target": "9",
+          "est_worst_case_notional_usd": "909.00",
+          "est_commission_usd": "1.25",
+          "est_total_buy_commit_usd": "910.25",
+          "remaining_deployable_cash_usd": "89.75",
+          "fractional_shares": "prohibited",
+          "rho_order_value": "0.001388888889",
+          "rho_order_threshold": null
+        }
+      },
+      "positive_control": {
+        "input": {
+          "account_id": "longbridge:paper:pilot",
+          "broker": "longbridge",
+          "environment": "paper",
+          "currency": "USD",
+          "margin_enabled": false,
+          "h_usd": "0",
+          "kelly_applied": false,
+          "live_trading_enabled": false,
+          "stop_loss_return_enabled": false,
+          "evaluated_at": "2026-11-24T15:00:00.000Z",
+          "equity_usd": "2000.00",
+          "cash_settled_usd": "1011.25",
+          "proceeds_eligible_usd": "0",
+          "r_cash_usd": "0",
+          "k_pend_usd": "0",
+          "k_pend_release_allowed": true,
+          "fee_schedule": {
+            "provenance": "synthetic_fixture",
+            "c_min_usd": "1.00",
+            "c_per_share_usd": "0.01",
+            "c_reg": "0.25",
+            "b_exec_usd": "0"
+          },
+          "order_unknown_symbols": [],
+          "targets": [
+            {
+              "symbol": "TQQQ",
+              "q_pre": "0",
+              "price_ref": "100.00",
+              "price_lim": "101.00",
+              "w_target": "0.50"
+            }
+          ],
+          "origin": "synthetic",
+          "source_class": "synthetic",
+          "evidence_ref": "sa2:demo:d2-positive"
+        },
+        "expected": {
+          "status": "available",
+          "delta_q_buy": "10",
+          "est_total_buy_commit_usd": "1011.25",
+          "remaining_deployable_cash_usd": "0"
+        }
+      }
+    },
+    "SA2-D3": {
+      "id": "SA2-D3",
+      "title": "C-SA-25 + O4 Restart-persistent ORDER-UNKNOWN lock",
+      "timeout_submission": {
+        "broker": "longbridge",
+        "environment": "paper",
+        "account": "longbridge:paper:pilot",
+        "client_order_id": "ord-lb-paper-tqqq-001",
+        "broker_order_id": null,
+        "symbol": "TQQQ",
+        "side": "BUY",
+        "state": "ORDER_UNKNOWN",
+        "qty_submitted": "10",
+        "limit_price": "50.00",
+        "currency": "USD",
+        "fee_native": null,
+        "fee_currency": null,
+        "estimated_fee_usd": "1.25",
+        "usd_basis_qualified": true,
+        "submitted_at": "2026-11-24T14:55:00.000Z",
+        "evidence_ref": "sa2:demo:d3-timeout"
+      },
+      "non_terminal_followup": {
+        "broker": "longbridge",
+        "environment": "paper",
+        "account": "longbridge:paper:pilot",
+        "client_order_id": "ord-lb-paper-tqqq-001",
+        "broker_order_id": "brk-lb-paper-001",
+        "symbol": "TQQQ",
+        "side": "BUY",
+        "state": "ACCEPTED",
+        "qty_submitted": "10",
+        "qty_filled": "0",
+        "qty_canceled": "0",
+        "qty_remaining": "10",
+        "limit_price": "50.00",
+        "currency": "USD",
+        "reserved_fee_usd": "1.25",
+        "usd_basis_qualified": true,
+        "as_of": "2026-11-24T14:56:00.000Z",
+        "evidence_ref": "sa2:demo:d3-accepted"
+      },
+      "terminal_resolution": {
+        "broker": "longbridge",
+        "environment": "paper",
+        "account": "longbridge:paper:pilot",
+        "client_order_id": "ord-lb-paper-tqqq-001",
+        "broker_order_id": "brk-lb-paper-001",
+        "symbol": "TQQQ",
+        "side": "BUY",
+        "state": "CANCELED",
+        "qty_submitted": "10",
+        "qty_filled": "0",
+        "qty_canceled": "10",
+        "qty_remaining": "0",
+        "currency": "USD",
+        "resolved_at": "2026-11-24T14:57:00.000Z",
+        "evidence_ref": "sa2:demo:d3-canceled"
+      },
+      "expected": {
+        "k_pend_locked_usd": "501.25",
+        "query_target_pre_ack_by": "client_order_tuple",
+        "locked_symbols": ["TQQQ"],
+        "tqqq_buy_blocked_while_locked": "0",
+        "soxl_buy_unblocked_while_tqqq_locked": "4",
+        "k_pend_after_terminal_with_complete_coverage": "0"
+      }
+    },
+    "SA2-D4": {
+      "id": "SA2-D4",
+      "title": "C-SA-25 (broker, environment, account) isolation",
+      "paper_account": {
+        "broker": "longbridge",
+        "environment": "paper",
+        "account": "longbridge:paper:pilot",
+        "as_of": "2026-11-24T15:00:00.000Z",
+        "evaluated_at": "2026-11-24T15:00:05.000Z",
+        "origin": "synthetic",
+        "source_class": "paper_broker",
+        "evidence_ref": "sa2:demo:d4-paper",
+        "domains": {
+          "submissions": {
+            "domain_capability": "supported",
+            "as_of": "2026-11-24T15:00:00.000Z",
+            "source": "longbridge_paper_orders",
+            "scope": "account_submissions",
+            "cap": 512,
+            "completeness": "complete",
+            "truncated": false,
+            "records": [
+              {
+                "client_order_id": "ord-shared-001",
+                "broker_order_id": "brk-paper-1",
+                "symbol": "TQQQ",
+                "side": "BUY",
+                "state": "FILLED",
+                "qty_submitted": "10",
+                "limit_price": "50.00",
+                "currency": "USD",
+                "fee_native": "1.25",
+                "fee_currency": "USD",
+                "submitted_at": "2026-11-24T14:50:00.000Z",
+                "evidence_ref": "sa2:demo:d4-paper-sub"
+              }
+            ]
+          },
+          "executions": {
+            "domain_capability": "supported",
+            "as_of": "2026-11-24T15:00:00.000Z",
+            "source": "longbridge_paper_fills",
+            "scope": "account_executions",
+            "cap": 512,
+            "completeness": "complete",
+            "truncated": false,
+            "records": [
+              {
+                "execution_ref": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "report_ref": "1111111111111111111111111111111111111111111111111111111111111111",
+                "client_order_id": "ord-shared-001",
+                "broker_order_id": "brk-paper-1",
+                "symbol": "TQQQ",
+                "side": "BUY",
+                "qty": "10",
+                "price": "49.50",
+                "currency": "USD",
+                "fee_native": "1.25",
+                "fee_currency": "USD",
+                "executed_at": "2026-11-24T14:51:00.000Z",
+                "evidence_ref": "sa2:demo:d4-paper-exec"
+              }
+            ]
+          },
+          "cutoff_open_orders": {
+            "domain_capability": "supported",
+            "as_of": "2026-11-24T15:00:00.000Z",
+            "source": "longbridge_paper_open",
+            "scope": "cutoff_open_orders",
+            "cap": 512,
+            "completeness": "complete",
+            "truncated": false,
+            "records": []
+          }
+        }
+      },
+      "live_account": {
+        "broker": "longbridge",
+        "environment": "live",
+        "account": "longbridge:live:sg",
+        "as_of": "2026-11-24T15:00:00.000Z",
+        "evaluated_at": "2026-11-24T15:00:05.000Z",
+        "origin": "synthetic",
+        "source_class": "authorized_live_broker",
+        "evidence_ref": "sa2:demo:d4-live",
+        "domains": {
+          "submissions": {
+            "domain_capability": "supported",
+            "as_of": "2026-11-24T15:00:00.000Z",
+            "source": "longbridge_live_orders",
+            "scope": "account_submissions",
+            "cap": 512,
+            "completeness": "complete",
+            "truncated": false,
+            "records": [
+              {
+                "client_order_id": "ord-shared-001",
+                "broker_order_id": "brk-live-9",
+                "symbol": "SOXL",
+                "side": "SELL",
+                "state": "FILLED",
+                "qty_submitted": "20",
+                "limit_price": "25.00",
+                "currency": "USD",
+                "fee_native": "2.00",
+                "fee_currency": "USD",
+                "submitted_at": "2026-11-24T14:52:00.000Z",
+                "evidence_ref": "sa2:demo:d4-live-sub"
+              }
+            ]
+          },
+          "executions": {
+            "domain_capability": "supported",
+            "as_of": "2026-11-24T15:00:00.000Z",
+            "source": "longbridge_live_fills",
+            "scope": "account_executions",
+            "cap": 512,
+            "completeness": "complete",
+            "truncated": false,
+            "records": [
+              {
+                "execution_ref": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "report_ref": "2222222222222222222222222222222222222222222222222222222222222222",
+                "client_order_id": "ord-shared-001",
+                "broker_order_id": "brk-live-9",
+                "symbol": "SOXL",
+                "side": "SELL",
+                "qty": "20",
+                "price": "25.10",
+                "currency": "USD",
+                "fee_native": "2.00",
+                "fee_currency": "USD",
+                "executed_at": "2026-11-24T14:53:00.000Z",
+                "evidence_ref": "sa2:demo:d4-live-exec"
+              }
+            ]
+          },
+          "cutoff_open_orders": {
+            "domain_capability": "supported",
+            "as_of": "2026-11-24T15:00:00.000Z",
+            "source": "longbridge_live_open",
+            "scope": "cutoff_open_orders",
+            "cap": 512,
+            "completeness": "complete",
+            "truncated": false,
+            "records": []
+          }
+        }
+      },
+      "invalid_conflated_broker": {
+        "broker": "longbridge_paper",
+        "environment": "paper",
+        "account": "longbridge:paper:pilot"
+      },
+      "expected": {
+        "paper_binding_key": "longbridge|paper|longbridge:paper:pilot",
+        "live_binding_key": "longbridge|live|longbridge:live:sg",
+        "isolated_distinct_orders": 2,
+        "isolated_distinct_executions": 2
+      }
+    },
+    "SA2-D5": {
+      "id": "SA2-D5",
+      "title": "C-SA-25 Dedup vs conflicting duplicate & partial fill/cancel",
+      "partial_fill_cancel_input": {
+        "broker": "ibkr",
+        "environment": "live",
+        "account": "ibkr:live:a1",
+        "as_of": "2026-11-24T15:00:00.000Z",
+        "evaluated_at": "2026-11-24T15:00:05.000Z",
+        "origin": "synthetic",
+        "source_class": "authorized_live_broker",
+        "evidence_ref": "sa2:demo:d5",
+        "domains": {
+          "submissions": {
+            "domain_capability": "supported",
+            "as_of": "2026-11-24T15:00:00.000Z",
+            "source": "ibkr_oms",
+            "scope": "account_submissions",
+            "cap": 256,
+            "completeness": "complete",
+            "truncated": false,
+            "records": [
+              {
+                "client_order_id": "ord-ibkr-pf-001",
+                "broker_order_id": "brk-ibkr-101",
+                "symbol": "TQQQ",
+                "side": "BUY",
+                "state": "PARTIAL_CANCEL",
+                "qty_submitted": "10",
+                "qty_canceled": "6",
+                "limit_price": "50.00",
+                "currency": "USD",
+                "fee_native": null,
+                "fee_currency": null,
+                "submitted_at": "2026-11-24T14:40:00.000Z",
+                "evidence_ref": "sa2:demo:d5-sub"
+              }
+            ]
+          },
+          "executions": {
+            "domain_capability": "supported",
+            "as_of": "2026-11-24T15:00:00.000Z",
+            "source": "ibkr_flex",
+            "scope": "account_executions",
+            "cap": 256,
+            "completeness": "complete",
+            "truncated": false,
+            "records": [
+              {
+                "execution_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "report_ref": "1111111111111111111111111111111111111111111111111111111111111111",
+                "client_order_id": "ord-ibkr-pf-001",
+                "broker_order_id": "brk-ibkr-101",
+                "symbol": "TQQQ",
+                "side": "BUY",
+                "qty": "4",
+                "price": "49.80",
+                "currency": "USD",
+                "fee_native": "-1.00",
+                "fee_currency": "USD",
+                "executed_at": "2026-11-24T14:41:00.000Z",
+                "evidence_ref": "sa2:demo:d5-exec-1"
+              },
+              {
+                "execution_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "report_ref": "2222222222222222222222222222222222222222222222222222222222222222",
+                "client_order_id": "ord-ibkr-pf-001",
+                "broker_order_id": "brk-ibkr-101",
+                "symbol": "TQQQ",
+                "side": "BUY",
+                "qty": "4",
+                "price": "49.80",
+                "currency": "USD",
+                "fee_native": "-1.00",
+                "fee_currency": "USD",
+                "executed_at": "2026-11-24T14:41:00.000Z",
+                "evidence_ref": "sa2:demo:d5-exec-dup"
+              }
+            ]
+          },
+          "cutoff_open_orders": {
+            "domain_capability": "supported",
+            "as_of": "2026-11-24T15:00:00.000Z",
+            "source": "ibkr_open",
+            "scope": "cutoff_open_orders",
+            "cap": 256,
+            "completeness": "complete",
+            "truncated": false,
+            "records": []
+          }
+        }
+      },
+      "conflicting_duplicate_execution": {
+        "execution_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "report_ref": "3333333333333333333333333333333333333333333333333333333333333333",
+        "client_order_id": "ord-ibkr-pf-001",
+        "broker_order_id": "brk-ibkr-101",
+        "symbol": "TQQQ",
+        "side": "BUY",
+        "qty": "5",
+        "price": "49.80",
+        "currency": "USD",
+        "fee_native": "-1.00",
+        "fee_currency": "USD",
+        "executed_at": "2026-11-24T14:41:00.000Z",
+        "evidence_ref": "sa2:demo:d5-conflict"
+      },
+      "expected": {
+        "executions_count": 1,
+        "qty_submitted": "10",
+        "qty_filled": "4",
+        "qty_canceled": "6",
+        "qty_remaining": "0",
+        "state": "PARTIAL_CANCEL",
+        "k_pend_usd": "0",
+        "k_pend_release_allowed": true
+      }
+    },
+    "SA2-D6": {
+      "id": "SA2-D6",
+      "title": "C-SA-25 Explicit cap & completeness proof across 256/512/2048 & unsupported",
+      "truncated_512_case": {
+        "domain": "cutoff_open_orders",
+        "domain_capability": "supported",
+        "as_of": "2026-11-24T15:00:00.000Z",
+        "source": "longbridge_paper_open",
+        "scope": "cutoff_open_orders",
+        "cap": 512,
+        "count": 512,
+        "truncated": true,
+        "completeness": "incomplete",
+        "prior_k_pend_usd": "2500.00"
+      },
+      "incomplete_zero_case": {
+        "domain": "cutoff_open_orders",
+        "domain_capability": "supported",
+        "as_of": "2026-11-24T15:00:00.000Z",
+        "source": "longbridge_paper_open",
+        "scope": "cutoff_open_orders",
+        "cap": 2048,
+        "count": 0,
+        "truncated": false,
+        "completeness": "incomplete",
+        "prior_k_pend_usd": "2500.00"
+      },
+      "proven_empty_512_case": {
+        "domain": "cutoff_open_orders",
+        "domain_capability": "supported",
+        "as_of": "2026-11-24T15:00:00.000Z",
+        "source": "longbridge_paper_open",
+        "scope": "cutoff_open_orders",
+        "cap": 512,
+        "count": 0,
+        "truncated": false,
+        "completeness": "complete",
+        "prior_k_pend_usd": "2500.00"
+      },
+      "unsupported_domain_case": {
+        "domain": "cutoff_open_orders",
+        "domain_capability": "unsupported",
+        "as_of": null,
+        "source": "firstrade_unsupported",
+        "scope": "cutoff_open_orders"
+      },
+      "expected": {
+        "truncated_512_empty_proven": false,
+        "truncated_512_release_allowed": false,
+        "incomplete_zero_empty_proven": false,
+        "incomplete_zero_release_allowed": false,
+        "proven_empty_512_empty_proven": true,
+        "proven_empty_512_release_allowed": true,
+        "unsupported_capability": "unsupported",
+        "unsupported_count": null,
+        "unsupported_empty_proven": false,
+        "unsupported_release_allowed": false
+      }
+    },
+    "SA2-D7": {
+      "id": "SA2-D7",
+      "title": "SA-A19 Zero B0 read-path writes",
+      "expected": {
+        "storage_writes": 0,
+        "kv_writes": 0
+      }
+    }
+  }
+}

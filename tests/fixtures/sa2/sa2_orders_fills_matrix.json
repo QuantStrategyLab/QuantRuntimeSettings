@@ -1,0 +1,346 @@
+{
+  "schema_version": "qsl.sa2_orders_fills_matrix.v1",
+  "frozen_phase": "SA2-W1",
+  "origin": "synthetic",
+  "cases": {
+    "multi_broker_separation": {
+      "description": "Separate broker from paper/live environment across all 5 canonical brokers and bind keys to (broker, environment, account)",
+      "accounts": [
+        {
+          "broker": "longbridge",
+          "environment": "paper",
+          "account": "longbridge:paper:pilot",
+          "source_class": "paper_broker",
+          "symbol": "TQQQ",
+          "price": "50.00"
+        },
+        {
+          "broker": "longbridge",
+          "environment": "live",
+          "account": "longbridge:live:sg",
+          "source_class": "authorized_live_broker",
+          "symbol": "TQQQ",
+          "price": "50.25"
+        },
+        {
+          "broker": "ibkr",
+          "environment": "live",
+          "account": "ibkr:live:a1",
+          "source_class": "authorized_live_broker",
+          "symbol": "SOXL",
+          "price": "25.00"
+        },
+        {
+          "broker": "schwab",
+          "environment": "live",
+          "account": "schwab:live:main",
+          "source_class": "authorized_live_broker",
+          "symbol": "QQQ",
+          "price": "500.00"
+        },
+        {
+          "broker": "firstrade",
+          "environment": "live",
+          "account": "firstrade:live:main",
+          "source_class": "authorized_live_broker",
+          "symbol": "SOXX",
+          "price": "220.00"
+        },
+        {
+          "broker": "binance",
+          "environment": "live",
+          "account": "binance:live:dormant",
+          "source_class": "authorized_live_broker",
+          "symbol": "BTCUSDT",
+          "price": "90000.00"
+        }
+      ],
+      "invalid_inputs": [
+        { "name": "conflated_longbridge_paper", "broker": "longbridge_paper", "environment": "paper", "account": "longbridge:paper:pilot" },
+        { "name": "research_env_disallowed", "broker": "binance", "environment": "research", "account": "binance:research:archive" },
+        { "name": "account_prefix_broker_mismatch", "broker": "ibkr", "environment": "live", "account": "longbridge:live:sg" },
+        { "name": "account_prefix_env_mismatch", "broker": "longbridge", "environment": "live", "account": "longbridge:paper:pilot" },
+        { "name": "raw_u_account_rejected", "broker": "ibkr", "environment": "live", "account": "U1234567" },
+        { "name": "raw_du_account_rejected", "broker": "ibkr", "environment": "paper", "account": "DU987654" },
+        { "name": "raw_6digit_account_rejected", "broker": "schwab", "environment": "live", "account": "12345678" },
+        { "name": "raw_split_digits_rejected", "broker": "schwab", "environment": "live", "account": "12-34-56" },
+        { "name": "private_kv_locator_rejected", "broker": "ibkr", "environment": "live", "account": "kv://ibkr/live/a1" }
+      ]
+    },
+    "dedup_and_lifecycle": {
+      "identical_and_supplemental_dedup": {
+        "broker": "longbridge",
+        "environment": "paper",
+        "account": "longbridge:paper:pilot",
+        "submissions": [
+          {
+            "client_order_id": "ord-lb-p-100",
+            "broker_order_id": "brk-lb-p-100",
+            "symbol": "TQQQ",
+            "side": "BUY",
+            "state": "PARTIAL_FILL",
+            "qty_submitted": "10",
+            "limit_price": "50.00",
+            "currency": "USD",
+            "fee_native": null,
+            "fee_currency": null,
+            "submitted_at": "2026-11-24T14:35:00.000Z",
+            "evidence_ref": "sa2:a12:sub-100"
+          }
+        ],
+        "executions": [
+          {
+            "execution_ref": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "report_ref": "1111111111111111111111111111111111111111111111111111111111111111",
+            "client_order_id": "ord-lb-p-100",
+            "broker_order_id": "brk-lb-p-100",
+            "symbol": "TQQQ",
+            "side": "BUY",
+            "qty": "4",
+            "price": "49.75",
+            "currency": "USD",
+            "fee_native": null,
+            "fee_currency": null,
+            "executed_at": "2026-11-24T14:36:00.000Z",
+            "evidence_ref": "sa2:a12:exec-100a"
+          },
+          {
+            "execution_ref": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "report_ref": "2222222222222222222222222222222222222222222222222222222222222222",
+            "client_order_id": "ord-lb-p-100",
+            "broker_order_id": "brk-lb-p-100",
+            "symbol": "TQQQ",
+            "side": "BUY",
+            "qty": "4",
+            "price": "49.75",
+            "currency": "USD",
+            "fee_native": "0.99",
+            "fee_currency": "USD",
+            "executed_at": "2026-11-24T14:36:00.000Z",
+            "evidence_ref": "sa2:a12:exec-100b"
+          }
+        ],
+        "cutoff_open_orders": [
+          {
+            "client_order_id": "ord-lb-p-100",
+            "broker_order_id": "brk-lb-p-100",
+            "symbol": "TQQQ",
+            "side": "BUY",
+            "state": "PARTIAL_FILL",
+            "qty_submitted": "10",
+            "qty_filled": "4",
+            "qty_canceled": "0",
+            "qty_remaining": "6",
+            "limit_price": "50.00",
+            "currency": "USD",
+            "reserved_fee_usd": "1.00",
+            "as_of": "2026-11-24T15:00:00.000Z",
+            "evidence_ref": "sa2:a12:open-100"
+          }
+        ],
+        "expected": {
+          "executions_count": 1,
+          "fee_usd": "0.99",
+          "qty_submitted": "10",
+          "qty_filled": "4",
+          "qty_remaining": "6",
+          "k_pend_usd": "301.00"
+        }
+      },
+      "conflicting_execution_cases": [
+        {
+          "name": "qty_mismatch",
+          "patch": { "qty": "5" }
+        },
+        {
+          "name": "price_mismatch",
+          "patch": { "price": "50.00" }
+        },
+        {
+          "name": "conflicting_non_null_fee",
+          "patch": { "fee_native": "2.50" }
+        }
+      ]
+    },
+    "order_unknown_recovery": {
+      "pre_ack_timeout": {
+        "broker": "longbridge",
+        "environment": "paper",
+        "account": "longbridge:paper:pilot",
+        "client_order_id": "ord-timeout-preack",
+        "broker_order_id": null,
+        "symbol": "TQQQ",
+        "side": "BUY",
+        "state": "ORDER_UNKNOWN",
+        "qty_submitted": "8",
+        "limit_price": "50.00",
+        "currency": "USD",
+        "estimated_fee_usd": "1.00",
+        "submitted_at": "2026-11-24T14:50:00.000Z",
+        "evidence_ref": "sa2:a12:timeout-preack"
+      },
+      "post_ack_timeout": {
+        "broker": "ibkr",
+        "environment": "live",
+        "account": "ibkr:live:a1",
+        "client_order_id": "ord-timeout-postack",
+        "broker_order_id": "brk-ibkr-901",
+        "symbol": "SOXL",
+        "side": "BUY",
+        "state": "ORDER_UNKNOWN",
+        "qty_submitted": "12",
+        "limit_price": "25.00",
+        "currency": "USD",
+        "estimated_fee_usd": "1.50",
+        "submitted_at": "2026-11-24T14:51:00.000Z",
+        "evidence_ref": "sa2:a12:timeout-postack"
+      },
+      "expected": {
+        "pre_ack_k_pend_usd": "401.00",
+        "pre_ack_query_by": "client_order_tuple",
+        "post_ack_k_pend_usd": "301.50",
+        "post_ack_query_by": "broker_order_id"
+      }
+    },
+    "caps_and_completeness_matrix": [
+      {
+        "name": "cap_256_truncated",
+        "cap": 256,
+        "count": 256,
+        "truncated": true,
+        "completeness": "complete",
+        "domain_capability": "supported",
+        "prior_k_pend_usd": "1000.00",
+        "expected": { "empty_domain_proven": false, "k_pend_release_allowed": false, "k_pend_usd": "1000.00" }
+      },
+      {
+        "name": "cap_512_truncated",
+        "cap": 512,
+        "count": 512,
+        "truncated": true,
+        "completeness": "incomplete",
+        "domain_capability": "supported",
+        "prior_k_pend_usd": "1000.00",
+        "expected": { "empty_domain_proven": false, "k_pend_release_allowed": false, "k_pend_usd": "1000.00" }
+      },
+      {
+        "name": "cap_2048_truncated",
+        "cap": 2048,
+        "count": 2048,
+        "truncated": true,
+        "completeness": "complete",
+        "domain_capability": "supported",
+        "prior_k_pend_usd": "1000.00",
+        "expected": { "empty_domain_proven": false, "k_pend_release_allowed": false, "k_pend_usd": "1000.00" }
+      },
+      {
+        "name": "cap_512_proven_empty",
+        "cap": 512,
+        "count": 0,
+        "truncated": false,
+        "completeness": "complete",
+        "domain_capability": "supported",
+        "prior_k_pend_usd": "1000.00",
+        "expected": { "empty_domain_proven": true, "k_pend_release_allowed": true, "k_pend_usd": "0" }
+      },
+      {
+        "name": "cap_2048_proven_empty",
+        "cap": 2048,
+        "count": 0,
+        "truncated": false,
+        "completeness": "complete",
+        "domain_capability": "supported",
+        "prior_k_pend_usd": "1000.00",
+        "expected": { "empty_domain_proven": true, "k_pend_release_allowed": true, "k_pend_usd": "0" }
+      },
+      {
+        "name": "unsupported_firstrade_open_orders",
+        "cap": null,
+        "count": null,
+        "truncated": null,
+        "completeness": "unsupported",
+        "domain_capability": "unsupported",
+        "prior_k_pend_usd": "1000.00",
+        "expected": { "empty_domain_proven": false, "k_pend_release_allowed": false, "count": null, "k_pend_usd": "1000.00" }
+      },
+      {
+        "name": "unsupported_binance_submissions",
+        "cap": null,
+        "count": null,
+        "truncated": null,
+        "completeness": "unsupported",
+        "domain_capability": "unsupported",
+        "prior_k_pend_usd": "1000.00",
+        "expected": { "empty_domain_proven": false, "k_pend_release_allowed": false, "count": null, "k_pend_usd": "1000.00" }
+      }
+    ],
+    "null_fee_and_non_usd_cases": {
+      "null_fee_usd_execution": {
+        "broker": "longbridge",
+        "environment": "paper",
+        "account": "longbridge:paper:pilot",
+        "execution_ref": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "report_ref": "4444444444444444444444444444444444444444444444444444444444444444",
+        "client_order_id": "ord-null-fee-1",
+        "broker_order_id": "brk-null-fee-1",
+        "symbol": "TQQQ",
+        "side": "BUY",
+        "qty": "5",
+        "price": "50.00",
+        "currency": "USD",
+        "fee_native": null,
+        "fee_currency": null,
+        "executed_at": "2026-11-24T14:45:00.000Z",
+        "evidence_ref": "sa2:a12:null-fee"
+      },
+      "non_usd_hkd_execution": {
+        "broker": "longbridge",
+        "environment": "live",
+        "account": "longbridge:live:hk",
+        "execution_ref": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "report_ref": "5555555555555555555555555555555555555555555555555555555555555555",
+        "client_order_id": "ord-hkd-1",
+        "broker_order_id": "brk-hkd-1",
+        "symbol": "2800.HK",
+        "side": "BUY",
+        "qty": "500",
+        "price": "20.10",
+        "currency": "HKD",
+        "fee_native": "15.00",
+        "fee_currency": "HKD",
+        "executed_at": "2026-11-24T06:30:00.000Z",
+        "evidence_ref": "sa2:a12:hkd-exec"
+      },
+      "legacy_ibkr_flex_payload": {
+        "schema_version": "broker_executions.v1",
+        "target_id": "synthetic-target",
+        "source_binding_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "account_scope": "synthetic-live",
+        "account_selector": "U100001",
+        "period": { "from": "2026-10-01", "to": "2026-10-23" },
+        "observed_at": "2026-10-23T16:00:00.000Z",
+        "source": "ibkr_flex",
+        "source_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "coverage": "reported_executions",
+        "records": [
+          {
+            "execution_ref": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "report_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "trade_date": "2026-10-23",
+            "local_time": "2026-10-23T09:31:00",
+            "time_zone": null,
+            "symbol": "SYNTH",
+            "asset_category": "STK",
+            "side": "SELL",
+            "quantity": "-1.5",
+            "price": "100.25",
+            "currency": "USD",
+            "commission": "-0.123456789000000001",
+            "commission_currency": "EUR",
+            "taxes": "0"
+          }
+        ]
+      }
+    }
+  }
+}

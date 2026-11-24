@@ -1,0 +1,501 @@
+{
+  "schema_version": "qsl.sa2_q21_matrix.v1",
+  "frozen_phase": "SA2-W1",
+  "origin": "synthetic",
+  "cases": {
+    "negative_raw_avail_clamped": {
+      "input": {
+        "account_id": "longbridge:paper:pilot",
+        "broker": "longbridge",
+        "environment": "paper",
+        "currency": "USD",
+        "margin_enabled": false,
+        "h_usd": "0",
+        "kelly_applied": false,
+        "live_trading_enabled": false,
+        "stop_loss_return_enabled": false,
+        "evaluated_at": "2026-11-24T15:00:00.000Z",
+        "equity_usd": "10000.00",
+        "cash_settled_usd": "1000.00",
+        "proceeds_eligible_usd": "0",
+        "r_cash_usd": "800.00",
+        "k_pend_usd": "500.00",
+        "k_pend_release_allowed": false,
+        "fee_schedule": {
+          "provenance": "synthetic_fixture",
+          "c_min_usd": "1.00",
+          "c_per_share_usd": "0.01",
+          "c_reg": "0.25",
+          "b_exec_usd": "0"
+        },
+        "order_unknown_symbols": [],
+        "targets": [
+          { "symbol": "TQQQ", "q_pre": "10", "price_ref": "50.00", "price_lim": "50.50", "w_target": "0.10" },
+          { "symbol": "SOXL", "q_pre": "20", "price_ref": "25.00", "price_lim": "25.25", "w_target": "0.025" }
+        ],
+        "origin": "synthetic",
+        "source_class": "synthetic",
+        "evidence_ref": "sa2:a13:neg-avail"
+      },
+      "expected": {
+        "status": "available",
+        "c_inv_usd": "1000.00",
+        "raw_deployable_cash_usd": "-300.00",
+        "c_avail_usd": "0",
+        "tqqq_delta_q_buy": "0",
+        "soxl_delta_q_sell": "10"
+      }
+    },
+    "portfolio_concurrent_buy_budget": {
+      "input": {
+        "account_id": "longbridge:paper:pilot",
+        "broker": "longbridge",
+        "environment": "paper",
+        "currency": "USD",
+        "margin_enabled": false,
+        "h_usd": "0",
+        "kelly_applied": false,
+        "live_trading_enabled": false,
+        "stop_loss_return_enabled": false,
+        "evaluated_at": "2026-11-24T15:00:00.000Z",
+        "equity_usd": "10000.00",
+        "cash_settled_usd": "2000.00",
+        "proceeds_eligible_usd": "0",
+        "r_cash_usd": "0",
+        "k_pend_usd": "0",
+        "k_pend_release_allowed": true,
+        "fee_schedule": {
+          "provenance": "synthetic_fixture",
+          "c_min_usd": "1.00",
+          "c_per_share_usd": "0.01",
+          "c_reg": "0.25",
+          "b_exec_usd": "0"
+        },
+        "order_unknown_symbols": [],
+        "targets": [
+          { "symbol": "TQQQ", "q_pre": "0", "price_ref": "50.00", "price_lim": "50.50", "w_target": "0.20" },
+          { "symbol": "SOXL", "q_pre": "0", "price_ref": "25.00", "price_lim": "25.25", "w_target": "0.10" }
+        ],
+        "origin": "synthetic",
+        "source_class": "synthetic",
+        "evidence_ref": "sa2:a13:multi-buy"
+      },
+      "expected": {
+        "status": "available",
+        "c_avail_usd": "2000.00",
+        "tqqq_delta_q_buy": "26",
+        "soxl_delta_q_buy": "26",
+        "total_buy_commit_usd": "1972.00",
+        "remaining_deployable_cash_usd": "28.00",
+        "tqqq_rho_order_value": "0.000961538462",
+        "tqqq_rho_order_threshold": null
+      }
+    },
+    "one_share_exceeds_budget": {
+      "input": {
+        "account_id": "longbridge:paper:pilot",
+        "broker": "longbridge",
+        "environment": "paper",
+        "currency": "USD",
+        "margin_enabled": false,
+        "h_usd": "0",
+        "kelly_applied": false,
+        "live_trading_enabled": false,
+        "stop_loss_return_enabled": false,
+        "evaluated_at": "2026-11-24T15:00:00.000Z",
+        "equity_usd": "10000.00",
+        "cash_settled_usd": "101.00",
+        "proceeds_eligible_usd": "0",
+        "r_cash_usd": "0",
+        "k_pend_usd": "0",
+        "k_pend_release_allowed": true,
+        "fee_schedule": {
+          "provenance": "synthetic_fixture",
+          "c_min_usd": "1.00",
+          "c_per_share_usd": "0.01",
+          "c_reg": "0.25",
+          "b_exec_usd": "0"
+        },
+        "order_unknown_symbols": [],
+        "targets": [
+          { "symbol": "TQQQ", "q_pre": "0", "price_ref": "100.00", "price_lim": "100.50", "w_target": "0.05" }
+        ],
+        "origin": "synthetic",
+        "source_class": "synthetic",
+        "evidence_ref": "sa2:a13:one-share-fail"
+      },
+      "expected": {
+        "status": "available",
+        "delta_q_buy": "0",
+        "buy_blocked_reason": "budget_insufficient_for_one_share",
+        "total_buy_commit_usd": "0"
+      }
+    },
+    "rounding_friction_and_b_exec": {
+      "input": {
+        "account_id": "longbridge:paper:pilot",
+        "broker": "longbridge",
+        "environment": "paper",
+        "currency": "USD",
+        "margin_enabled": false,
+        "h_usd": "0",
+        "kelly_applied": false,
+        "live_trading_enabled": false,
+        "stop_loss_return_enabled": false,
+        "evaluated_at": "2026-11-24T15:00:00.000Z",
+        "equity_usd": "10000.00",
+        "cash_settled_usd": "5000.00",
+        "proceeds_eligible_usd": "0",
+        "r_cash_usd": "0",
+        "k_pend_usd": "0",
+        "k_pend_release_allowed": true,
+        "fee_schedule": {
+          "provenance": "research_prereg_amended",
+          "c_min_usd": "1.00",
+          "c_per_share_usd": "0.01",
+          "c_reg": "0.25",
+          "b_exec_usd": "0.50"
+        },
+        "order_unknown_symbols": [],
+        "targets": [
+          { "symbol": "TQQQ", "q_pre": "0", "price_ref": "47.00", "price_lim": "47.47", "w_target": "0.15" }
+        ],
+        "origin": "synthetic",
+        "source_class": "synthetic",
+        "evidence_ref": "sa2:a13:rounding-friction"
+      },
+      "expected": {
+        "status": "available",
+        "q_ideal": "31",
+        "delta_q_buy": "31",
+        "est_commission_usd": "1.25",
+        "est_b_exec_usd": "0.50",
+        "est_total_buy_commit_usd": "1473.32",
+        "rounding_friction_usd": "43.00",
+        "rho_order_value": "0.030370624571",
+        "rho_order_threshold": null
+      }
+    },
+    "order_unknown_symbol_block": {
+      "input": {
+        "account_id": "longbridge:paper:pilot",
+        "broker": "longbridge",
+        "environment": "paper",
+        "currency": "USD",
+        "margin_enabled": false,
+        "h_usd": "0",
+        "kelly_applied": false,
+        "live_trading_enabled": false,
+        "stop_loss_return_enabled": false,
+        "evaluated_at": "2026-11-24T15:00:00.000Z",
+        "equity_usd": "10000.00",
+        "cash_settled_usd": "5000.00",
+        "proceeds_eligible_usd": "0",
+        "r_cash_usd": "0",
+        "k_pend_usd": "501.25",
+        "k_pend_release_allowed": false,
+        "fee_schedule": {
+          "provenance": "synthetic_fixture",
+          "c_min_usd": "1.00",
+          "c_per_share_usd": "0.01",
+          "c_reg": "0.25",
+          "b_exec_usd": "0"
+        },
+        "order_unknown_symbols": ["TQQQ"],
+        "targets": [
+          { "symbol": "TQQQ", "q_pre": "0", "price_ref": "50.00", "price_lim": "50.50", "w_target": "0.10" },
+          { "symbol": "SOXL", "q_pre": "0", "price_ref": "25.00", "price_lim": "25.25", "w_target": "0.05" }
+        ],
+        "origin": "synthetic",
+        "source_class": "synthetic",
+        "evidence_ref": "sa2:a13:order-unknown"
+      },
+      "expected": {
+        "status": "available",
+        "c_avail_usd": "4498.75",
+        "tqqq_delta_q_buy": "0",
+        "tqqq_buy_blocked_reason": "order_unknown_lock",
+        "soxl_delta_q_buy": "20"
+      }
+    },
+    "b_band_suppression_vs_emergency_bypass": {
+      "discretionary_suppressed": {
+        "input": {
+          "account_id": "longbridge:paper:pilot",
+          "broker": "longbridge",
+          "environment": "paper",
+          "currency": "USD",
+          "margin_enabled": false,
+          "h_usd": "0",
+          "kelly_applied": false,
+          "live_trading_enabled": false,
+          "stop_loss_return_enabled": false,
+          "evaluated_at": "2026-11-24T15:00:00.000Z",
+          "equity_usd": "10000.00",
+          "cash_settled_usd": "5000.00",
+          "proceeds_eligible_usd": "0",
+          "r_cash_usd": "0",
+          "k_pend_usd": "0",
+          "k_pend_release_allowed": true,
+          "b_band": "0.20",
+          "emergency_bypass": false,
+          "fee_schedule": {
+            "provenance": "synthetic_fixture",
+            "c_min_usd": "1.00",
+            "c_per_share_usd": "0.01",
+            "c_reg": "0.25",
+            "b_exec_usd": "0"
+          },
+          "order_unknown_symbols": [],
+          "targets": [
+            { "symbol": "SOXL", "q_pre": "20", "price_ref": "25.00", "price_lim": "25.25", "w_target": "0.045" }
+          ],
+          "origin": "synthetic",
+          "source_class": "synthetic",
+          "evidence_ref": "sa2:a13:band-suppress"
+        },
+        "expected": { "band_suppressed": true, "delta_q_final": "0", "action": "HOLD" }
+      },
+      "emergency_bypass_executes_sell": {
+        "input": {
+          "account_id": "longbridge:paper:pilot",
+          "broker": "longbridge",
+          "environment": "paper",
+          "currency": "USD",
+          "margin_enabled": false,
+          "h_usd": "0",
+          "kelly_applied": false,
+          "live_trading_enabled": false,
+          "stop_loss_return_enabled": false,
+          "evaluated_at": "2026-11-24T15:00:00.000Z",
+          "equity_usd": "10000.00",
+          "cash_settled_usd": "0",
+          "proceeds_eligible_usd": "0",
+          "r_cash_usd": "0",
+          "k_pend_usd": "0",
+          "k_pend_release_allowed": true,
+          "b_band": "0.20",
+          "emergency_bypass": true,
+          "fee_schedule": {
+            "provenance": "synthetic_fixture",
+            "c_min_usd": "1.00",
+            "c_per_share_usd": "0.01",
+            "c_reg": "0.25",
+            "b_exec_usd": "0"
+          },
+          "order_unknown_symbols": [],
+          "targets": [
+            { "symbol": "SOXL", "q_pre": "20", "price_ref": "25.00", "price_lim": "25.25", "w_target": "0.045" }
+          ],
+          "origin": "synthetic",
+          "source_class": "synthetic",
+          "evidence_ref": "sa2:a13:emergency-bypass"
+        },
+        "expected": { "band_suppressed": false, "emergency_bypass_applied": true, "delta_q_final": "-2", "action": "SELL" }
+      }
+    },
+    "b_min_tier_boundaries": {
+      "workable_below_10pct": {
+        "bankroll_w_usd": "50000.00",
+        "c_fixed_ann_usd": "499.99",
+        "expected_excess_growth_ann_usd": "5000.00",
+        "expected": { "status": "available", "workable": true, "friction_ratio": "0.099998" }
+      },
+      "unworkable_exact_10pct": {
+        "bankroll_w_usd": "50000.00",
+        "c_fixed_ann_usd": "500.00",
+        "expected_excess_growth_ann_usd": "5000.00",
+        "expected": { "status": "available", "workable": false, "friction_ratio": "0.1" }
+      },
+      "unworkable_above_10pct": {
+        "bankroll_w_usd": "10000.00",
+        "c_fixed_ann_usd": "200.00",
+        "expected_excess_growth_ann_usd": "1000.00",
+        "expected": { "status": "available", "workable": false, "friction_ratio": "0.2" }
+      },
+      "unset_growth_unavailable": {
+        "bankroll_w_usd": "50000.00",
+        "c_fixed_ann_usd": "200.00",
+        "expected_excess_growth_ann_usd": null,
+        "expected": { "status": "unavailable", "workable": null, "friction_ratio": null }
+      }
+    },
+    "unset_oi_cost_and_safety_rejections": {
+      "unset_fee_schedule": {
+        "input": {
+          "account_id": "longbridge:paper:pilot",
+          "broker": "longbridge",
+          "environment": "paper",
+          "currency": "USD",
+          "margin_enabled": false,
+          "h_usd": "0",
+          "kelly_applied": false,
+          "evaluated_at": "2026-11-24T15:00:00.000Z",
+          "equity_usd": "10000.00",
+          "cash_settled_usd": "5000.00",
+          "proceeds_eligible_usd": "0",
+          "r_cash_usd": "0",
+          "k_pend_usd": "0",
+          "k_pend_release_allowed": true,
+          "fee_schedule": null,
+          "order_unknown_symbols": [],
+          "targets": [{ "symbol": "TQQQ", "q_pre": "0", "price_ref": "50.00", "price_lim": "50.50", "w_target": "0.10" }],
+          "origin": "synthetic",
+          "source_class": "synthetic",
+          "evidence_ref": "sa2:a13:unset-fee"
+        },
+        "expected": { "status": "unavailable", "reason": "oi_cost_3_fee_schedule_unavailable", "oi_cost_3_resolved": false }
+      },
+      "null_c_min_fee": {
+        "input": {
+          "account_id": "longbridge:paper:pilot",
+          "broker": "longbridge",
+          "environment": "paper",
+          "currency": "USD",
+          "margin_enabled": false,
+          "h_usd": "0",
+          "kelly_applied": false,
+          "evaluated_at": "2026-11-24T15:00:00.000Z",
+          "equity_usd": "10000.00",
+          "cash_settled_usd": "5000.00",
+          "proceeds_eligible_usd": "0",
+          "r_cash_usd": "0",
+          "k_pend_usd": "0",
+          "k_pend_release_allowed": true,
+          "fee_schedule": { "provenance": "synthetic_fixture", "c_min_usd": null, "c_per_share_usd": "0.01", "c_reg": "0.25" },
+          "order_unknown_symbols": [],
+          "targets": [{ "symbol": "TQQQ", "q_pre": "0", "price_ref": "50.00", "price_lim": "50.50", "w_target": "0.10" }],
+          "origin": "synthetic",
+          "source_class": "synthetic",
+          "evidence_ref": "sa2:a13:null-c-min"
+        },
+        "expected": { "status": "unavailable", "reason": "oi_cost_3_fee_schedule_unavailable", "oi_cost_3_resolved": false }
+      },
+      "unset_o5_collar": {
+        "input": {
+          "account_id": "longbridge:paper:pilot",
+          "broker": "longbridge",
+          "environment": "paper",
+          "currency": "USD",
+          "margin_enabled": false,
+          "h_usd": "0",
+          "kelly_applied": false,
+          "evaluated_at": "2026-11-24T15:00:00.000Z",
+          "equity_usd": "10000.00",
+          "cash_settled_usd": "5000.00",
+          "proceeds_eligible_usd": "0",
+          "r_cash_usd": "0",
+          "k_pend_usd": "0",
+          "k_pend_release_allowed": true,
+          "fee_schedule": { "provenance": "synthetic_fixture", "c_min_usd": "1.00", "c_per_share_usd": "0.01", "c_reg": "0.25", "b_exec_usd": "0" },
+          "order_unknown_symbols": [],
+          "targets": [{ "symbol": "TQQQ", "q_pre": "0", "price_ref": "50.00", "price_lim": null, "w_target": "0.10" }],
+          "origin": "synthetic",
+          "source_class": "synthetic",
+          "evidence_ref": "sa2:a13:unset-collar"
+        },
+        "expected": { "status": "unavailable", "reason": "oi_cost_4_price_collar_unavailable", "oi_cost_4_resolved": false }
+      },
+      "fractional_q_pre_rejected": {
+        "input": {
+          "account_id": "longbridge:paper:pilot",
+          "broker": "longbridge",
+          "environment": "paper",
+          "currency": "USD",
+          "margin_enabled": false,
+          "h_usd": "0",
+          "kelly_applied": false,
+          "evaluated_at": "2026-11-24T15:00:00.000Z",
+          "equity_usd": "10000.00",
+          "cash_settled_usd": "5000.00",
+          "proceeds_eligible_usd": "0",
+          "r_cash_usd": "0",
+          "k_pend_usd": "0",
+          "k_pend_release_allowed": true,
+          "fee_schedule": { "provenance": "synthetic_fixture", "c_min_usd": "1.00", "c_per_share_usd": "0.01", "c_reg": "0.25", "b_exec_usd": "0" },
+          "order_unknown_symbols": [],
+          "targets": [{ "symbol": "TQQQ", "q_pre": "1.5", "price_ref": "50.00", "price_lim": "50.50", "w_target": "0.10" }],
+          "origin": "synthetic",
+          "source_class": "synthetic",
+          "evidence_ref": "sa2:a13:fractional-prohibited"
+        },
+        "expected": { "status": "unavailable", "reason": "fractional_shares_prohibited" }
+      },
+      "margin_enabled_rejected": {
+        "input": {
+          "account_id": "longbridge:paper:pilot",
+          "broker": "longbridge",
+          "environment": "paper",
+          "currency": "USD",
+          "margin_enabled": true,
+          "h_usd": "0",
+          "kelly_applied": false,
+          "evaluated_at": "2026-11-24T15:00:00.000Z",
+          "equity_usd": "10000.00",
+          "cash_settled_usd": "5000.00",
+          "proceeds_eligible_usd": "0",
+          "r_cash_usd": "0",
+          "k_pend_usd": "0",
+          "k_pend_release_allowed": true,
+          "fee_schedule": { "provenance": "synthetic_fixture", "c_min_usd": "1.00", "c_per_share_usd": "0.01", "c_reg": "0.25", "b_exec_usd": "0" },
+          "order_unknown_symbols": [],
+          "targets": [],
+          "origin": "synthetic",
+          "source_class": "synthetic",
+          "evidence_ref": "sa2:a13:margin-prohibited"
+        },
+        "expected": { "status": "unavailable", "reason": "margin_prohibited" }
+      },
+      "nonzero_h_rejected": {
+        "input": {
+          "account_id": "longbridge:paper:pilot",
+          "broker": "longbridge",
+          "environment": "paper",
+          "currency": "USD",
+          "margin_enabled": false,
+          "h_usd": "1000.00",
+          "kelly_applied": false,
+          "evaluated_at": "2026-11-24T15:00:00.000Z",
+          "equity_usd": "10000.00",
+          "cash_settled_usd": "5000.00",
+          "proceeds_eligible_usd": "0",
+          "r_cash_usd": "0",
+          "k_pend_usd": "0",
+          "k_pend_release_allowed": true,
+          "fee_schedule": { "provenance": "synthetic_fixture", "c_min_usd": "1.00", "c_per_share_usd": "0.01", "c_reg": "0.25", "b_exec_usd": "0" },
+          "order_unknown_symbols": [],
+          "targets": [],
+          "origin": "synthetic",
+          "source_class": "synthetic",
+          "evidence_ref": "sa2:a13:nonzero-h"
+        },
+        "expected": { "status": "unavailable", "reason": "nonzero_h_prohibited_in_pilot" }
+      },
+      "kelly_applied_rejected": {
+        "input": {
+          "account_id": "longbridge:paper:pilot",
+          "broker": "longbridge",
+          "environment": "paper",
+          "currency": "USD",
+          "margin_enabled": false,
+          "h_usd": "0",
+          "kelly_applied": true,
+          "evaluated_at": "2026-11-24T15:00:00.000Z",
+          "equity_usd": "10000.00",
+          "cash_settled_usd": "5000.00",
+          "proceeds_eligible_usd": "0",
+          "r_cash_usd": "0",
+          "k_pend_usd": "0",
+          "k_pend_release_allowed": true,
+          "fee_schedule": { "provenance": "synthetic_fixture", "c_min_usd": "1.00", "c_per_share_usd": "0.01", "c_reg": "0.25", "b_exec_usd": "0" },
+          "order_unknown_symbols": [],
+          "targets": [],
+          "origin": "synthetic",
+          "source_class": "synthetic",
+          "evidence_ref": "sa2:a13:kelly-prohibited"
+        },
+        "expected": { "status": "unavailable", "reason": "kelly_prohibited" }
+      }
+    }
+  }
+}
