@@ -154,6 +154,30 @@ async function runSaA16(validator) {
   const getResp = await readbackMod.deskReadbackResponse(getReq, env, deps);
   assert.equal(getResp.status, 200, "GET target readback returns 200");
   assert.equal(observedCalls, 1, "GET invokes readback once");
+
+  // Security regression: live GET readbacks are throttled in memory (zero storage writes).
+  {
+    let liveCalls = 0;
+    let releaseRead;
+    const gate = new Promise(resolve => { releaseRead = resolve; });
+    let clock = nowMs;
+    const throttled = new readbackMod.DeskReadbackStore(doSpy.storage, async () => { liveCalls += 1; await gate; return { target_id: "ibkr/syn_tqqq" }; }, () => clock);
+    const cmd = actor => throttled.command({ owner: "syn-owner", actor, action: "desk_readback_read", id: "ibkr/syn_tqqq" });
+    const pending = [...Array(12)].map(() => cmd("syn-burst"));
+    // The first read is still in flight while the other eleven arrive.
+    releaseRead();
+    const burst = await Promise.allSettled(pending);
+    assert.equal(liveCalls, 1, "concurrent GET burst reaches the live reader once");
+    assert.equal(burst.filter(r => r.status === "rejected" && r.reason?.status === 429 && r.reason?.message === "readback_in_progress").length, 11);
+    for (let i = 0; i < 4; i += 1) await cmd("syn-burst");
+    await assert.rejects(cmd("syn-burst"), error => error.status === 429 && error.message === "readback_rate_limited");
+    assert.equal(liveCalls, 5, "per-window burst caps live reads");
+    await cmd("syn-other");
+    assert.equal(liveCalls, 6, "throttle is per actor");
+    clock += 30_000;
+    await cmd("syn-burst");
+    assert.equal(liveCalls, 7, "a new refresh window admits reads again");
+  }
   assert.equal(kvSpy.violations.length, 0, `SA-A16 kvWrites === 0 (got ${JSON.stringify(kvSpy.violations)})`);
   const doSqlWrites = doSpy.violations.filter(v => v.kind.startsWith("sql_"));
   const doAlarmWrites = doSpy.violations.filter(v => v.kind.startsWith("alarm_"));
@@ -238,6 +262,45 @@ async function runSaA16(validator) {
   assert.ok(acctOut.brokers.value[0].readback_9a, "SA-A16 accountsProjection wires readback_9a on broker row");
   assert.equal(acctOut.brokers.value[0].readback_9a.status, "drift", "SA-A16 readback_9a reflects layer drift");
   assert.equal(acctOut.brokers.value[0].readback_9a.actions.reapply_saved.status, "not_enabled");
+
+  // P2 regression: layer availability comes from readable evidence, not envelope presence.
+  const rbUnreadable = readbackMod.buildReadback({
+    target: fullTarget,
+    observed: null,
+    platform: {},
+    platformReason: "read_failed",
+    now: nowMs,
+    deployment: null,
+  });
+  assert.ok(rbUnreadable.saved_settings && rbUnreadable.platform_configuration, "layer envelopes still exist");
+  const acctUnreadable = accountsMod.accountsProjection({
+    config: { ok: true, value: { revision: 7, options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001" }] } } },
+    facts: { ok: false },
+    credential: { ok: false },
+    now: nowMs,
+    readbacks9a: { "ibkr/syn_tqqq": rbUnreadable },
+  });
+  assert.deepEqual(acctUnreadable.brokers.value[0].readback_9a.layers_available, {
+    saved_settings: false, platform_configuration: false, observed_deployment: false,
+  }, "unreadable saved/platform sources are not reported as available layers");
+  assert.equal(acctOut.brokers.value[0].readback_9a.layers_available.saved_settings, true, "readable saved layer stays available");
+  assert.equal(acctOut.brokers.value[0].readback_9a.layers_available.platform_configuration, true, "readable platform layer stays available");
+  const rbExecutionModeOnly = {
+    ...rbUnreadable,
+    comparisons: {
+      ...rbUnreadable.comparisons,
+      platform_vs_observed: { status: "drift", compared_fields: ["execution_mode"], mismatched_fields: ["execution_mode"], skipped_non_mutual_fields: [], reason: null },
+    },
+  };
+  const acctExecOnly = accountsMod.accountsProjection({
+    config: { ok: true, value: { revision: 7, options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001" }] } } },
+    facts: { ok: false },
+    credential: { ok: false },
+    now: nowMs,
+    readbacks9a: { "ibkr/syn_tqqq": rbExecutionModeOnly },
+  });
+  assert.equal(acctExecOnly.brokers.value[0].readback_9a.layers_available.platform_configuration, true, "execution_mode comparison counts as platform evidence");
+  assert.equal(acctExecOnly.brokers.value[0].readback_9a.layers_available.saved_settings, false);
 
   // Finding #2: broker_environment never triggers false execution_mode drift across paper/live/dry_run axes.
   const baseSaved = matrix.cases[1].observed_saved;
@@ -453,6 +516,86 @@ async function runSaA17(validator) {
   });
   assert.equal(qInvalidRec.queue_state, "read_failed");
   validator.assertValid("common.json#/$defs/OwnerQueue12A", qInvalidRec, "SA-A17:rec-source-invalid");
+
+  // P2 regression: a ready owner-decision payload that filtered out non-fresh
+  // candidates is stale/incomplete and never reports verified_empty.
+  const staleOmittedSources = await inboxMod.readOwnerQueueSources12A(req0, {}, {
+    owner: async () => Response.json({
+      computed_at: matrix.now, data_status: "ready", candidates: [], errors: ["owner_decision_stale_candidates_omitted"], cap: 100,
+    }),
+    promotion: emptyPromoFn,
+    recovery: async () => Response.json({ computed_at: matrix.now, data_status: "ready", recoveries: [], errors: [], cap: 100 }),
+    credential: { ok: true, raw: { id: "ibkr_flex", expires_at: "2031-01-01T00:00:00Z", metadata_revision: 1, observed_at: matrix.now } },
+    now: nowMs,
+    accountsCredentialCalendarProjection: () => ({ records: [] }),
+  });
+  assert.equal(staleOmittedSources.owner_decisions.status, "stale", "stale-omitted owner source is stale");
+  const qStaleOmitted = inboxMod.projectUnifiedOwnerQueue12A({
+    sources: staleOmittedSources,
+    expectedFamilies: matrix.expected_families,
+    now: nowMs,
+  });
+  assert.notEqual(qStaleOmitted.queue_state, "verified_empty", "stale-omitted owner decisions never read as verified_empty");
+  validator.assertValid("common.json#/$defs/OwnerQueue12A", qStaleOmitted, "SA-A17:owner-stale-omitted");
+
+  // The owner-decision reader records the omission instead of dropping stale candidates silently.
+  const { ownerDecisionQueueResponse } = await import("../web/strategy-switch-console/application/approval/http.js");
+  const ownerDecisionDeps = (candidates) => ({
+    json: (body, status = 200) => Response.json(body, { status }),
+    readSession: async () => ({ allowed: true, login: "syn-owner" }),
+    exactHumanDecisionResponse: async () => null,
+    hasConfigStore: () => true,
+    currentControlPlanePayload: async () => ({ data_status: "ready", computed_at: matrix.now, candidates, errors: [] }),
+    isOwnerDecisionCandidate: () => true,
+    ownerDecisionCandidateEvidenceSha256: async (c) => `sha-${c.candidate_id}`,
+    readOwnerDecisionIntent: async () => ({ intent: null }),
+    emptyOwnerDecisionQueue: (status) => ({ data_status: status, candidates: [], errors: [] }),
+    uniqueStrings: (values) => [...new Set(values)],
+    OWNER_DECISION_MAX_CANDIDATES: 100,
+    OWNER_DECISION_QUEUE_SCHEMA_VERSION: "synthetic",
+  });
+  const staleOnly = await (await ownerDecisionQueueResponse(req0, {}, ownerDecisionDeps([
+    { candidate_id: "syn-stale", freshness: { status: "stale" } },
+  ]))).json();
+  assert.equal(staleOnly.candidates.length, 0);
+  assert.ok(staleOnly.errors.includes("owner_decision_stale_candidates_omitted"), "stale omission is reported");
+  const freshOnly = await (await ownerDecisionQueueResponse(req0, {}, ownerDecisionDeps([
+    { candidate_id: "syn-fresh", freshness: { status: "fresh" } },
+  ]))).json();
+  assert.ok(!freshOnly.errors.includes("owner_decision_stale_candidates_omitted"), "fresh-only queue reports no omission");
+  const unknownOnly = await (await ownerDecisionQueueResponse(req0, {}, ownerDecisionDeps([
+    { candidate_id: "syn-unknown", freshness: { status: "unknown" } },
+  ]))).json();
+  assert.ok(unknownOnly.errors.includes("owner_decision_unknown_freshness_candidates_omitted"), "unknown freshness omission is reported");
+  assert.ok(!unknownOnly.errors.includes("owner_decision_stale_candidates_omitted"), "unknown freshness is not labelled stale");
+  const unknownOmittedSources = await inboxMod.readOwnerQueueSources12A(req0, {}, {
+    owner: async () => Response.json({
+      computed_at: matrix.now, data_status: "ready", candidates: [], errors: ["owner_decision_unknown_freshness_candidates_omitted"], cap: 100,
+    }),
+    promotion: emptyPromoFn,
+    recovery: async () => Response.json({ computed_at: matrix.now, data_status: "ready", recoveries: [], errors: [], cap: 100 }),
+    credential: { ok: true, raw: { id: "ibkr_flex", expires_at: "2031-01-01T00:00:00Z", metadata_revision: 1, observed_at: matrix.now } },
+    now: nowMs,
+    accountsCredentialCalendarProjection: () => ({ records: [] }),
+  });
+  assert.equal(unknownOmittedSources.owner_decisions.status, "ok", "unknown-freshness omission does not assert staleness");
+  const qUnknownOmitted = inboxMod.projectUnifiedOwnerQueue12A({
+    sources: unknownOmittedSources,
+    expectedFamilies: matrix.expected_families,
+    now: nowMs,
+  });
+  assert.equal(qUnknownOmitted.queue_state, "partial_empty", "unknown-freshness omission blocks verified_empty");
+  // The decisions inbox projection reports the same omission as incomplete.
+  const readyEmpty = (extra = {}) => async () => Response.json({ computed_at: matrix.now, data_status: "ready", errors: [], ...extra });
+  for (const code of ["owner_decision_stale_candidates_omitted", "owner_decision_unknown_freshness_candidates_omitted"]) {
+    const decisionsInbox = await inboxMod.inbox(new Request("https://example.invalid/api/decisions-inbox"), {}, {
+      owner: readyEmpty({ candidates: [], errors: [code] }),
+      promotion: readyEmpty({ tickets: [], applications: [] }),
+      recovery: readyEmpty({ recoveries: [] }),
+      credential: readyEmpty(),
+    });
+    assert.notEqual(decisionsInbox.status, "ok", `decisions inbox flags ${code} as incomplete`);
+  }
 
   // P2 regression: invalid_tickets in terminal human_accepted/human_rejected states are excluded from unresolved items.
   const terminalInvalidSources = await inboxMod.readOwnerQueueSources12A(req0, {}, {

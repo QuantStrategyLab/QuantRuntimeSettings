@@ -53,11 +53,21 @@ export async function ownerDecisionQueueResponse(request, env, deps) {
     return json(emptyOwnerDecisionQueue("control_plane_not_ready", controlPlane));
   }
 
-  const pending = controlPlane.candidates
-    .filter(isOwnerDecisionCandidate)
+  const ownerCandidates = controlPlane.candidates.filter(isOwnerDecisionCandidate);
+  const pending = ownerCandidates
     .filter((candidate) => candidate.freshness?.status === "fresh")
     .slice(0, OWNER_DECISION_MAX_CANDIDATES);
   const errors = [...controlPlane.errors];
+  // Non-fresh candidates are not decidable, but omitting them silently would let
+  // consumers read the queue as complete. Record each kind of omission explicitly;
+  // missing or unknown freshness is incomplete evidence, not proven staleness.
+  const omitted = ownerCandidates.filter((candidate) => candidate.freshness?.status !== "fresh");
+  if (omitted.some((candidate) => candidate.freshness?.status === "stale")) {
+    errors.push("owner_decision_stale_candidates_omitted");
+  }
+  if (omitted.some((candidate) => candidate.freshness?.status !== "stale")) {
+    errors.push("owner_decision_unknown_freshness_candidates_omitted");
+  }
   const candidates = [];
   for (const candidate of pending) {
     const candidateEvidenceSha256 = await ownerDecisionCandidateEvidenceSha256(candidate);
@@ -75,7 +85,7 @@ export async function ownerDecisionQueueResponse(request, env, deps) {
       intent,
     });
   }
-  if (controlPlane.candidates.filter(isOwnerDecisionCandidate).length > OWNER_DECISION_MAX_CANDIDATES) {
+  if (ownerCandidates.length > OWNER_DECISION_MAX_CANDIDATES) {
     errors.push("owner_decision_queue_truncated");
   }
   return json({

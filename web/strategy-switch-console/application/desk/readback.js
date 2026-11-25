@@ -10,6 +10,11 @@ const booleans = new Set(["enabled", "income_layer_enabled", "option_overlay_ena
 const decimals = new Set(["reserved_cash_floor", "reserved_cash_ratio", "dca_base_investment_usd"]);
 const TTL = 86400_000;
 const REFRESH_INTERVAL = 30_000;
+// Live GET readbacks reach GitHub with the shared dispatch token. They stay
+// storage-write-free, so throttling is held in Durable Object memory instead:
+// one in-flight read per actor and a small burst per refresh window.
+const LIVE_READ_BURST = 5;
+const LIVE_READ_TRACKED_ACTORS = 1024;
 const admissionPrefix = "desk:readbacks:admission:";
 // GitHub login is stable across sessions and case-insensitive.
 const admissionKey = actor => admissionPrefix + actor.toLowerCase();
@@ -439,7 +444,27 @@ export async function deskReadbackResponse(request, env, deps) {
 // Uses the existing RuntimeInstances DO. Alarms perform one fresh target read at
 // a time, survive Worker lifetimes, and physically expire snapshots after 24h.
 export class DeskReadbackStore {
-  constructor(storage, read, now = () => Date.now()) { this.storage = storage; this.read = read; this.now = now; }
+  constructor(storage, read, now = () => Date.now()) {
+    this.storage = storage; this.read = read; this.now = now;
+    this.liveReads = new Map();
+  }
+  admitLiveRead(actor, now) {
+    const key = actor.toLowerCase();
+    let state = this.liveReads.get(key);
+    if (state && now - state.windowStart >= REFRESH_INTERVAL) state = { active: state.active, windowStart: now, count: 0 };
+    if (state?.active) throw new DeskError("readback_in_progress", 429);
+    if (state && state.count >= LIVE_READ_BURST) throw new DeskError("readback_rate_limited", 429);
+    if (!state && this.liveReads.size >= LIVE_READ_TRACKED_ACTORS) {
+      for (const [other, entry] of this.liveReads) {
+        if (!entry.active && now - entry.windowStart >= REFRESH_INTERVAL) this.liveReads.delete(other);
+      }
+      // Fail closed rather than evict an actor that is still inside its window.
+      if (this.liveReads.size >= LIVE_READ_TRACKED_ACTORS) throw new DeskError("readback_rate_limited", 429);
+    }
+    const next = { active: true, windowStart: state?.windowStart ?? now, count: (state?.count ?? 0) + 1 };
+    this.liveReads.set(key, next);
+    return () => { next.active = false; };
+  }
   async claim(txn, actor, id, now) {
     const key = admissionKey(actor);
     const current = await txn.get(key);
@@ -465,8 +490,10 @@ export class DeskReadbackStore {
     const now = this.now();
     if (!command.owner || !command.actor) throw new DeskError("login_required", 401);
     if (command.action === "desk_readback_read") {
-      const payload = await this.read(command.id, command.actor);
-      return { payload };
+      const done = this.admitLiveRead(command.actor, now);
+      try {
+        return { payload: await this.read(command.id, command.actor) };
+      } finally { done(); }
     }
     if (command.action === "desk_readback_start") {
       const payloadFor = id => ({ readback_id: `rbj_${id}`, state: "running", started_at: new Date(now).toISOString(), retry_after_ms: 2000 });

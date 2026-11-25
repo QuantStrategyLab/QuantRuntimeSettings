@@ -80,6 +80,13 @@ export function brokerFreshness(targets, facts, now) {
   return freshness(times, { now, ttlSeconds: FACTS_STALE_SECONDS, staleKnown });
 }
 
+function layerHasReadableField(readback, side) {
+  if (Array.isArray(readback?.fields) && readback.fields.some(field => field?.[side]?.status === "known")) return true;
+  // execution_mode is compared against the observed layer outside `fields`.
+  const comparison = side === "saved" ? readback?.comparisons?.saved_vs_observed : readback?.comparisons?.platform_vs_observed;
+  return Array.isArray(comparison?.compared_fields) && comparison.compared_fields.length > 0;
+}
+
 function brokerReadback9a(ownTargets, readbacks9a) {
   if (!readbacks9a || typeof readbacks9a !== "object") return undefined;
   const matched = ownTargets.map(t => readbacks9a[t.id]).filter(Boolean);
@@ -97,9 +104,11 @@ function brokerReadback9a(ownTargets, readbacks9a) {
     .sort((a, b) => Date.parse(a) - Date.parse(b));
   return {
     status: hasDrift ? "drift" : allMatch ? "match" : "unknown",
+    // A layer envelope is always present, even when its source was unreadable;
+    // only a field value actually read from that layer counts as evidence.
     layers_available: {
-      saved_settings: matched.some(r => Boolean(r.saved_settings)),
-      platform_configuration: matched.some(r => Boolean(r.platform_configuration)),
+      saved_settings: matched.some(r => layerHasReadableField(r, "saved")),
+      platform_configuration: matched.some(r => layerHasReadableField(r, "platform")),
       observed_deployment: matched.some(r => r.observed_deployment?.data_status === "ready"),
     },
     compared_target_count: matched.length,

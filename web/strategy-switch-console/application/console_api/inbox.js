@@ -70,7 +70,7 @@ export async function inbox(request, env, deps, { paginate = true } = {}) {
           body.truncated
           || body.has_more
           || (Number.isFinite(Number(body.corrupt_omitted_count)) && Number(body.corrupt_omitted_count) > 0)
-          || codes.some((code) => typeof code === "string" && /truncated|corrupt/.test(code)),
+          || codes.some((code) => typeof code === "string" && /truncated|corrupt|candidates_omitted/.test(code)),
         );
         const unavailable = ["unavailable", "partial"].includes(
           body.data_status,
@@ -446,8 +446,11 @@ async function readQueueFamilyHttpSource(request, env, reader, {
       || Boolean(body?.next_cursor)
       || errors.some(e => /truncated|capped/.test(e)),
     );
+    const payloadStatus = sourceStatusFromPayload(true, body, errors);
     return {
-      status: sourceStatusFromPayload(true, body, errors),
+      // A ready payload that reports stale candidates it filtered out is stale,
+      // not a complete source: those decisions still exist upstream.
+      status: payloadStatus === "ok" && errors.some(e => /stale_candidates_omitted/.test(e)) ? "stale" : payloadStatus,
       observed_at: observedAt,
       cap,
       truncated,
