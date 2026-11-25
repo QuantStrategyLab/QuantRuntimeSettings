@@ -13,6 +13,7 @@
 // layers cannot disagree, and report anything outside both as unknown rather
 // than coercing it into a neighbouring bucket.
 import { DeskError, deskResponse, deskErrorResponse } from "./http.js";
+import { projectCredentialCalendar } from "../credential_calendar/projector.js";
 
 const PLATFORM = "ibkr";
 const LABEL = "IBKR Flex";
@@ -75,4 +76,12 @@ export async function deskCredentialsResponse(request, env, deps) {
     catch { throw new DeskError("read_failed", 502); }
     return deskResponse("credentials", { items: credentialItems(record) });
   } catch (error) { return deskErrorResponse(error); }
+}
+
+/**
+ * Projects multi-platform C-SA-26 credential records into versioned qsl.credential_calendar.v1
+ * without altering legacy qsl.desk.credentials.v1 (which preserves ibkr_flex-only Phase rules).
+ */
+export function multiPlatformCredentialProjection(records, options = {}) {
+  return projectCredentialCalendar(records, options);
 }

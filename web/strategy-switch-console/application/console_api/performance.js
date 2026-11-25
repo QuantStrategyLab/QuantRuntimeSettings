@@ -8,7 +8,20 @@ import {
 } from "../../performance_math.js";
 import { accountFreshness, currencyTotals, currencyDrawdowns, returnUnavailableReason } from "./performance_snapshots.js";
 import { aggregateEquityHistory, equityHistoryCurve } from "./equity_history.js";
+import { resolveSession } from "../market_sessions/xnys_calendar.js";
 const DAY = 86400000;
+
+function xnysClosedReason(isoDate) {
+  const session = resolveSession("XNYS", isoDate);
+  if (session.session_state === "unknown") {
+    const weekday = new Date(`${isoDate}T00:00:00Z`).getUTCDay();
+    return weekday === 0 || weekday === 6 ? "non_trading_weekend" : null;
+  }
+  if (!session.is_trading_day || session.blocks_eligibility) {
+    return session.reason === "weekend" ? "non_trading_weekend" : "market_closed";
+  }
+  return null;
+}
 const finite = (value) =>
   ["string", "number"].includes(typeof value) &&
   value !== "" &&
@@ -57,9 +70,22 @@ export function dailyChanges(points, { crypto = false } = {}) {
     byDate = new Map(rows.map((p) => [p.date, p]));
   return rows.map((point) => {
     let before = dateMs(point.date) - DAY;
-    // No market holiday source exists. Only weekends can be classified.
-    if (!crypto)
-      while ([0, 6].includes(new Date(before).getUTCDay())) before -= DAY;
+    if (!crypto) {
+      let guard = 0;
+      while (++guard <= 15) {
+        const prevIso = new Date(before).toISOString().slice(0, 10);
+        const closed = xnysClosedReason(prevIso);
+        if (closed === "non_trading_weekend") {
+          before -= DAY;
+          continue;
+        }
+        if (closed === "market_closed" && !byDate.has(prevIso)) {
+          before -= DAY;
+          continue;
+        }
+        break;
+      }
+    }
     const previous = byDate.get(new Date(before).toISOString().slice(0, 10));
     const interval = previous
       ? rows.filter((p) => p.date > previous.date && p.date <= point.date)
@@ -109,9 +135,9 @@ export function calendarCells(points, year, month, options = {}) {
     return Array.from({ length: count }, (_, i) => {
       const date = `${start.slice(0, 8)}${String(i + 1).padStart(2, "0")}`;
       const future = typeof options.today === "string" && date > options.today;
-      const weekend =
-        !options.crypto &&
-        [0, 6].includes(new Date(`${date}T00:00:00Z`).getUTCDay());
+      const closedReason = !options.crypto ? xnysClosedReason(date) : null;
+      const weekend = closedReason === "non_trading_weekend";
+      const existing = daily.get(date);
       return {
         date,
         ...(future
@@ -130,7 +156,17 @@ export function calendarCells(points, year, month, options = {}) {
               status: "unavailable",
               unavailable_reason: "non_trading_weekend",
             }
-          : daily.get(date) || {
+          : existing
+          ? existing
+          : closedReason === "market_closed"
+          ? {
+              amount: null,
+              return_percent: null,
+              value_kind: "asset_change",
+              status: "unavailable",
+              unavailable_reason: "market_closed",
+            }
+          : {
               amount: null,
               return_percent: null,
               value_kind: "asset_change",
@@ -151,7 +187,7 @@ export function calendarCells(points, year, month, options = {}) {
         unavailable_reason: "future_date", coverage: { observed_days: 0, expected_weekdays: 0 } };
     }
     const cells = monthCells(i + 1).filter(
-      (c) => !["non_trading_weekend", "future_date"].includes(c.unavailable_reason),
+      (c) => !["non_trading_weekend", "market_closed", "future_date"].includes(c.unavailable_reason),
     );
     const values = cells.filter((c) => c.amount !== null),
       complete = values.length === cells.length;
@@ -375,6 +411,8 @@ export function performanceBlocks({
     fx: mixed ? "not_applied" : "native_currency",
     trading_dates: histories.length > 0 && histories.every((history) => history.crypto === true)
       ? "calendar_days"
+      : resolveSession("XNYS", today).session_state !== "unknown"
+      ? "xnys_csa22_holidays_and_weekends_excluded"
       : "stored_observation_date_weekends_excluded_holidays_unknown",
   };
   const meta = {

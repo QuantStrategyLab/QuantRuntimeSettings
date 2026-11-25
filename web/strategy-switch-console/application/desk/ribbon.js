@@ -12,6 +12,7 @@
 //   unconfirmed runs → outcome null (never "filled" from a transport acceptance);
 //   confirmed "filled" → "filled"; confirmed no_submission/no_signal/no_rebalance → "no_op".
 import { runtimeDailyRunIssue, RUNTIME_DAILY_TIMEZONE } from "../../runtime_daily_contract.js";
+import { projectSessionClosureLabel, resolveNextTradingDate, resolveSession } from "../market_sessions/xnys_calendar.js";
 import { DeskError } from "./http.js";
 import { readbackTargets } from "./readback.js";
 import {
@@ -201,6 +202,59 @@ export function ribbonDate(url, now) {
   return values[0];
 }
 
+export function ribbonSessions(date, now) {
+  const usDate = date === utcDay(now) ? zonedDate(now, RUNTIME_DAILY_TIMEZONE) : date;
+  const resolveVenue = (market) => {
+    if (market !== "US") {
+      // C-SA-22 explicitly fails closed to unknown for unsupported venues (HK/CN).
+      resolveSession(market === "HK" ? "XHKG" : "SSE", usDate);
+      return { market, state: "unknown", open_utc: null, close_utc: null, next_change_at: null, holiday: null };
+    }
+    const session = resolveSession("XNYS", usDate);
+    if (session.session_state === "unknown") {
+      return { market: "US", state: "unknown", open_utc: null, close_utc: null, next_change_at: null, holiday: null };
+    }
+    const projectedClosure = projectSessionClosureLabel(session.session_state);
+    if (projectedClosure === "closed" || !session.is_trading_day) {
+      const nextDate = resolveNextTradingDate(usDate);
+      const nextOpen = nextDate ? resolveSession("XNYS", nextDate).open_utc : null;
+      return {
+        market: "US",
+        state: "closed",
+        open_utc: null,
+        close_utc: null,
+        next_change_at: nextOpen ? utcInstant(nextOpen) : null,
+        holiday: session.holiday_name,
+      };
+    }
+    const openMs = Date.parse(session.open_utc);
+    const closeMs = Date.parse(session.close_utc);
+    let state;
+    let nextChangeAt = null;
+    if (now < openMs) {
+      state = "pre";
+      nextChangeAt = utcInstant(session.open_utc);
+    } else if (now < closeMs) {
+      state = "open";
+      nextChangeAt = utcInstant(session.close_utc);
+    } else {
+      state = "post";
+      const nextDate = resolveNextTradingDate(usDate);
+      const nextOpen = nextDate ? resolveSession("XNYS", nextDate).open_utc : null;
+      nextChangeAt = nextOpen ? utcInstant(nextOpen) : null;
+    }
+    return {
+      market: "US",
+      state,
+      open_utc: session.open_utc.slice(11, 16),
+      close_utc: session.close_utc.slice(11, 16),
+      next_change_at: nextChangeAt,
+      holiday: session.holiday_name,
+    };
+  };
+  return ["US", "HK", "CN"].map(resolveVenue);
+}
+
 export async function ribbonProjection(request, env, deps, { date, now, config }) {
   const accounts = configuredAccounts(config);
   const dates = ribbonBusinessDates(date, now);
@@ -231,7 +285,7 @@ export async function ribbonProjection(request, env, deps, { date, now, config }
     },
     // No alerts store exists: unknown, never zero.
     alert_badge: notSupported(),
-    sessions: ["US", "HK", "CN"].map(market => ({ market, state: "unknown", open_utc: null, close_utc: null, next_change_at: null, holiday: null })),
+    sessions: ribbonSessions(date, now),
     // Observed schedule instants only; "no next run" is never inferred.
     next_run: nextRun,
     tape: result.tape,
@@ -249,7 +303,7 @@ export async function deskRibbonResponse(request, env, deps) {
         date, date_basis: "utc_day", freshness: { data_status: "unavailable", age_seconds: null },
         console_state: { mode: notSupported(), gateways: { status: "unknown", reason: "not_supported" } },
         alert_badge: notSupported(),
-        sessions: ["US", "HK", "CN"].map(market => ({ market, state: "unknown", open_utc: null, close_utc: null, next_change_at: null, holiday: null })),
+        sessions: ribbonSessions(date, now),
         next_run: unknown("source_unavailable", coverage("unavailable", 0, null, ["source_unavailable"])),
         tape: unknown("read_failed", coverage("unavailable", 0, null, ["read_failed"])),
       };

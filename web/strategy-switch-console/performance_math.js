@@ -1,3 +1,5 @@
+import { resolveSession } from "./application/market_sessions/xnys_calendar.js";
+
 export const PERFORMANCE_RANGES = ["1m", "3m", "ytd", "1y", "all"];
 const DAY = 86_400_000;
 export function dateMs(date) {
@@ -42,7 +44,14 @@ export function sliceRange(points, range, today) {
 export function hasGap(previous, point, { crypto = false } = {}) {
     if (typeof point.breakBefore === "boolean") return point.breakBefore;
     for (let time = dateMs(previous.date) + DAY; time < dateMs(point.date); time += DAY) {
-        if (crypto || ![0, 6].includes(new Date(time).getUTCDay())) return true;
+        if (crypto) return true;
+        const iso = new Date(time).toISOString().slice(0, 10);
+        const session = resolveSession("XNYS", iso);
+        if (session.session_state === "unknown") {
+            if (![0, 6].includes(new Date(time).getUTCDay())) return true;
+        } else if (session.is_trading_day && !session.blocks_eligibility) {
+            return true;
+        }
     }
     return false;
 }

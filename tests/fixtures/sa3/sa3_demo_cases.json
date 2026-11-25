@@ -1,0 +1,62 @@
+{
+  "schema_version": "qsl.sa3_demo_cases.v1",
+  "epoch": "SUPPLY-A-SA3-DESIGN-2026-11-26-v1",
+  "pinned_digests": {
+    "csa22-v1": "6601c01f2907119c25a2687d4b67210285d3c13ebf2d86a2953745dbd1f6f2af",
+    "csa22-v2": "2ba8cd7684c361209df68bfa2e10004c1f9922a645c7ec55d421fda520561798"
+  },
+  "cases": {
+    "SA3-D1": {
+      "description": "C-SA-22 digest binding across csa22-v1 (2025) & csa22-v2 (2026), 365+365 field-for-field parity, and 1-byte tamper fail-closed",
+      "versions": ["csa22-v1", "csa22-v2"],
+      "expected_day_counts": { "csa22-v1": 365, "csa22-v2": 365 }
+    },
+    "SA3-D2": {
+      "description": "Holidays, 2025-01-09 unscheduled closure (verbatim session_state + Rule 7 projected closed), and non-false incomplete_month / staleness prevention",
+      "unscheduled_closure_date": "2025-01-09",
+      "holiday_dates": ["2025-11-27", "2025-12-25", "2026-01-01", "2026-07-03", "2026-11-26"],
+      "negative_control_missing_trading_day": "2025-11-26"
+    },
+    "SA3-D3": {
+      "description": "EDT/EST half-days, DST shifts, [open, cutoff) boundary exclusion at close_utc, earlier cutoff precedence, and US 23/5 post-21:00 ET isolation",
+      "half_days": [
+        { "date": "2025-07-03", "is_dst": true, "open_utc": "2025-07-03T13:30:00.000Z", "close_utc": "2025-07-03T17:00:00.000Z", "pre_close": "2025-07-03T16:59:59.999Z", "at_close": "2025-07-03T17:00:00.000Z" },
+        { "date": "2025-11-28", "is_dst": false, "open_utc": "2025-11-28T14:30:00.000Z", "close_utc": "2025-11-28T18:00:00.000Z", "pre_close": "2025-11-28T17:59:59.999Z", "at_close": "2025-11-28T18:00:00.000Z" },
+        { "date": "2025-12-24", "is_dst": false, "open_utc": "2025-12-24T14:30:00.000Z", "close_utc": "2025-12-24T18:00:00.000Z", "pre_close": "2025-12-24T17:59:59.999Z", "at_close": "2025-12-24T18:00:00.000Z" },
+        { "date": "2026-11-27", "is_dst": false, "open_utc": "2026-11-27T14:30:00.000Z", "close_utc": "2026-11-27T18:00:00.000Z", "pre_close": "2026-11-27T17:59:59.999Z", "at_close": "2026-11-27T18:00:00.000Z" }
+      ],
+      "dst_ranges": [
+        ["2025-03-07", "2025-03-08", "2025-03-09", "2025-03-10"],
+        ["2025-10-31", "2025-11-01", "2025-11-02", "2025-11-03"],
+        ["2026-03-06", "2026-03-07", "2026-03-08", "2026-03-09"],
+        ["2026-10-30", "2026-10-31", "2026-11-01", "2026-11-02"]
+      ],
+      "earlier_cutoff": { "date": "2025-07-03", "cutoff_local": "12:00", "expected_cutoff_utc": "2025-07-03T16:00:00.000Z" },
+      "us_23_5_prior_close": { "decision_instant_utc": "2026-01-06T02:30:00.000Z", "expected_trade_date": "2026-01-05" },
+      "post_2100_clearing": { "activity_timestamp": "2026-01-05T21:15:00-05:00", "expected_trade_date": "2026-01-06" }
+    },
+    "SA3-D4": {
+      "description": "Unmodelled venues (HK/CN/XHKG/SSE), out-of-range dates (2024-12-31, 2027-01-01), and O2 observed_venue_status disagreement fail closed",
+      "unsupported_venues": ["HK", "CN", "XHKG", "SSE"],
+      "out_of_range_dates": ["2024-12-31", "2027-01-01"]
+    },
+    "SA3-D5": {
+      "description": "SA-1 #15 freshness seam swap equivalence + 2025-12-31 -> 2026-01-02 cross-year boundary",
+      "cross_year_case": {
+        "observed_at": "2025-12-31T21:00:00.000Z",
+        "fetched_at": "2026-01-02T14:30:00.000Z",
+        "evaluated_at": "2026-01-02T14:30:00.000Z",
+        "last_observed_value": "50000.00",
+        "expected_age_sessions": 0,
+        "expected_data_status": "fresh"
+      }
+    },
+    "SA3-D6": {
+      "description": "C-SA-26 5-platform UTC boundary equality, unknown investigation routing, operator_declared non-upgrade, and evidenced suppression",
+      "evaluated_at": "2026-06-01T12:00:00.000Z"
+    },
+    "SA3-D7": {
+      "description": "C-SA-26 secret/free-form/extra-field rejection before persistence/logging and SA-A19 ADR 0002 zero B0 writes"
+    }
+  }
+}

@@ -1,5 +1,6 @@
 /** Read-only page projections. Missing observations never imply a successful run. */
 import { RUNTIME_DAILY_TIMEZONE, runtimeDailyBusinessDate } from "../../runtime_daily_contract.js";
+import { projectSessionClosureLabel, resolveSession } from "../market_sessions/xnys_calendar.js";
 import { canonicalStrategyProfile, sameStrategyProfile } from "../../strategy_identity.js";
 import { configuredStrategyExecution } from "./strategy_execution.js";
 import { runStatus, runStateCounts } from "./run_status.js";
@@ -9,10 +10,55 @@ export function businessDate(now = Date.now()) {
     timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
   }).format(now);
 }
-// No market holiday source exists in this Worker; only weekends are provable.
 function nonTradingWeekend(date) {
   const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
   return weekday === 0 || weekday === 6;
+}
+/**
+ * Resolves C-SA-22 XNYS session metadata for an operations business date.
+ * Preserves 24/7 behavior for binance and falls back to weekend classification outside calendar coverage.
+ */
+export function resolveOperationsMarketSession(date, account = null) {
+  if (account?.platform === "binance") {
+    return {
+      is_trading_day: true,
+      session_state: "regular",
+      projected_state: "regular",
+      blocks_orders: false,
+      blocks_eligibility: false,
+      holiday_name: null,
+      reason: null,
+      calendar_version: null,
+      spec_digest: null,
+    };
+  }
+  const session = resolveSession("XNYS", date);
+  if (session.session_state === "unknown") {
+    const weekend = nonTradingWeekend(date);
+    return {
+      is_trading_day: !weekend,
+      session_state: session.session_state,
+      projected_state: weekend ? "closed" : "unknown",
+      blocks_orders: true,
+      blocks_eligibility: true,
+      holiday_name: null,
+      reason: weekend ? "weekend" : session.reason,
+      calendar_version: session.calendar_version,
+      spec_digest: session.spec_digest,
+    };
+  }
+  const projectedState = projectSessionClosureLabel(session.session_state);
+  return {
+    is_trading_day: session.is_trading_day,
+    session_state: session.session_state,
+    projected_state: projectedState,
+    blocks_orders: session.blocks_orders,
+    blocks_eligibility: session.blocks_eligibility,
+    holiday_name: session.holiday_name,
+    reason: session.reason,
+    calendar_version: session.calendar_version,
+    spec_digest: session.spec_digest,
+  };
 }
 // The reader's own decision; mirrored locally only for a legacy body that carries none.
 const INCOMPLETE_RECORD_STATUSES = new Set(["read_incomplete", "missing_report", "insufficient", "conflict"]);
@@ -80,6 +126,13 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
       if (body.account_key !== account.key || body.platform !== account.platform || body.date !== date)
         throw Error("daily_binding_mismatch");
       if (!body.record) {
+        if (options?.useMarketCalendar === true && account.platform !== "binance") {
+          const cal = resolveOperationsMarketSession(date, account);
+          if (cal.projected_state === "closed" || cal.blocks_orders) {
+            return { ...base, status: "no_data",
+              unavailable_reason: cal.reason === "weekend" ? "non_trading_weekend" : "market_closed" };
+          }
+        }
         const weekendClosed = weekend && account.platform !== "binance";
         return { ...base, status: "no_data",
           unavailable_reason: weekendClosed ? "non_trading_weekend" : "today_record_missing" };
