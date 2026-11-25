@@ -92,7 +92,7 @@ recomputed.
 | B3 | Runtime-stop receipt reconciliation on GET | 2027-01-13 (bounded re-date from 2026-12-14 within the 60-day window) |
 | B4 | Credential-rotation settlement on GET | 2027-01-13 (bounded re-date from 2026-12-14 within the 60-day window) |
 | B5 | `binance_detail_read` table creation | Retired (table creation moved to `binance_detail_put`; missing-table reads return empty without DDL) |
-| B6 | Fresh Desk readback admission, snapshot and alarm on GET | 2027-01-13 |
+| B6 | Fresh Desk readback admission, snapshot and alarm on GET | Retired (`GET /api/desk/readbacks` uses pure zero-write `desk_readback_read`; admission/snapshot/alarm writes stay on explicit `POST` command paths only) |
 | B7 | Config/current-strategy durable cache refresh on GET | 2027-01-13 |
 | I1 | Technical keys rendered as account names (IBKR isolated in PR #1172; non-IBKR fallback and schema defaults remain) | 2027-01-13 (bounded re-date from 2026-12-14 within the 60-day window) |
 | I2 | Legacy `(platform, key)` joins without a canonical boundary | 2027-01-13 (review checkpoint) |
@@ -110,7 +110,7 @@ legacy v1 rows; `B3` and `B4` require decoupling polling GET side-effects
 while preserving pending-operation servicing paths; `B0`'s N1 interim scope
 consolidates with full `B0` preamble/missing-table work; and `I1`'s remaining
 non-IBKR fallback and schema defaults align with the `R3`/`I2` checkpoint
-after PR `#1172` isolated IBKR titles and confirmations. `B6`, `B7`, `I2`,
+after PR `#1172` isolated IBKR titles and confirmations. `B6` is retired alongside `9A` pure no-write GET (`desk_readback_read`). `B7`, `I2`,
 `P1`, and full `B0` remain at `2027-01-13`.
 
 `tests/read_contract_boundaries_validation.mjs` runs in the `Validate`

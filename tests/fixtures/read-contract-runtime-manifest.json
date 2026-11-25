@@ -92,14 +92,6 @@
    "kind": "function"
   },
   {
-   "id": "B6.DeskReadbackStore.constructor",
-   "effect": "B6",
-   "symbol": "DeskReadbackStore",
-   "file": "web/strategy-switch-console/application/desk/readback.js",
-   "kind": "constructor",
-   "class": "DeskReadbackStore"
-  },
-  {
    "id": "B7.readCurrentStrategies",
    "effect": "B7",
    "symbol": "readCurrentStrategies",
@@ -202,23 +194,18 @@
    "id": "pristine-cold-construction-get",
    "group": "pristine-control",
    "fixture": "pristine",
-   "provenance": "unmodified snapshot; cold construction in an explicit B0/B6 setup trace, the first ordinary GET as named B0 debt (lazy storage initialization), then the zero-writer GET on the initialized instance",
+   "provenance": "unmodified snapshot; cold construction in an explicit B0 setup trace, the first ordinary GET as named B0 debt (lazy storage initialization), then the zero-writer GET on the initialized instance",
    "phases": [
     {
      "name": "setup",
      "mode": "debt",
      "label": "cold construction setup trace (conservative B0 constructor marker; the constructor runs no SQL)",
      "allow": [
-      "B0.RuntimeInstances.constructor",
-      "B6.DeskReadbackStore.constructor"
+      "B0.RuntimeInstances.constructor"
      ],
      "debt": [
       {
        "exception": "B0",
-       "operation": "construction"
-      },
-      {
-       "exception": "B6",
        "operation": "construction"
       }
      ],
@@ -283,10 +270,6 @@
     "writers": [
      {
       "id": "B0.RuntimeInstances.constructor",
-      "phase": "setup"
-     },
-     {
-      "id": "B6.DeskReadbackStore.constructor",
       "phase": "setup"
      },
      {
@@ -375,23 +358,18 @@
    "id": "pristine-cold-construction-inventory",
    "group": "pristine-control",
    "fixture": "pristine",
-   "provenance": "unmodified snapshot; cold construction in an explicit B0/B6 setup trace with the storage trap armed before it, then every inventory section and an unknown section on the cold instance: no writer entry, no storage write, no initialization",
+   "provenance": "unmodified snapshot; cold construction in an explicit B0 setup trace with the storage trap armed before it, then every inventory section and an unknown section on the cold instance: no writer entry, no storage write, no initialization",
    "phases": [
     {
      "name": "setup",
      "mode": "debt",
      "label": "cold construction setup trace (conservative B0 constructor marker; the constructor runs no SQL)",
      "allow": [
-      "B0.RuntimeInstances.constructor",
-      "B6.DeskReadbackStore.constructor"
+      "B0.RuntimeInstances.constructor"
      ],
      "debt": [
       {
        "exception": "B0",
-       "operation": "construction"
-      },
-      {
-       "exception": "B6",
        "operation": "construction"
       }
      ],
@@ -466,10 +444,6 @@
     "writers": [
      {
       "id": "B0.RuntimeInstances.constructor",
-      "phase": "setup"
-     },
-     {
-      "id": "B6.DeskReadbackStore.constructor",
       "phase": "setup"
      }
     ],
@@ -641,6 +615,177 @@
       "status": 200,
       "ok": true
      }
+    ],
+    "detection": "none"
+   }
+  },
+  {
+   "id": "pristine-desk-readback-read",
+   "group": "pristine-control",
+   "fixture": "pristine",
+   "provenance": "retired B6: cold construction + B0 init, then POST action desk_readback_read on a ready instance performs zero writers, zero alarms, and zero DO storage writes",
+   "phases": [
+    {
+     "name": "setup",
+     "mode": "debt",
+     "label": "cold construction setup trace (conservative B0 constructor marker; the constructor runs no SQL)",
+     "allow": [
+      "B0.RuntimeInstances.constructor"
+     ],
+     "debt": [
+      {
+       "exception": "B0",
+       "operation": "construction"
+      }
+     ],
+     "steps": [
+      {
+       "construct": true
+      }
+     ]
+    },
+    {
+     "name": "cold-request",
+     "mode": "debt",
+     "label": "first ordinary request: B0 lazy storage initialization before dispatch",
+     "allow": [
+      "B0.initializeExecutions",
+      "B0.initializeExternalFlow",
+      "B0.initializeCredentialMaintenance",
+      "B0.initializeSecretRotation"
+     ],
+     "debt": [
+      {
+       "exception": "B0",
+       "operation": "action:instance_state:GET"
+      }
+     ],
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    },
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "initialized-instance desk_readback_read zero-writer phase",
+     "steps": [
+      {
+       "request": {
+        "method": "POST",
+        "body": {
+         "action": "desk_readback_read",
+         "owner": "synthetic",
+         "actor": "synthetic",
+         "id": "missing/target"
+        }
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "returned"
+     },
+     {
+      "status": 200,
+      "ok": true
+     },
+     {
+      "status": 404,
+      "ok": false,
+      "error": "not_found"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B0.RuntimeInstances.constructor",
+      "phase": "setup"
+     },
+     {
+      "id": "B0.initializeExecutions",
+      "phase": "cold-request"
+     },
+     {
+      "id": "B0.initializeExternalFlow",
+      "phase": "cold-request"
+     },
+     {
+      "id": "B0.initializeCredentialMaintenance",
+      "phase": "cold-request"
+     },
+     {
+      "id": "B0.initializeSecretRotation",
+      "phase": "cold-request"
+     }
+    ],
+    "storage": [
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_multiple_statements CREATE TRIGGER IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl ALTER TABLE credential_maintenance_metadata ADD",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl ALTER TABLE account_diagnosis_tasks ADD",
+     "cold-request:sql_ddl ALTER TABLE account_diagnosis_tasks ADD",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl ALTER TABLE research_promotion_applications ADD",
+     "cold-request:sql_ddl DROP INDEX IF EXISTS",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl ALTER TABLE ux1_research_slot ADD",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl ALTER TABLE hk_stop_request ADD",
+     "cold-request:sql_ddl ALTER TABLE hk_stop_request ADD",
+     "cold-request:sql_ddl ALTER TABLE hk_stop_request ADD",
+     "cold-request:sql_ddl ALTER TABLE hk_stop_request ADD",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT"
     ],
     "detection": "none"
    }
@@ -3496,44 +3641,6 @@
     "writers": [
      {
       "id": "B4.credentialRotationResponse",
-      "phase": "invoke"
-     }
-    ],
-    "detection": "writer_latch"
-   }
-  },
-  {
-   "id": "positive-entry-B6.DeskReadbackStore.constructor",
-   "group": "positive-control",
-   "fixture": "pristine",
-   "provenance": "isolated invocation of B6.DeskReadbackStore.constructor with sentinel receiver and arguments; the latch precedes every parameter and body operation",
-   "phases": [
-    {
-     "name": "invoke",
-     "mode": "zero-writer",
-     "label": "isolated invocation phase",
-     "steps": [
-      {
-       "invoke": "B6.DeskReadbackStore.constructor"
-      }
-     ]
-    }
-   ],
-   "expected": {
-    "static": "admit",
-    "steps": [
-     {
-      "outcome": "threw",
-      "error": "WriterEntryViolation",
-      "latched_before_return": [
-       "B6.DeskReadbackStore.constructor"
-      ],
-      "touched": []
-     }
-    ],
-    "writers": [
-     {
-      "id": "B6.DeskReadbackStore.constructor",
       "phase": "invoke"
      }
     ],

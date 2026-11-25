@@ -143,12 +143,22 @@ const naMatrix = loadJson(new URL("sa4_na_regression_matrix.json", FIXTURES_DIR)
   for (const cid of d5.case_ids) {
     const tc = naMatrix.cases.find(c => c.id === cid);
     if (cid === "historical-date-ribbon") {
-      const proj = ribbonMod.ribbonProjection({
-        accounts: naMatrix.accounts,
-        summaries: [{ date: tc.summaryDate, summary: { accounts: [] } }],
-        date: tc.businessDate,
-        now: Date.parse(tc.now),
-      });
+      const proj = await ribbonMod.ribbonProjection(
+        new Request(`https://example.invalid/api/desk/ribbon?date=${tc.businessDate}`),
+        {},
+        {
+          runtimeDay: async (_req, _env, _accounts, day) => (day === tc.summaryDate ? { accounts: [] } : null),
+        },
+        {
+          date: tc.businessDate,
+          now: Date.parse(tc.now),
+          config: {
+            options: {
+              firstrade: naMatrix.accounts.map(a => ({ key: a.key, target_name: a.target_id.split("/")[1] })),
+            },
+          },
+        },
+      );
       assert.equal(proj.next_run.coverage.total, null, "SA4-D5 historical coverage.total === null");
       assert.equal(proj.next_run.coverage.state, "unavailable", "SA4-D5 historical coverage.state === unavailable");
       continue;
@@ -178,7 +188,8 @@ const naMatrix = loadJson(new URL("sa4_na_regression_matrix.json", FIXTURES_DIR)
   const getEffects = Array.isArray(readbacksRoute.effects.GET) ? readbacksRoute.effects.GET : [readbacksRoute.effects.GET];
   assert.equal(getEffects.includes("B6"), false, "SA4-D6 GET /api/desk/readbacks must not carry B6 effect");
   assert.ok(INTERNAL_OPERATIONS[d6.pure_read_action], `SA4-D6 ${d6.pure_read_action} registered`);
-  assert.equal(INTERNAL_OPERATIONS[d6.pure_read_action].kind, "read", "SA4-D6 desk_readback_read must be pure read");
+  assert.notEqual(INTERNAL_OPERATIONS[d6.pure_read_action].effect, "command", "SA4-D6 desk_readback_read must not be a write command");
+  assert.equal(INTERNAL_OPERATIONS["action:desk_readback_fresh"], undefined, "SA4-D6 legacy desk_readback_fresh removed");
 }
 
 console.log(`SA-4 design demonstration passed (${demo.cases.length} cases: SA4-D1..SA4-D6)`);

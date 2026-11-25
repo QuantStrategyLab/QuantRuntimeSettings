@@ -281,12 +281,22 @@ async function runSaA18() {
   const matrix = loadJson(new URL("sa4_na_regression_matrix.json", FIXTURES_DIR));
   for (const testCase of matrix.cases) {
     if (testCase.id === "historical-date-ribbon") {
-      const proj = ribbonMod.ribbonProjection({
-        accounts: matrix.accounts,
-        summaries: [{ date: testCase.summaryDate, summary: { accounts: [] } }],
-        date: testCase.businessDate,
-        now: Date.parse(testCase.now),
-      });
+      const proj = await ribbonMod.ribbonProjection(
+        new Request(`https://example.invalid/api/desk/ribbon?date=${testCase.businessDate}`),
+        {},
+        {
+          runtimeDay: async (_req, _env, _accounts, day) => (day === testCase.summaryDate ? { accounts: [] } : null),
+        },
+        {
+          date: testCase.businessDate,
+          now: Date.parse(testCase.now),
+          config: {
+            options: {
+              firstrade: matrix.accounts.map(a => ({ key: a.key, target_name: a.target_id.split("/")[1] })),
+            },
+          },
+        },
+      );
       assert.equal(proj.next_run.status, testCase.expected.status, `SA-A18 ${testCase.id} status`);
       assert.equal(proj.next_run.coverage.total, null, `SA-A18 ${testCase.id} coverage.total === null`);
       assert.equal(proj.next_run.coverage.included, 0, `SA-A18 ${testCase.id} coverage.included === 0`);

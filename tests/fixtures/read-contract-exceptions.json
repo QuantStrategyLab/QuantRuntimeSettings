@@ -63,7 +63,7 @@
         "action:directory:status",
         "action:directory:read",
         "action:desk_readback_get",
-        "action:desk_readback_fresh",
+        "action:desk_readback_read",
         "action:credential_maintenance_read",
         "action:console_decision_history",
         "action:console_settings_history",
@@ -165,19 +165,15 @@
       "effect_type": "INSERT into risk_profile_authority from legacy bindings when the row is absent",
       "reachable_operations": [
         "route:console api group#GET",
-        "route:/api/desk/readbacks#GET",
         "route:/api/admin/config#GET",
         "route:/api/risk-profiles#GET",
         "route:/api/account-settings#GET",
-        "action:desk_readback_fresh",
         "action:risk_profile_read",
         "action:account_settings_read"
       ],
       "reachability": [
         "Console group GET: injected settings dependency (accountSettingsResponse) serves /api/account-settings/diff and requests account_settings_read; /api/accounts/run-controls requests account_settings_read through consoleRunControls profileState",
         "Admin config GET: adminConfigResponse -> buildAdminState -> loadRiskProfileBindings requests risk_profile_read",
-        "Desk readbacks GET: the target readback requests desk_readback_fresh",
-        "desk_readback_fresh: the DeskReadbackStore read callback in the RuntimeInstances constructor calls readAccountSettings",
         "readAccountSettings -> readRiskProfileAuthority -> ensureRiskProfileAuthority, which inserts the absent singleton"
       ],
       "helpers": [
@@ -280,36 +276,6 @@
       "acceptance_test": "GET is observational; maintenance-revision conflicts, secret handling, step-up and replay unchanged; no forced completion or cancellation of pending rotation",
       "expires_on": "2027-01-13",
       "expiry_basis": "Owner-approved bounded 60-day re-date from 2026-12-14 to 2027-01-13 (within ADR 0002's 60-day window from 2026-11-14): decoupling credential-rotation GET settlement into an explicit reconcile command requires preserving step-up, maintenance-revision conflicts, secret handling, and pending rotation servicing."
-    },
-    {
-      "id": "B6",
-      "kind": "effect",
-      "title": "Fresh Desk readback GET runs a collection job",
-      "effect_type": "desk_readback_fresh claims durable admission, sets an alarm, stores a snapshot and releases admission",
-      "reachable_operations": [
-        "route:/api/desk/readbacks#GET",
-        "action:desk_readback_fresh"
-      ],
-      "helpers": [
-        {
-          "file": "web/strategy-switch-console/application/desk/readback.js",
-          "symbol": "DeskReadbackStore",
-          "sites": {
-            "web/strategy-switch-console/application/runtime_instances/durable_object.js": 1
-          }
-        },
-        {
-          "file": "web/strategy-switch-console/application/desk/readback.js",
-          "literal": "desk_readback_fresh",
-          "sites": {
-            "web/strategy-switch-console/application/desk/readback.js": 2,
-            "web/strategy-switch-console/application/runtime_instances/durable_object.js": 1
-          }
-        }
-      ],
-      "work_item": "Adoption step 4: versioned explicit refresh/start command plus stored GET; never eligible for inventory meanwhile",
-      "acceptance_test": "Actor budgets, admission, 24-hour expiry and alarm behaviour stay covered on the command; GET performs no admission, alarm or snapshot write",
-      "expires_on": "2027-01-13"
     },
     {
       "id": "B7",
@@ -494,7 +460,7 @@
         "action:directory:status",
         "action:directory:read",
         "action:desk_readback_get",
-        "action:desk_readback_fresh",
+        "action:desk_readback_read",
         "action:credential_maintenance_read",
         "action:console_decision_history",
         "action:console_settings_history",

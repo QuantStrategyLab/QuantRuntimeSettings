@@ -34,7 +34,7 @@
 // matrix with its full-exit children, compared by case name with
 // `tests/fixtures/read-contract-probe-oracle.json`. W, B and T are in
 // `tests/fixtures/read-contract-runtime-manifest.json`: the thirteen
-// registered callables of B0-B4 and B6-B7 (B5 retired), reconciled with the exception register on
+// registered callables of B0-B4 and B7 (B5, B6 retired), reconciled with the exception register on
 // every run, the frozen time and task bounds, and the case corpus. G is
 // built by `tests/helpers/read_contract_instrument.mjs` and run by
 // `tests/helpers/read_contract_runtime.mjs` (section 5).
@@ -115,7 +115,7 @@
 // pinned TypeScript parser.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, posix } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -898,12 +898,6 @@ const INDIRECT_EDGES = [
     { file: RS, block: "export async function adminConfigResponse(request, env) {", text: "buildAdminState(session, env)" },
     { file: RS, block: "export async function buildAdminState(session, env) {", text: "loadRiskProfileBindings(env)" },
     { file: RS, block: "export async function loadRiskProfileBindings(env) {", text: 'action: "risk_profile_read"' },
-  ] },
-  { exception: "B1", operations: ["route:/api/desk/readbacks#GET", "action:desk_readback_fresh"], description: "Desk target readback requests desk_readback_fresh; the store's read callback calls readAccountSettings", anchors: [
-    { file: `${CONSOLE}/application/desk/readback.js`, block: "export async function deskReadbackResponse(request, env, deps) {", text: 'command({ action: "desk_readback_fresh"' },
-    { file: `${CONSOLE}/application/desk/readback.js`, block: "export class DeskReadbackStore {", text: "this.read(command.id, command.actor)" },
-    { file: DO, block: "constructor(ctx, env) {", text: "this.deskReadbacks = new DeskReadbackStore(ctx.storage, async (id, actor) => {" },
-    { file: DO, block: "constructor(ctx, env) {", text: "this.readAccountSettings({ platform: target.platform, key: target.key" },
   ] },
   { exception: "B1", operations: ["action:account_settings_read", "action:risk_profile_read"], description: "readAccountSettings -> readRiskProfileAuthority -> ensureRiskProfileAuthority", anchors: [
     { file: DO, block: "readAccountSettings(command) {", text: "this.readRiskProfileAuthority(command.legacy)" },
@@ -1981,7 +1975,7 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
     assert.deepEqual(controls.filter(([, error]) => error).map(([, error]) => error), [], "W coverage controls");
     const printRuntime = process.argv.includes("--print-runtime");
     const runtime = runRuntimeContract({ ts, root: ROOT, consoleDir: CONSOLE, tree, register, manifest: runtimeManifest, fixtures, staticOutcome,
-      scratch: join(tmpdir(), `read-contract-graph-${process.pid}`), today, record: printRuntime });
+      scratch: join(realpathSync(tmpdir()), `read-contract-graph-${process.pid}`), today, record: printRuntime });
     if (printRuntime) {
       // Review aid only: observations are printed, nothing is accepted.
       console.log(JSON.stringify({ errors: runtime.errors, observed: runtime.observed }));
@@ -2002,7 +1996,7 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
   const consistentRemoval = validate({ ...baseline, routes: routesWithoutB1, register: withoutB1 });
   assert.deepEqual(consistentRemoval.errors.filter(error => /exception B1/.test(error)), [], "a consistent registry+register removal passes the two-way check alone");
   expectError(edges({ register: withoutB1, operations: consistentRemoval.operations }), /^edge B1 route:\/api\/admin\/config#GET: the code reaches the exception/, "probe (f) consistent B1 removal");
-  for (const [id, op] of [["B3", "route:console api group#GET"], ["B1", "action:desk_readback_fresh"]]) {
+  for (const [id, op] of [["B3", "route:console api group#GET"], ["B1", "action:account_settings_read"]]) {
     const ops = new Map(result.operations);
     ops.set(op, { ...ops.get(op), effects: ops.get(op).effects.filter(effect => effect !== id) });
     expectError(edges({ operations: ops }), new RegExp(`^edge ${id} .*${op.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}`), `probe (f) ${id} ${op}`);
@@ -2012,7 +2006,7 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
   i2.reachable_operations = i2.reachable_operations.filter(op => op !== "route:/api/runtime-daily/sync#POST");
   expectError(edges({ register: withoutSync }), /^edge I2 route:\/api\/runtime-daily\/sync#POST/, "probe (f) I2 sync");
   for (const [file, from, pattern] of [
-    ["application/runtime_instances/durable_object.js", "this.readAccountSettings({ platform: target.platform, key: target.key", /^edge B1 .*anchor gone/],
+    ["application/runtime_instances/durable_object.js", "risk = this.readRiskProfileAuthority(command.legacy)", /^edge B1 .*anchor gone/],
     ["application/worker/runtime_support.js", "loadRiskProfileBindings(env);\n  const runtimeInstances", /^edge B1 route:\/api\/admin\/config#GET: anchor gone/],
     ["worker.js", "runControls: consoleRunControls", /^edge B[13] route:console api group#GET: anchor gone/],
     ["application/worker/runtime_support.js", "? () => readPlatformRuntimeControl(env, account.platform, account.target_name)", /^edge B3 .*anchor gone/],
