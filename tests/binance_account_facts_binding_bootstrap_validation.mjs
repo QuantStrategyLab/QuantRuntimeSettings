@@ -87,7 +87,12 @@ const BRANCH_POLICIES_BY_MODE = {
   "not-runtime-production-only": [],
 };
 
-function makeFetch({ policy = "runtime-production-only", comparison = "ahead", untrustedRevision = null } = {}) {
+function makeFetch({
+  policy = "runtime-production-only",
+  comparison = "ahead",
+  untrustedRevision = null,
+  runtimeProductionRevisions = new Set(),
+} = {}) {
   return async (url, options = {}) => {
     const parsed = new URL(url);
     const pathname = parsed.pathname;
@@ -101,8 +106,19 @@ function makeFetch({ policy = "runtime-production-only", comparison = "ahead", u
         ? { protected_branches: false, custom_branch_policies: true }
         : { protected_branches: true, custom_branch_policies: false } });
     }
-    const comparedRevision = pathname.match(/\/compare\/([a-f0-9]{40})\.\.\.main$/)?.[1];
-    if (comparedRevision) {
+    const compareMatch = pathname.match(/\/compare\/([a-f0-9]{40})\.\.\.(main|runtime-production)$/);
+    if (compareMatch) {
+      const [, comparedRevision, comparedRef] = compareMatch;
+      if (comparedRef === "runtime-production") {
+        if (runtimeProductionRevisions.has(comparedRevision)) return response({
+          status: "ahead", base_commit: { sha: comparedRevision }, merge_base_commit: { sha: comparedRevision },
+          ahead_by: 2, behind_by: 0, total_commits: 2,
+        });
+        return response({
+          status: "behind", base_commit: { sha: comparedRevision }, merge_base_commit: { sha: "a".repeat(40) },
+          ahead_by: 0, behind_by: 1, total_commits: 1,
+        });
+      }
       if (comparedRevision === untrustedRevision) return response({
         status: "behind", base_commit: { sha: comparedRevision }, merge_base_commit: { sha: "a".repeat(40) },
         ahead_by: 0, behind_by: 1, total_commits: 1,
@@ -777,5 +793,66 @@ await assert.rejects(runBootstrap({
   command: makeCommand(),
 }), error => error.code === "reader_revision_not_trusted_main_ancestor");
 assert.equal(writes.filter(item => item.command === "gh").length, 0);
+
+// Application release SHA matching binance-runtime BINANCE_RISK_AUTHORITY_SOURCE_REVISION is trusted even when diverged from main
+writes.length = 0;
+environmentVariables.set("BINANCE_RISK_AUTHORITY_SOURCE_REVISION", app);
+const authorityReleasePreview = await runBootstrap({
+  env: {
+    ...scopeMigrationFixture,
+    BINANCE_FACTS_BOOTSTRAP_ROTATE_ACCOUNT_SCOPE: "true",
+    BINANCE_FACTS_BOOTSTRAP_APPLY: "false",
+  },
+  fetchImpl: makeFetch({ untrustedRevision: app, runtimeProductionRevisions: new Set([priorApp]) }),
+  command: makeCommand(),
+});
+assert.deepEqual(authorityReleasePreview, {
+  status: "rotation_preview",
+  match_count: 1,
+  writes: 0,
+  history_binding_count: 0,
+});
+environmentVariables.delete("BINANCE_RISK_AUTHORITY_SOURCE_REVISION");
+
+// Diverged BINANCE_RUNTIME_RELEASE_SHA still fails even if present on runtime-production unless BINANCE_RISK_AUTHORITY_SOURCE_REVISION matches it
+writes.length = 0;
+environmentVariables.set("BINANCE_RISK_AUTHORITY_SOURCE_REVISION", "9".repeat(40));
+await assert.rejects(runBootstrap({
+  env: {
+    ...scopeMigrationFixture,
+    BINANCE_FACTS_BOOTSTRAP_ROTATE_ACCOUNT_SCOPE: "true",
+    BINANCE_FACTS_BOOTSTRAP_APPLY: "false",
+  },
+  fetchImpl: makeFetch({ untrustedRevision: app, runtimeProductionRevisions: new Set([app, priorApp]) }),
+  command: makeCommand(),
+}), error => error.code === "reader_revision_not_trusted_main_ancestor");
+assert.equal(writes.filter(item => item.command === "gh").length, 0);
+environmentVariables.delete("BINANCE_RISK_AUTHORITY_SOURCE_REVISION");
+
+// Non-main reader revision still fails even if BINANCE_RISK_AUTHORITY_SOURCE_REVISION matches nextReader
+writes.length = 0;
+environmentVariables.set("BINANCE_RISK_AUTHORITY_SOURCE_REVISION", nextReader);
+await assert.rejects(runBootstrap({
+  env: { ...rotationFixture, BINANCE_FACTS_BOOTSTRAP_APPLY: "false" },
+  fetchImpl: makeFetch({ untrustedRevision: nextReader, runtimeProductionRevisions: new Set([nextReader]) }),
+  command: makeCommand(),
+}), error => error.code === "reader_revision_not_trusted_main_ancestor");
+assert.equal(writes.filter(item => item.command === "gh").length, 0);
+environmentVariables.delete("BINANCE_RISK_AUTHORITY_SOURCE_REVISION");
+
+// Historical runtime-production priorApp passes with matching BINANCE_RISK_AUTHORITY_SOURCE_REVISION on app, while unknown priorApp still fails
+writes.length = 0;
+environmentVariables.set("BINANCE_RISK_AUTHORITY_SOURCE_REVISION", app);
+await assert.rejects(runBootstrap({
+  env: {
+    ...scopeMigrationFixture,
+    BINANCE_FACTS_BOOTSTRAP_ROTATE_ACCOUNT_SCOPE: "true",
+    BINANCE_FACTS_BOOTSTRAP_APPLY: "false",
+  },
+  fetchImpl: makeFetch({ untrustedRevision: priorApp }),
+  command: makeCommand(),
+}), error => error.code === "reader_revision_not_trusted_main_ancestor");
+assert.equal(writes.filter(item => item.command === "gh").length, 0);
+environmentVariables.delete("BINANCE_RISK_AUTHORITY_SOURCE_REVISION");
 
 console.log("Binance account-facts bootstrap preview/apply boundaries and synthetic identity checks PASS");
