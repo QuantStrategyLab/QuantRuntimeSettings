@@ -485,9 +485,43 @@ async function runSaA17(validator) {
   assert.equal(qTermInvalid.total_unresolved, 0);
   assert.equal(qTermInvalid.actionable_items.length, 0);
   assert.equal(qTermInvalid.blocked_or_expired_items.length, 0);
-  assert.equal(qTermInvalid.queue_state, "partial_empty");
+  assert.equal(qTermInvalid.queue_state, "read_failed");
   assert.ok(qTermInvalid.errors.includes("research_promotion_review_material_invalid"));
   validator.assertValid("common.json#/$defs/OwnerQueue12A", qTermInvalid, "SA-A17:terminal-invalid-promo");
+
+  // AI review findings: partial source with empty errors -> unavailable/read_failed; has_more/next_cursor -> truncated.
+  const partialEmptySources = await inboxMod.readOwnerQueueSources12A(req0, {}, {
+    owner: emptyOwnerFn,
+    promotion: async () => Response.json({
+      computed_at: matrix.now, data_status: "partial", tickets: [], applications: [], errors: [], cap: 200,
+    }),
+    recovery: async () => Response.json({
+      computed_at: matrix.now, data_status: "ready", recoveries: [], errors: [], has_more: true, next_cursor: "abc", cap: 100,
+    }),
+    credential: { ok: true, raw: { id: "ibkr_flex", expires_at: "2031-01-01T00:00:00Z", metadata_revision: 1, observed_at: matrix.now } },
+    now: nowMs,
+    accountsCredentialCalendarProjection: () => ({ records: [] }),
+  });
+  assert.equal(partialEmptySources.promotion_applications.status, "unavailable");
+  assert.equal(partialEmptySources.reconciliation_recovery.truncated, true);
+  assert.equal(
+    inboxMod.projectUnifiedOwnerQueue12A({ sources: partialEmptySources, expectedFamilies: matrix.expected_families, now: nowMs }).queue_state,
+    "read_failed",
+  );
+  const cursorTruncSources = await inboxMod.readOwnerQueueSources12A(req0, {}, {
+    owner: emptyOwnerFn,
+    promotion: emptyPromoFn,
+    recovery: async () => Response.json({
+      computed_at: matrix.now, data_status: "ready", recoveries: [], errors: [], has_more: true, next_cursor: "abc", cap: 100,
+    }),
+    credential: { ok: true, raw: { id: "ibkr_flex", expires_at: "2031-01-01T00:00:00Z", metadata_revision: 1, observed_at: matrix.now } },
+    now: nowMs,
+    accountsCredentialCalendarProjection: () => ({ records: [] }),
+  });
+  assert.equal(
+    inboxMod.projectUnifiedOwnerQueue12A({ sources: cursorTruncSources, expectedFamilies: matrix.expected_families, now: nowMs }).queue_state,
+    "partial_empty",
+  );
 
   // P2 regression: deskOverviewResponse degrades cleanly to HTTP 200 when deps.runtimeLifecycle throws.
   const overviewThrowRes = await overviewMod.deskOverviewResponse(new Request("https://example.invalid/api/desk/overview"), {}, {
@@ -532,6 +566,16 @@ async function runSaA17(validator) {
   const rbMissingCohort = await readbackFn({}, targetCfg, "syn-reader", null);
   assert.equal(rbMissingCohort.observed_deployment.data_status, "unavailable");
   assert.equal(rbMissingCohort.observed_deployment.reason, "runtime_binding_cohort_unavailable");
+
+  const readbackNullSnapFn = readbackMod.createDeskTargetReadback({
+    platformRepositories: () => ({}),
+    cleanCurrentRatio: value => (value !== null && value !== undefined && Number.isFinite(Number(value)) ? String(value) : null),
+    splitSelectorValues: value => String(value || "").split(/[\s,]+/).map(item => item.trim()).filter(Boolean),
+    readLifecycleSnapshot: async () => ({ targets: null, errors: ["runtime_source_read_failed"] }),
+  });
+  const rbNullSnap = await readbackNullSnapFn({}, targetCfg, "syn-reader", rbMatrix.cases[0].observed_saved);
+  assert.equal(rbNullSnap.observed_deployment.data_status, "unavailable");
+  assert.equal(rbNullSnap.observed_deployment.reason, "runtime_source_read_failed");
 
   console.log(`SA-A17 passed (${matrix.cases.length} 12A queue scenarios + unobserved C-SA-26 + HTTP wiring)`);
 }

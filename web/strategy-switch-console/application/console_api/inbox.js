@@ -412,9 +412,9 @@ function sourceStatusFromPayload(ok, body, errors = []) {
     return "read_failed";
   }
   const ds = body.data_status;
-  if (ds === "unavailable") return "unavailable";
+  if (ds === "ready") return "ok";
   if (ds === "stale") return "stale";
-  if (ds === "ready" || ds === "partial") return "ok";
+  if (ds === "unavailable" || ds === "partial") return "unavailable";
   return "read_failed";
 }
 
@@ -440,7 +440,12 @@ async function readQueueFamilyHttpSource(request, env, reader, {
     const corruptOmitted = Number.isSafeInteger(body?.corrupt_omitted_count) && body.corrupt_omitted_count >= 0
       ? body.corrupt_omitted_count
       : 0;
-    const truncated = Boolean(body?.truncated === true || errors.some(e => /truncated|capped/.test(e)));
+    const truncated = Boolean(
+      body?.truncated === true
+      || body?.has_more === true
+      || Boolean(body?.next_cursor)
+      || errors.some(e => /truncated|capped/.test(e)),
+    );
     return {
       status: sourceStatusFromPayload(true, body, errors),
       observed_at: observedAt,

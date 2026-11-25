@@ -346,6 +346,12 @@ export function createDeskTargetReadback(deps) {
           } else {
             deployment = { data_status: "unavailable", reason: "runtime_binding_cohort_unavailable" };
           }
+        } else {
+          const readFailed = snapshot?.errors?.includes("runtime_source_read_failed");
+          deployment = {
+            data_status: "unavailable",
+            reason: readFailed ? "runtime_source_read_failed" : "runtime_source_incomplete",
+          };
         }
       } catch {
         deployment = { data_status: "unavailable", reason: "runtime_source_read_failed" };
