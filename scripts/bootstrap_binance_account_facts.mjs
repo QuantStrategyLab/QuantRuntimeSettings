@@ -20,6 +20,7 @@ const GITHUB_API = "https://api.github.com";
 const BINANCE_TARGET_ID = "binance-homepage";
 const COMMAND_TIMEOUT_MS = 20_000;
 const BINANCE_ACCOUNT_FACTS_ENABLED_VARIABLE = "BINANCE_ACCOUNT_FACTS_ENABLED";
+const ALLOWED_BINANCE_ENVIRONMENT_BRANCHES = new Set(["runtime-production", "main"]);
 
 function fail(code) {
   const error = new Error(code);
@@ -258,12 +259,23 @@ async function assertRuntimeProductionOnlyEnvironment(context) {
     context,
   );
   const branchPolicy = environment.deployment_branch_policy;
+  const branchPolicies = policies.branch_policies;
   if (!branchPolicy || branchPolicy.protected_branches !== false
       || branchPolicy.custom_branch_policies !== true
-      || !Array.isArray(policies.branch_policies) || policies.branch_policies.length !== 1
-      || policies.total_count !== policies.branch_policies.length
-      || policies.branch_policies[0]?.name !== "runtime-production"
-      || policies.branch_policies[0]?.type !== "branch") {
+      || !Array.isArray(branchPolicies) || branchPolicies.length === 0
+      || policies.total_count !== branchPolicies.length) {
+    fail("binance_environment_policy_mismatch");
+  }
+  const uniqueNames = new Set();
+  for (const item of branchPolicies) {
+    if (item?.type !== "branch" || typeof item?.name !== "string"
+        || !ALLOWED_BINANCE_ENVIRONMENT_BRANCHES.has(item.name)
+        || uniqueNames.has(item.name)) {
+      fail("binance_environment_policy_mismatch");
+    }
+    uniqueNames.add(item.name);
+  }
+  if (!uniqueNames.has("runtime-production")) {
     fail("binance_environment_policy_mismatch");
   }
 }
