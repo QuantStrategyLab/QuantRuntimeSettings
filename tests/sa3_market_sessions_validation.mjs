@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
 import {
   CalendarDigestError,
@@ -97,6 +99,10 @@ const handlers = {
       "../web/strategy-switch-console/specs/csa22-v2",
       CSA22_PINNED_DIGESTS["csa22-v2"],
     );
+    const runnerPath = fileURLToPath(new URL("../web/strategy-switch-console/specs/run_csa22_generator.py", import.meta.url));
+    for (const pkgDir of ["../web/strategy-switch-console/specs/csa22-v1", "../web/strategy-switch-console/specs/csa22-v2"]) {
+      execFileSync("python3", [runnerPath, "--check", fileURLToPath(new URL(pkgDir, import.meta.url))], { stdio: "pipe" });
+    }
     const specs = loadAllSpecs();
     assert.equal(specs["csa22-v1"].spec_digest, CSA22_PINNED_DIGESTS["csa22-v1"]);
     assert.equal(specs["csa22-v2"].spec_digest, CSA22_PINNED_DIGESTS["csa22-v2"]);
@@ -241,6 +247,25 @@ const handlers = {
     const missingNative = applyNativeDailyReturns(performanceBlocks(missingInput), missingInput);
     assert.equal(missingNative.calendar.cells[0].status, "partial");
     assert.equal(missingNative.calendar.cells[0].unavailable_reason, "incomplete_month");
+
+    // Gapped USD native daily points preserve XNYS closure continuity (2025-01-09) while breaking on missing trading day (2025-01-13).
+    const sparseUsdInput = {
+      accounts: [{
+        platform: "ibkr",
+        account_key: "synthetic-sparse",
+        return: { daily: ["2025-01-08", "2025-01-10", "2025-01-14"].map((d) => natRow(d)) },
+      }],
+      histories: [],
+      range: "ALL",
+      today: "2025-01-14",
+      year: 2025,
+      month: 1,
+      failed: [],
+      benchmarks: [],
+    };
+    const sparseUsdNative = applyNativeDailyReturns(performanceBlocks(sparseUsdInput), sparseUsdInput);
+    assert.equal(sparseUsdNative.returns.points.find((p) => p.date === "2025-01-10").breakBefore, false);
+    assert.equal(sparseUsdNative.returns.points.find((p) => p.date === "2025-01-14").breakBefore, true);
 
     // dailyChanges across 2025-01-08 -> 2025-01-10 skips 2025-01-09 unscheduled closure cleanly for XNYS.
     const changesAcrossUnsched = dailyChanges([

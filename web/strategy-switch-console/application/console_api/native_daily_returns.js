@@ -164,7 +164,7 @@ export function applyNativeDailyReturns(blocks, input) {
     ? { percent: null, peak_date: null, trough_date: null, unavailable_reason: reason }
     : { percent: worst, peak_date: lossPeakDate, trough_date: troughDate, unavailable_reason: null };
   const nativePoints = gaps ? daily.map((row, i) => ({ date: row.date, value: row.value * 100,
-    daily_return_percent: row.value * 100, breakBefore: i > 0 && hasSessionGap(daily[i - 1], row) }))
+    daily_return_percent: row.value * 100, breakBefore: i > 0 && hasSessionGap(daily[i - 1], row, useXnys) }))
     : index.map((row, i) => ({ date: row.date, value: (row.value - 1) * 100, daily_return_percent: daily[i].value * 100 }));
   const rawPriorReturnCurrencies = Array.isArray(blocks.returns.per_currency) ? blocks.returns.per_currency : [];
   const priorTopReturnCurrency = blocks.returns.currency;
