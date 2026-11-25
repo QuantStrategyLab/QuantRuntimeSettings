@@ -16,6 +16,7 @@ import { DeskError } from "./http.js";
 import { performanceProjection, readPerformanceSources } from "./performance.js";
 import { readbackTargets } from "./readback.js";
 import { runtimeReadbackProjection } from "../console_api/runtime_readback.js";
+import { projectUnifiedOwnerQueue12A } from "../console_api/inbox.js";
 import { configuredAccounts, projectFleetExecutionMode, runRowReadIncomplete, tapeOutcome } from "./ribbon.js";
 import {
   addDays, coverage, freshness, known, n1Response, n1Route, notSupported, partial, readOnce, stale, timeBasis, unknown, utcInstant, zonedDate,
@@ -244,7 +245,7 @@ function equityCurve(performance) {
 
 export { projectFleetExecutionMode };
 
-export function overviewProjection({ config, facts, credential, summary, businessDate, performance, now, members = [], historyEnd = null, runtimeLifecycle = undefined }) {
+export function overviewProjection({ config, facts, credential, summary, businessDate, performance, now, members = [], historyEnd = null, runtimeLifecycle = undefined, ownerQueueSources = undefined }) {
   if (!config.ok) {
     const failed = unknown("read_failed", coverage("unavailable", 0, null, ["read_failed"]));
     return {
@@ -314,6 +315,9 @@ export function overviewProjection({ config, facts, credential, summary, busines
   const fleetModeSummary = runtimeLifecycle !== undefined
     ? projectFleetExecutionMode({ accounts: configured, snapshot: runtimeLifecycle, now })
     : undefined;
+  const ownerQueue12a = ownerQueueSources !== undefined
+    ? projectUnifiedOwnerQueue12A({ sources: ownerQueueSources, now })
+    : undefined;
   return {
     snapshot_at: includedTimes.sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null,
     freshness: fresh,
@@ -329,6 +333,7 @@ export function overviewProjection({ config, facts, credential, summary, busines
     equity_curve: equityCurve(performance),
     needs_you: needsYou(credential, now),
     ...(fleetModeSummary !== undefined ? { fleet_mode_summary: fleetModeSummary } : {}),
+    ...(ownerQueue12a !== undefined ? { owner_queue_12a: ownerQueue12a } : {}),
   };
 }
 

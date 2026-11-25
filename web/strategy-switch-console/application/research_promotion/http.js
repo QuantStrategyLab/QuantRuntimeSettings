@@ -154,13 +154,15 @@ export async function fetchResearchPromotionTicketResponse(request, env, deps) {
  *   humanDecisionAuthorityView: Function,
  * }} deps
  */
-export async function listResearchPromotionTickets(env, deps) {
+export async function collectResearchPromotionTickets(env, deps) {
   const {
     readHumanDecisionAuthority,
     overlayPromotionDecision,
     humanDecisionAuthorityView,
   } = deps;
-  if (!hasConfigStore(env)) return [];
+  if (!hasConfigStore(env)) {
+    return { tickets: [], corrupt_omitted_count: 0, cap: RESEARCH_PROMOTION_MAX_TICKETS, truncated: false };
+  }
   let listing;
   try {
     listing = await directoryList(env, RESEARCH_PROMOTION_TICKET_PREFIX, RESEARCH_PROMOTION_MAX_TICKETS);
@@ -169,6 +171,7 @@ export async function listResearchPromotionTickets(env, deps) {
   }
   const keys = listing?.keys || [];
   const tickets = [];
+  let corruptOmittedCount = 0;
   for (const entry of keys) {
     const key = entry.name || entry;
     if (!String(key).startsWith(RESEARCH_PROMOTION_TICKET_PREFIX)) continue;
@@ -186,10 +189,22 @@ export async function listResearchPromotionTickets(env, deps) {
       tickets.push(ticket);
     } catch (error) {
       if (error instanceof HttpError && error.status === 503) throw error;
-      // Skip corrupt tickets rather than failing the whole queue.
+      // Skip corrupt tickets rather than failing the whole queue, but track omissions for 12A completeness.
+      corruptOmittedCount += 1;
     }
   }
   tickets.sort((left, right) => String(right.updated_at).localeCompare(String(left.updated_at)));
+  const truncated = Boolean(listing?.list_complete === false || listing?.truncated || tickets.length > RESEARCH_PROMOTION_MAX_TICKETS);
+  return {
+    tickets,
+    corrupt_omitted_count: corruptOmittedCount,
+    cap: RESEARCH_PROMOTION_MAX_TICKETS,
+    truncated,
+  };
+}
+
+export async function listResearchPromotionTickets(env, deps) {
+  const { tickets } = await collectResearchPromotionTickets(env, deps);
   return tickets.slice(0, RESEARCH_PROMOTION_MAX_TICKETS);
 }
 
