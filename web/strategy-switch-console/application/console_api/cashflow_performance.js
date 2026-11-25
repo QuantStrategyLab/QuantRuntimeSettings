@@ -44,6 +44,13 @@ function withDailyReturns(points, periods, index) {
 
 export function cashflowCurrencyResult(histories, { range, today, failed = [] }) {
   const currency = histories[0]?.currency;
+  const crypto = histories.some(h => h.crypto === true);
+  const hasExplicitExchange = histories.some(h => typeof h.exchange === "string" && h.exchange.length > 0);
+  const exchange = crypto
+    ? null
+    : hasExplicitExchange
+      ? (histories.length > 0 && histories.every(h => h.exchange === "XNYS") ? "XNYS" : null)
+      : (currency === "USD" ? "XNYS" : null);
   const normalized = histories.map(h => ({ ...h, points: sliceRange(h.points, range.toLowerCase(), today) }));
   const dates = [...new Set(normalized.flatMap(h => h.points.map(p => p.date)))].sort();
   const maps = normalized.map(h => new Map(h.points.map(p => [p.date, p])));
@@ -107,7 +114,7 @@ export function cashflowCurrencyResult(histories, { range, today, failed = [] })
       approximate: periodApproximate, net_flow: net, return_percent: r * 100, daily_eligible: next.every(point => point.membership_changed !== true),
       value_kind: "pnl", status: "ok", unavailable_reason: null });
     index.push({ date: common[i], value: growth,
-      breakBefore: hasGap(index.at(-1), { date: common[i] }) || next.some(point => point.breakBefore === true) });
+      breakBefore: hasGap(index.at(-1), { date: common[i] }, { crypto, exchange }) || next.some(point => point.breakBefore === true) });
   }
   return { currency, status: "ok", unavailable_reason: null, twr_return_percent: (growth - 1) * 100,
     max_drawdown: maxDrawdown(index), index, points: withDailyReturns(alignReturns(index, []).primary, periods, index),

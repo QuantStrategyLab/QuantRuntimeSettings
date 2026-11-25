@@ -11,10 +11,13 @@
  *   age_sessions) when failing closed for sizing / Supply-B proof / O1.
  */
 
+import { createXnysRuntimeProvider } from "../market_sessions/xnys_calendar.js";
+
 export const FUTURE_SKEW_LIMIT_MS = 60_000;
 export const FUTURE_SKEW_LIMIT_NS = 60_000_000_000n;
 export const PINNED_CALENDAR_DIGESTS = Object.freeze({
   "csa22-v1": "6601c01f2907119c25a2687d4b67210285d3c13ebf2d86a2953745dbd1f6f2af",
+  "csa22-v2": "2ba8cd7684c361209df68bfa2e10004c1f9922a645c7ec55d421fda520561798",
 });
 const ISO_INSTANT_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-](\d{2}):(\d{2}))$/;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -163,6 +166,35 @@ export function createPinnedCalendarProvider(pinnedVectors) {
   };
 }
 
+function hasValidVersionDigestsMap(calendarProvider) {
+  const digests = calendarProvider?.version_digests;
+  const versions = calendarProvider?.calendar_versions;
+  if (!digests || typeof digests !== "object" || !Array.isArray(versions) || versions.length === 0) {
+    return null;
+  }
+  const map = new Map();
+  for (const version of versions) {
+    if (
+      typeof version !== "string"
+      || !Object.hasOwn(PINNED_CALENDAR_DIGESTS, version)
+      || !Object.hasOwn(digests, version)
+      || digests[version] !== PINNED_CALENDAR_DIGESTS[version]
+    ) {
+      return null;
+    }
+    map.set(version, digests[version]);
+  }
+  return map;
+}
+
+/**
+ * Returns the C-SA-22 runtime calendar provider powered by digest-verified
+ * market_sessions/xnys_calendar.js (spanning csa22-v1 2025 & csa22-v2 2026 by default).
+ */
+export function createRuntimeCalendarProvider(options = {}) {
+  return createXnysRuntimeProvider(options);
+}
+
 function evaluateXnysInterval(startExclusiveInput, endInclusiveInput, calendarProvider) {
   if (
     !calendarProvider
@@ -172,6 +204,7 @@ function evaluateXnysInterval(startExclusiveInput, endInclusiveInput, calendarPr
   ) {
     return { covered: false, age_sessions: null, touched_sessions: null, reason: "calendar_provider_unavailable" };
   }
+  const multiVersionMap = hasValidVersionDigestsMap(calendarProvider);
   const expectedDigest = typeof calendarProvider.calendar_version === "string"
     && Object.hasOwn(PINNED_CALENDAR_DIGESTS, calendarProvider.calendar_version)
     ? PINNED_CALENDAR_DIGESTS[calendarProvider.calendar_version]
@@ -181,6 +214,9 @@ function evaluateXnysInterval(startExclusiveInput, endInclusiveInput, calendarPr
     || expectedDigest === null
     || calendarProvider.spec_digest !== expectedDigest
   ) {
+    return { covered: false, age_sessions: null, touched_sessions: null, reason: "calendar_unpinned" };
+  }
+  if (calendarProvider.calendar_versions !== undefined && multiVersionMap === null) {
     return { covered: false, age_sessions: null, touched_sessions: null, reason: "calendar_unpinned" };
   }
 
@@ -223,14 +259,17 @@ function evaluateXnysInterval(startExclusiveInput, endInclusiveInput, calendarPr
       return { covered: false, age_sessions: null, touched_sessions: null, reason: "calendar_span_exceeded" };
     }
     const session = calendarProvider.getSession(cursor);
+    const sessionPinnedDigest = multiVersionMap
+      ? (typeof session?.calendar_version === "string" && multiVersionMap.get(session.calendar_version)) || null
+      : (session?.calendar_version === calendarProvider.calendar_version ? calendarProvider.spec_digest : null);
     if (
       !session
       || typeof session !== "object"
       || typeof session.is_trading_day !== "boolean"
       || typeof session.blocks_eligibility !== "boolean"
       || session.exchange !== "XNYS"
-      || session.calendar_version !== calendarProvider.calendar_version
-      || session.spec_digest !== calendarProvider.spec_digest
+      || sessionPinnedDigest === null
+      || session.spec_digest !== sessionPinnedDigest
       || (session.trade_date !== undefined && session.trade_date !== cursor)
     ) {
       return {
@@ -430,4 +469,14 @@ export function evaluateFreshness(input = {}, options = {}) {
     reason: stale ? "snapshot_stale" : null,
     last_observed_value: lastObservedValue,
   });
+}
+
+/**
+ * Evaluates C-SA-15 freshness directly against the digest-verified C-SA-22 runtime calendar.
+ */
+export function evaluateFreshnessWithRuntimeCalendar(input = {}, options = {}) {
+  const calendarProvider = options.calendarProvider !== undefined
+    ? options.calendarProvider
+    : createRuntimeCalendarProvider();
+  return evaluateFreshness(input, { ...options, calendarProvider });
 }

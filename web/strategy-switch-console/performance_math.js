@@ -1,3 +1,5 @@
+import { resolveSession } from "./application/market_sessions/xnys_calendar.js";
+
 export const PERFORMANCE_RANGES = ["1m", "3m", "ytd", "1y", "all"];
 const DAY = 86_400_000;
 export function dateMs(date) {
@@ -39,24 +41,35 @@ export function sliceRange(points, range, today) {
     const start = rangeStart(range, today);
     return cleanPoints(points).filter(p => p.date >= start && p.date <= today);
 }
-export function hasGap(previous, point, { crypto = false } = {}) {
+export function hasGap(previous, point, { crypto = false, exchange = null } = {}) {
     if (typeof point.breakBefore === "boolean") return point.breakBefore;
     for (let time = dateMs(previous.date) + DAY; time < dateMs(point.date); time += DAY) {
-        if (crypto || ![0, 6].includes(new Date(time).getUTCDay())) return true;
+        if (crypto) return true;
+        const iso = new Date(time).toISOString().slice(0, 10);
+        if (exchange === "XNYS") {
+            const session = resolveSession("XNYS", iso);
+            if (session.session_state === "unknown") {
+                if (![0, 6].includes(new Date(time).getUTCDay())) return true;
+            } else if (session.is_trading_day && !session.blocks_eligibility) {
+                return true;
+            }
+        } else if (![0, 6].includes(new Date(time).getUTCDay())) {
+            return true;
+        }
     }
     return false;
 }
 /** Rebase a positive index/price to percentage return; never fill missing dates. */
-export function rebase(points, start) {
+export function rebase(points, start, options = {}) {
     const rows = cleanPoints(points).filter(p => !start || p.date >= start);
     const base = rows[0]?.value;
     if (!(base > 0))
         return [];
     return rows.map((p, i) => ({ ...p, value: i === 0 ? 0 : (p.value / base - 1) * 100,
-        breakBefore: i > 0 && hasGap(rows[i - 1], p) }));
+        breakBefore: i > 0 && hasGap(rows[i - 1], p, options) }));
 }
 /** End-flow TWR: 1+r = (V_end - F_end) / V_previous. */
-export function chainReturns(points) {
+export function chainReturns(points, options = {}) {
     const rows = cleanPoints(points);
     const index = [];
     let growth = 1;
@@ -82,12 +95,12 @@ export function chainReturns(points) {
                 break;
             }
         }
-        index.push({ date: point.date, value: growth, breakBefore: i > 0 && hasGap(rows[i - 1], point) });
+        index.push({ date: point.date, value: growth, breakBefore: i > 0 && hasGap(rows[i - 1], point, options) });
     }
     return { index, unknownFlow, invalidPeriod };
 }
 /** Fixed cohort: no changing membership, carry-forward, or missing-account zeros. */
-export function aggregateEquity(accounts) {
+export function aggregateEquity(accounts, options = {}) {
     const normalized = accounts.map(a => ({ id: a.id, crypto: a.crypto === true, points: cleanPoints(a.points) }));
     const missingAccounts = normalized.filter(a => !a.points.length).map(a => a.id);
     const members = normalized.filter(a => a.points.length);
@@ -106,12 +119,12 @@ export function aggregateEquity(accounts) {
             && (!previous || members[i].points[v.i - 1]?.date === previous.date));
         points.push({ date, value: values.reduce((sum, v) => sum + v.p.value, 0),
             externalFlow: flowKnown ? values.reduce((sum, v) => sum + v.p.externalFlow, 0) : null,
-            breakBefore: !!previous && (hasGap(previous, { date }, { crypto: members.some(a => a.crypto) }) || values.some(v => v.p.breakBefore)) });
+            breakBefore: !!previous && (hasGap(previous, { date }, { crypto: members.some(a => a.crypto), exchange: options.exchange ?? null }) || values.some(v => v.p.breakBefore)) });
     }
     return { points, missingAccounts, omittedDates };
 }
 /** Baseline never changes when the user hides a legend entry. */
-export function alignReturns(primary, comparisons) {
+export function alignReturns(primary, comparisons, options = {}) {
     const own = cleanPoints(primary);
     const available = comparisons.map(s => ({ ...s, points: cleanPoints(s.points) })).filter(s => s.points.length);
     const dates = available.map(s => new Set(s.points.map(p => p.date)));
@@ -124,7 +137,7 @@ export function alignReturns(primary, comparisons) {
         let previous = null;
         let interrupted = false;
         for (const point of points) {
-            interrupted ||= previous !== null && hasGap(previous, point);
+            interrupted ||= previous !== null && hasGap(previous, point, options);
             if (axis.has(point.date)) {
                 selected.push({ ...point, breakBefore: selected.length > 0 && interrupted });
                 interrupted = false;
@@ -135,8 +148,8 @@ export function alignReturns(primary, comparisons) {
     };
     return {
         start,
-        primary: rebase(onAxis(own), start),
-        benchmarks: common ? available.map(s => ({ ...s, points: rebase(onAxis(s.points), common) })) : [],
+        primary: rebase(onAxis(own), start, options),
+        benchmarks: common ? available.map(s => ({ ...s, points: rebase(onAxis(s.points), common, options) })) : [],
         noCommonDate: available.length > 0 && !common,
     };
 }

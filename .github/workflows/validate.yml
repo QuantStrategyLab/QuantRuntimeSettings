@@ -243,6 +243,9 @@ jobs:
           node tests/sa2_demo_validation.mjs
           node tests/sa2_orders_fills_validation.mjs
           node tests/sa2_deployable_capital_validation.mjs
+          node tests/sa3_demo_validation.mjs
+          node tests/sa3_market_sessions_validation.mjs
+          node tests/sa3_credential_calendar_validation.mjs
           node tests/strategy_health_snapshot_extract_validation.mjs
           node tests/adaptive_selection_snapshot_extract_validation.mjs
           node tests/binance_private_scope_extract_validation.mjs

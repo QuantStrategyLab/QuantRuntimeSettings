@@ -13,8 +13,14 @@ export function historyMaxStalenessDays(value) {
 export function aggregateEquityHistory(histories, currency, { maxStalenessDays } = {}) {
   const limit = historyMaxStalenessDays(maxStalenessDays);
   const members = histories.filter(h => h.currency === currency)
-    .map(h => ({ id: h.id, crypto: h.crypto === true, points: cleanPoints(h.points), cursor: -1 }));
+    .map(h => ({ id: h.id, crypto: h.crypto === true, exchange: h.exchange ?? null, points: cleanPoints(h.points), cursor: -1 }));
   const crypto = members.some(h => h.crypto);
+  const hasExplicitExchange = members.some(h => typeof h.exchange === "string" && h.exchange.length > 0);
+  const exchange = crypto
+    ? null
+    : hasExplicitExchange
+      ? (members.length > 0 && members.every(h => h.exchange === "XNYS") ? "XNYS" : null)
+      : (currency === "USD" ? "XNYS" : null);
   const dates = [...new Set(members.flatMap(h => h.points.map(p => p.date)))].sort();
   const points = [];
   for (const date of dates) {
@@ -46,13 +52,14 @@ export function aggregateEquityHistory(histories, currency, { maxStalenessDays }
       forward_filled_accounts: forwarded,
       partial,
       membership_changed: membershipChanged,
-      breakBefore: !!previous && (membershipChanged || hasGap(previous, { date }, { crypto }) ||
+      breakBefore: !!previous && (membershipChanged || hasGap(previous, { date }, { crypto, exchange }) ||
         values.some(({ point }) => point.date === date && point.breakBefore)),
     });
   }
   return {
     currency,
     crypto,
+    exchange,
     points,
     missingAccounts: members.filter(h => !h.points.length).map(h => h.id),
     omittedDates: 0,
@@ -69,16 +76,17 @@ export function equityHistoryCurve(group, { range = "ALL", today, benchmarks = [
     if (!segments.length || point.membership_changed) segments.push([]);
     segments.at(-1).push(point);
   }
-  const results = segments.map(segment => chainReturns(segment));
+  const gapOpts = { crypto: group.crypto, exchange: group.exchange ?? null };
+  const results = segments.map(segment => chainReturns(segment, gapOpts));
   const qualified = points.length > 1 && !membershipChanged && !points.some(p => p.partial) &&
     results.every(r => !r.unknownFlow && !r.invalidPeriod);
   const result = results[0] || { index: [], unknownFlow: false, invalidPeriod: false };
   // Stock benchmark observation dates cannot define a 24x7 asset calendar.
-  const comparison = alignReturns(result.index, group.crypto ? [] : benchmarks);
+  const comparison = alignReturns(result.index, group.crypto ? [] : benchmarks, gapOpts);
   const aligned = membershipChanged
-    ? { start: points[0]?.date, primary: results.flatMap(r => rebase(r.index)), benchmarks: [], noCommonDate: false }
+    ? { start: points[0]?.date, primary: results.flatMap(r => rebase(r.index, undefined, gapOpts)), benchmarks: [], noCommonDate: false }
     : qualified ? comparison
-      : { start: points[0]?.date, primary: rebase(result.index), benchmarks: [], noCommonDate: comparison.noCommonDate };
+      : { start: points[0]?.date, primary: rebase(result.index, undefined, gapOpts), benchmarks: [], noCommonDate: comparison.noCommonDate };
   const byDate = new Map(points.map(p => [p.date, p]));
   const returnPoints = aligned.primary.map(p => ({ ...byDate.get(p.date), ...p,
     breakBefore: p.breakBefore || byDate.get(p.date).membership_changed }));

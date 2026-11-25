@@ -1,0 +1,14 @@
+{
+  "calendar_version": "csa22-v1",
+  "files": {
+    "SPEC.md": "ff47309c638fdcfee37f2ba306a388ae7174d05a74d08c24869e8baa694d8b6f",
+    "exceptions-2025.json": "ea13c382f52dadac9c8a1a0c1063ac9b30bf531f3c8b8500f09e98c98ddf3246",
+    "expected-2025.json": "154779cb27033937270ef970bc8af9bdc0542a0096d60e0f63ef88c92ec64d6a",
+    "generate_expected_2025.py": "c6dd6646038e79c81d0561da6f2b5e2b01e6f4c612bb5a010f4babed6be6f595"
+  },
+  "published_on": "2026-11-21",
+  "publisher": "Pigbibi (coordinator, QuantStrategyLab)",
+  "spec_digest": "6601c01f2907119c25a2687d4b67210285d3c13ebf2d86a2953745dbd1f6f2af",
+  "status": "published",
+  "supersedes_provisional_digest": "9444245b899b285b0e8f7c9e8a0340ebc6b54683abf797f9884ed7cb11660f7e"
+}

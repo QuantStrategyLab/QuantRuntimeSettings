@@ -10,6 +10,8 @@
 import { accountFactsReadModelEnabled, buildAccountFactsReadModel } from "../../account_facts.js";
 import { managementCohort } from "../account_mapping/management_cohort.js";
 import { credentialItems } from "./credentials.js";
+import { REGISTERED_CREDENTIALS } from "../credential_calendar/registry.js";
+import { projectCredentialCalendar } from "../credential_calendar/projector.js";
 import { DeskError } from "./http.js";
 import { ibkrAccountId, readbackTargets } from "./readback.js";
 import {
@@ -156,4 +158,74 @@ export async function deskAccountsResponse(request, env, deps) {
       ...accountsProjection({ ...sources, now }),
     }, { now });
   });
+}
+
+/**
+ * Additive C-SA-26 multi-platform credential calendar projection alongside N1 accounts.
+ * Preserves legacy qsl.desk.accounts.v2 schema while surfacing versioned WATCH / 12A coverage.
+ */
+export function accountsCredentialCalendarProjection({ ibkrRecord = null, overrides = [], evaluatedAt } = {}) {
+  const evalIso = evaluatedAt ?? new Date().toISOString();
+  const byId = new Map((overrides || []).map((entry) => [entry.credential_id, entry]));
+  const pickBase = (reg) => ({
+    credential_id: reg.credential_id,
+    platform: reg.platform,
+    credential_type: reg.credential_type,
+    account_slot: reg.account_slot,
+    renewal_runbook_ref: reg.renewal_runbook_ref,
+  });
+  const defaults = [
+    byId.get("cred_ibkr_flex_live_a1") || {
+      ...pickBase(REGISTERED_CREDENTIALS.cred_ibkr_flex_live_a1),
+      environment: "read_only",
+      applicability: "applicable",
+      expires_at: ibkrRecord?.expires_at ?? null,
+      observed_at: ibkrRecord?.expires_at ? evalIso : null,
+      evaluated_at: evalIso,
+      evidence_source: ibkrRecord?.expires_at ? "operator_declared" : "unobserved",
+      metadata_revision: ibkrRecord?.metadata_revision ?? 0,
+    },
+    byId.get("cred_longbridge_paper_pilot_90d") || {
+      ...pickBase(REGISTERED_CREDENTIALS.cred_longbridge_paper_pilot_90d),
+      environment: "paper",
+      applicability: "applicable",
+      expires_at: null,
+      observed_at: null,
+      evaluated_at: evalIso,
+      evidence_source: "unobserved",
+      typed_metadata: { token_ttl_days: 90 },
+    },
+    byId.get("cred_schwab_live_main") || {
+      ...pickBase(REGISTERED_CREDENTIALS.cred_schwab_live_main),
+      environment: "live",
+      applicability: "applicable",
+      expires_at: null,
+      observed_at: null,
+      evaluated_at: evalIso,
+      evidence_source: "unobserved",
+    },
+    byId.get("cred_binance_live_dormant") || {
+      ...pickBase(REGISTERED_CREDENTIALS.cred_binance_live_dormant),
+      environment: "live",
+      applicability: "not_applicable",
+      suppression_reason: "platform_dormant_under_v2",
+      expires_at: null,
+      observed_at: evalIso,
+      evaluated_at: evalIso,
+      evidence_source: "operator_declared",
+      typed_metadata: { dormant: true },
+    },
+    byId.get("cred_firstrade_live_main") || {
+      ...pickBase(REGISTERED_CREDENTIALS.cred_firstrade_live_main),
+      environment: "live",
+      applicability: "unsupported",
+      suppression_reason: "no_automated_credential_api",
+      expires_at: null,
+      observed_at: evalIso,
+      evaluated_at: evalIso,
+      evidence_source: "operator_declared",
+      typed_metadata: { supports_auto_refresh: false },
+    },
+  ];
+  return projectCredentialCalendar(defaults, { evaluated_at: evalIso });
 }
