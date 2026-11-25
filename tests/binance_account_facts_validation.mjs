@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import worker, { __test } from '../web/strategy-switch-console/worker.js';
-import { normalizeBinanceFactsBinding, normalizeBinanceAccountFacts, projectBinanceAccountFacts, filterBinanceDigestAssets,
+import { assertBinanceFactsHistoryBindings, normalizeBinanceFactsBinding, normalizeBinanceAccountFacts, projectBinanceAccountFacts, filterBinanceDigestAssets,
   BINANCE_FACTS_KEY, binanceWalletHistoryEntry, binanceWalletHistoryStorageKey } from '../web/strategy-switch-console/binance_account_facts.js';
 import { binanceDetailCommand } from '../web/strategy-switch-console/binance_detail_archive.js';
 import { binanceProviderProductTypeForDisplay } from '../web/strategy-switch-console/frontend/src/types.ts';
@@ -543,6 +543,25 @@ const invalidHistoryBinding = { ...binding, account_key: 'another-synthetic-acco
 assert.equal((await getWalletHistory({ ...historyEnabledEnv,
   BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: JSON.stringify([invalidHistoryBinding]) })).status, 503,
 'history whitelist rejects an old source whose account identity differs');
+const diffScopeHistoryBinding = { ...binding, account_scope_sha256: 'c'.repeat(64) };
+assert.equal((await getWalletHistory({ ...historyEnabledEnv,
+  BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: JSON.stringify([diffScopeHistoryBinding]) })).status, 503,
+'history whitelist rejects a different physical UID scope digest');
+const sameUidPriorAppBinding = {
+  ...binding,
+  approved_application_revision: 'e'.repeat(40),
+  source_binding: {
+    ...binding.source_binding,
+    id: createHash('sha256').update(JSON.stringify({
+      account_scope_sha256: binding.account_scope_sha256,
+      approved_application_revision: 'e'.repeat(40),
+      reader_public_revision: binding.reader_revision,
+      scope: 'spot+flexible_earn',
+    })).digest('hex'),
+  },
+};
+assert.equal((await assertBinanceFactsHistoryBindings([sameUidPriorAppBinding], rotatedBinding)).length, 1,
+'history whitelist retains same-UID bindings across approved application release transitions');
 assert.equal((await getWalletHistory({ ...historyEnabledEnv,
   BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: JSON.stringify(Array(17).fill(binding)) })).status, 503,
 'history whitelist has a fixed source count cap');

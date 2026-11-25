@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { buildBinanceFactsBinding, runBootstrap } from "../scripts/bootstrap_binance_account_facts.mjs";
-import { assertBinanceFactsSourceBinding, normalizeBinanceFactsBinding } from "../web/strategy-switch-console/binance_account_facts.js";
+import { assertBinanceFactsHistoryBindings, assertBinanceFactsSourceBinding, normalizeBinanceFactsBinding } from "../web/strategy-switch-console/binance_account_facts.js";
 
 const reader = "4ca436a8910eecd35335f2d04dc69cfb9be4a327";
 const app = "1".repeat(40);
@@ -592,6 +592,9 @@ for (const repository of ["QuantStrategyLab/QuantRuntimeSettings", "QuantStrateg
   secretUpdatedAt.get(repository).set(bindingSecret, "2026-09-30T00:00:00Z");
   secretUpdatedAt.get(repository).set(syncTokenSecret, "2026-09-30T00:00:00Z");
 }
+secretUpdatedAt.get("QuantStrategyLab/QuantRuntimeSettings").set(
+  "BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON", "2026-09-30T00:00:00Z",
+);
 const scopeRotated = await runBootstrap({
   env: {
     ...scopeMigrationFixture,
@@ -604,16 +607,58 @@ const scopeRotated = await runBootstrap({
 });
 assert.deepEqual(scopeRotated, {
   status: "rotation_applied",
+  history_binding_count: 0,
+  history_secret_write_count: 1,
+  binding_secret_write_count: 2,
+  metadata_readback_count: 3,
+  reader_revision_updated: true,
+});
+const scopeRotatedPayload = JSON.parse(secretValues.get("QuantStrategyLab/BinancePlatform:BINANCE_ACCOUNT_FACTS_BINDING_JSON"));
+const scopeRotatedHistory = JSON.parse(secretValues.get("QuantStrategyLab/QuantRuntimeSettings:BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON"));
+assert.equal(scopeRotatedPayload.account_scope_sha256, scopeHash);
+assert.equal(scopeRotatedPayload.approved_application_revision, app);
+assert.equal(scopeRotatedPayload.reader_revision, scopeMigrationReader);
+assert.deepEqual(scopeRotatedHistory, []);
+await assertBinanceFactsHistoryBindings(scopeRotatedHistory, scopeRotatedPayload);
+
+const sameUidPriorAppBinding = buildBinanceFactsBinding({
+  variables: { ...variables, BINANCE_RUNTIME_RELEASE_SHA: priorApp },
+  accountOptions: { binance: [accountOption] },
+  readerRevision: reader,
+  approvedApplicationRevision: priorApp,
+});
+const sameUidNextReader = "f2".repeat(20);
+for (const repository of ["QuantStrategyLab/QuantRuntimeSettings", "QuantStrategyLab/BinancePlatform"]) {
+  secretUpdatedAt.get(repository).set(bindingSecret, "2026-09-30T00:00:00Z");
+  secretUpdatedAt.get(repository).set(syncTokenSecret, "2026-09-30T00:00:00Z");
+}
+secretUpdatedAt.get("QuantStrategyLab/QuantRuntimeSettings").set(
+  "BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON", "2026-09-30T00:00:00Z",
+);
+existingVariables.set("BINANCE_ACCOUNT_FACTS_READER_REVISION", reader);
+const sameUidRotated = await runBootstrap({
+  env: {
+    ...rotationFixture,
+    BINANCE_FACTS_BOOTSTRAP_ROTATE_ACCOUNT_SCOPE: "true",
+    BINANCE_FACTS_BOOTSTRAP_APPLY: "true",
+    BINANCE_FACTS_NEXT_READER_REVISION: sameUidNextReader,
+    BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify(sameUidPriorAppBinding),
+    BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: JSON.stringify([sameUidPriorAppBinding]),
+  },
+  fetchImpl: makeFetch(),
+  command: makeCommand({ modelSecretWrites: true }),
+  randomToken: () => { throw new Error("reader rotation must not generate a token"); },
+});
+assert.deepEqual(sameUidRotated, {
+  status: "rotation_applied",
   history_binding_count: 1,
   history_secret_write_count: 0,
   binding_secret_write_count: 2,
   metadata_readback_count: 2,
   reader_revision_updated: true,
 });
-const scopeRotatedPayload = JSON.parse(secretValues.get("QuantStrategyLab/BinancePlatform:BINANCE_ACCOUNT_FACTS_BINDING_JSON"));
-assert.equal(scopeRotatedPayload.account_scope_sha256, scopeHash);
-assert.equal(scopeRotatedPayload.approved_application_revision, app);
-assert.equal(scopeRotatedPayload.reader_revision, scopeMigrationReader);
+const sameUidPayload = JSON.parse(secretValues.get("QuantStrategyLab/BinancePlatform:BINANCE_ACCOUNT_FACTS_BINDING_JSON"));
+await assertBinanceFactsHistoryBindings([sameUidPriorAppBinding], sameUidPayload);
 
 writes.length = 0;
 existingVariables.set("BINANCE_ACCOUNT_FACTS_READER_REVISION", reader);

@@ -473,8 +473,16 @@ async function runReaderRotation({ env, fetchImpl, command }) {
   if (historyBindings.some((item) => item.source_binding.id === nextBinding.source_binding.id)) {
     fail("history_binding_conflict");
   }
-  const historyChanged = !oldHistoryEntry;
-  if (historyChanged) historyBindings = [...historyBindings, oldBinding];
+  const scopeChanged = nextBinding.account_scope_sha256 !== oldBinding.account_scope_sha256;
+  const hadPreviousHistory = historySecretMetadata !== null && historyBindings.length > 0;
+  let historyChanged;
+  if (scopeChanged) {
+    historyBindings = [];
+    historyChanged = hadPreviousHistory;
+  } else {
+    historyChanged = !oldHistoryEntry;
+    if (historyChanged) historyBindings = [...historyBindings, oldBinding];
+  }
   if (historyBindings.length > HISTORY_BINDINGS_MAX) fail("history_binding_limit_exceeded");
   const expectedNextBinding = rotateScope
     ? {
@@ -500,7 +508,8 @@ async function runReaderRotation({ env, fetchImpl, command }) {
   const historyJson = JSON.stringify(historyBindings);
   let historySecretWriteCount = 0;
   let metadataReadbackCount = 0;
-  if (historyChanged || historySecretMetadata === null) {
+  const writeHistorySecret = scopeChanged ? historyChanged : (historyChanged || historySecretMetadata === null);
+  if (writeHistorySecret) {
     await applySecret(QRS_REPOSITORY, HISTORY_SECRET_NAME, QRS_ENVIRONMENT, historyJson, { command, env });
     historySecretWriteCount = 1;
     const historyReadback = await readOptionalSecretMetadata(QRS_REPOSITORY, QRS_ENVIRONMENT, HISTORY_SECRET_NAME, context);

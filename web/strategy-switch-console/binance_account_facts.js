@@ -121,14 +121,13 @@ export function normalizeBinanceFactsHistoryBindings(raw, currentBinding) {
   const current = normalizeBinanceFactsBinding(currentBinding);
   const seen = new Set();
   const identityFields = ["platform", "account_key", "account_scope", ...IDENTITY, "target_id",
-    "account_scope_sha256", "approved_application_revision"];
+    "account_scope_sha256"];
   return raw.map((candidate) => {
     let binding;
     try { binding = normalizeBinanceFactsBinding(candidate); }
     catch { fail("binance_account_facts_history_bindings_invalid", 503); }
     if (!identityFields.every((field) => binding[field] === current[field])
         || binding.source_binding.kind !== current.source_binding.kind
-        || binding.reader_revision === current.reader_revision
         || binding.source_binding.id === current.source_binding.id
         || seen.has(binding.source_binding.id)) {
       fail("binance_account_facts_history_bindings_invalid", 503);
