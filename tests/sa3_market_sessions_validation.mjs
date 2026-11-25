@@ -29,6 +29,8 @@ import {
   evaluateFreshness,
   evaluateFreshnessWithRuntimeCalendar,
 } from "../web/strategy-switch-console/application/sizing_unit/freshness.js";
+import { hasGap } from "../web/strategy-switch-console/performance_math.js";
+import { aggregateEquityHistory } from "../web/strategy-switch-console/application/console_api/equity_history.js";
 import {
   calendarCells,
   dailyChanges,
@@ -70,9 +72,10 @@ function verifyRawDiskPackage(dirRel, expectedSpecDigest) {
 
   const rawContents = {};
   for (const [name, digest] of Object.entries(files)) {
-    const buf = readBytes(`${dirRel}/${name}`);
+    const diskName = name === "SPEC.md" ? "spec.md" : name;
+    const buf = readBytes(`${dirRel}/${diskName}`);
     rawContents[name] = buf;
-    assert.equal(sha256Bytes(buf), digest, `raw disk sha256 mismatch for ${dirRel}/${name}`);
+    assert.equal(sha256Bytes(buf), digest, `raw disk sha256 mismatch for ${dirRel}/${diskName}`);
   }
   const excName = Object.keys(files).find((n) => n.startsWith("exceptions-"));
   const computedSpecDigest = sha256Bytes(Buffer.concat([rawContents["SPEC.md"], rawContents[excName]]));
@@ -178,14 +181,54 @@ const handlers = {
     const janPerf = performanceBlocks({ ...janInput, month: null });
     assert.equal(janPerf.calendar.cells[0].month, "2025-01");
     assert.equal(janPerf.calendar.cells[0].status, "ok", "2025-01 holiday & 2025-01-09 closure must not trigger false incomplete_month");
-    const janDayCells = calendarCells(janInput.histories[0].points, 2025, 1, { today: "2025-01-31" });
+    const janDayCells = calendarCells(janInput.histories[0].points, 2025, 1, { today: "2025-01-31", exchange: "XNYS" });
     assert.equal(janDayCells.find((c) => c.date === "2025-01-09").unavailable_reason, "market_closed");
     assert.equal(janDayCells.find((c) => c.date === "2025-01-01").unavailable_reason, "market_closed");
+
+    // Non-XNYS / HKD histories retain conservative missing-data & break semantics across US-only closures.
+    const hkdCells = calendarCells(janInput.histories[0].points, 2025, 1, { today: "2025-01-31" });
+    assert.equal(hkdCells.find((c) => c.date === "2025-01-09").unavailable_reason, "snapshot_missing");
+    const hkdPerf = performanceBlocks({
+      accounts: [],
+      histories: [{ id: "synthetic-hk", currency: "HKD", points: janHistPoints }],
+      range: "ALL",
+      today: "2025-01-31",
+      year: 2025,
+      month: null,
+      failed: [],
+      benchmarks: [],
+    });
+    assert.equal(hkdPerf.calendar.cells[0].status, "partial");
+    assert.equal(hkdPerf.calendar.cells[0].unavailable_reason, "incomplete_month");
+    const hkdAgg = aggregateEquityHistory(
+      [{ id: "synthetic-hk", currency: "HKD", points: [{ date: "2025-01-08", value: 100, externalFlow: 0 }, { date: "2025-01-10", value: 105, externalFlow: 0 }] }],
+      "HKD",
+    );
+    assert.equal(hkdAgg.points[1].breakBefore, true);
+    assert.equal(hasGap({ date: "2025-01-08" }, { date: "2025-01-10" }), true);
+    assert.equal(hasGap({ date: "2025-01-08" }, { date: "2025-01-10" }, { exchange: "XNYS" }), false);
 
     const janNative = applyNativeDailyReturns(performanceBlocks({ ...janInput, month: null }), { ...janInput, month: null });
     assert.equal(janNative.returns.status, "ok");
     assert.equal(janNative.calendar.cells[0].status, "ok");
     assert.equal(janNative.calendar.cells[0].unavailable_reason, null);
+
+    // Reported broker holiday rows remain included in monthly completeness checks without false incomplete_month.
+    const janAllWeekdays = Object.keys(expected2025.sessions).filter((d) => {
+      if (!d.startsWith("2025-01-")) return false;
+      const wd = new Date(`${d}T00:00:00Z`).getUTCDay();
+      return wd !== 0 && wd !== 6;
+    });
+    const janReportedHolidayInput = {
+      ...janInput,
+      accounts: [{ platform: "ibkr", account_key: "synthetic-jan", return: { daily: janAllWeekdays.map((d) => natRow(d)) } }],
+      histories: [],
+      month: null,
+    };
+    const janReportedHoliday = applyNativeDailyReturns(performanceBlocks(janReportedHolidayInput), janReportedHolidayInput);
+    assert.equal(janReportedHoliday.calendar.cells[0].status, "ok");
+    assert.equal(janReportedHoliday.calendar.cells[0].unavailable_reason, null);
+    assert.equal(janReportedHoliday.calendar.cells[0].coverage.observed_days, janAllWeekdays.length);
 
     // Negative control: dropping regular trading day 2025-01-15 DOES trigger incomplete_month / gap!
     const missingTradingDates = jan2025TradingDates.filter((d) => d !== "2025-01-15");
@@ -199,15 +242,15 @@ const handlers = {
     assert.equal(missingNative.calendar.cells[0].status, "partial");
     assert.equal(missingNative.calendar.cells[0].unavailable_reason, "incomplete_month");
 
-    // dailyChanges across 2025-01-08 -> 2025-01-10 skips 2025-01-09 unscheduled closure cleanly.
+    // dailyChanges across 2025-01-08 -> 2025-01-10 skips 2025-01-09 unscheduled closure cleanly for XNYS.
     const changesAcrossUnsched = dailyChanges([
       { date: "2025-01-08", value: 100, externalFlow: 0 },
       { date: "2025-01-10", value: 105, externalFlow: 0 },
-    ]);
+    ], { exchange: "XNYS" });
     assert.equal(changesAcrossUnsched[1].status, "ok");
     assert.equal(changesAcrossUnsched[1].amount, 5);
 
-    // operations helper & opt-in todaySummary recognize 2025-01-09 closure for equities while preserving 24/7 binance.
+    // operations helper & opt-in todaySummary recognize 2025-01-09 closure for equities while preserving unknown out-of-range dates & 24/7 binance.
     assert.equal(resolveOperationsMarketSession("2025-01-09", { platform: "ibkr" }).projected_state, "closed");
     assert.equal(resolveOperationsMarketSession("2025-01-09", { platform: "binance" }).is_trading_day, true);
     const opsSummary = await todaySummary(
@@ -225,6 +268,20 @@ const handlers = {
       { useMarketCalendar: true },
     );
     assert.equal(opsSummary.accounts.find((a) => a.platform === "ibkr").unavailable_reason, "market_closed");
+    const opsOutOfRange = await todaySummary(
+      new Request("https://console.example/api/runtime/today"),
+      {},
+      {
+        dailyBindings: async () => [
+          { platform: "ibkr", account_key: "a1", target_key: "t1", status: "bound" },
+        ],
+        daily: async () => Response.json({ account_key: "a1", platform: "ibkr", date: "2027-01-05", record: null }),
+      },
+      [{ platform: "ibkr", key: "a1" }],
+      Date.parse("2027-01-05T15:00:00Z"),
+      { useMarketCalendar: true },
+    );
+    assert.equal(opsOutOfRange.accounts.find((a) => a.platform === "ibkr").unavailable_reason, "today_record_missing");
 
     // desk/ribbon sessions on 2025-01-09 closure vs 2025-11-28 half-day vs out-of-range 2030-01-08.
     const jan9Ribbon = ribbonSessions("2025-01-09", Date.parse("2025-01-09T15:00:00Z"));
@@ -312,6 +369,16 @@ const handlers = {
     assert.equal(classifyUsEquitySessionWindow("2026-01-05T22:00:00.000Z", s26Reg), "after_hours_extended");
     assert.equal(classifyUsEquitySessionWindow("2026-01-06T02:15:00.000Z", s26Reg), "extended_overnight_open");
     assert.equal(classifyUsEquitySessionWindow("2026-01-05T12:00:00.000Z", s26Reg), "pre_market_extended");
+    assert.equal(classifyUsEquitySessionWindow("2026-11-27T18:00:00.000Z", s26Half), "core_session_open");
+    assert.equal(classifyUsEquitySessionWindow("2026-11-27T18:00:59.000Z", s26Half), "after_hours_extended");
+    assert.deepEqual(isOfficialCloseBarTimestamp("2026-11-27T18:00:00.000Z", s26Half), {
+      valid: true,
+      reason: null,
+    });
+    assert.deepEqual(isOfficialCloseBarTimestamp("2026-11-27T18:00:59.000Z", s26Half), {
+      valid: false,
+      reason: "extended_hours_overnight_rejected",
+    });
     assert.deepEqual(isOfficialCloseBarTimestamp("2026-11-27T18:30:00.000Z", s26Half), {
       valid: false,
       reason: "extended_hours_overnight_rejected",

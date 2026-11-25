@@ -128,7 +128,7 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
       if (!body.record) {
         if (options?.useMarketCalendar === true && account.platform !== "binance") {
           const cal = resolveOperationsMarketSession(date, account);
-          if (cal.projected_state === "closed" || cal.blocks_orders) {
+          if (cal.projected_state === "closed") {
             return { ...base, status: "no_data",
               unavailable_reason: cal.reason === "weekend" ? "non_trading_weekend" : "market_closed" };
           }

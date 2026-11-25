@@ -2,7 +2,11 @@ import { cleanPoints, dateMs, rangeStart } from "../../performance_math.js";
 import { performanceBlocks } from "./performance.js";
 import { resolveSession } from "../market_sessions/xnys_calendar.js";
 
-function isXnysNonTradingDay(isoDate) {
+function isNonTradingDay(isoDate, useXnys = false) {
+  if (!useXnys) {
+    const weekday = new Date(`${isoDate}T00:00:00Z`).getUTCDay();
+    return weekday === 0 || weekday === 6;
+  }
   const session = resolveSession("XNYS", isoDate);
   if (session.session_state === "unknown") {
     const weekday = new Date(`${isoDate}T00:00:00Z`).getUTCDay();
@@ -11,11 +15,11 @@ function isXnysNonTradingDay(isoDate) {
   return !session.is_trading_day || session.blocks_eligibility === true;
 }
 
-function hasSessionGap(previous, point) {
+function hasSessionGap(previous, point, useXnys = false) {
   if (typeof point.breakBefore === "boolean") return point.breakBefore;
   for (let time = dateMs(previous.date) + 86400000; time < dateMs(point.date); time += 86400000) {
     const iso = new Date(time).toISOString().slice(0, 10);
-    if (!isXnysNonTradingDay(iso)) return true;
+    if (!isNonTradingDay(iso, useXnys)) return true;
   }
   return false;
 }
@@ -35,7 +39,7 @@ function navAmountSum(rows) {
   return Number.isFinite(number) && Math.abs(number) <= Number.MAX_SAFE_INTEGER ? number : null;
 }
 
-function nativeBenchmarks(index, input, gaps) {
+function nativeBenchmarks(index, input, gaps, useXnys = false) {
   const benchmarks = [], benchmark_availability = [];
   for (const series of input.benchmarks || []) {
     // Keep the real preceding close even when it falls before the query range.
@@ -43,7 +47,7 @@ function nativeBenchmarks(index, input, gaps) {
     const byDate = new Map(prices.map(point => [point.date, point]));
     const opening = prices.filter(point => point.date < index[0].date).at(-1);
     const closes = index.map(point => byDate.get(point.date));
-    const complete = opening && !hasSessionGap(opening, { date: index[0].date })
+    const complete = opening && !hasSessionGap(opening, { date: index[0].date }, useXnys)
       && closes.every(point => point && point.breakBefore !== true);
     const points = complete ? closes.map((point, i) => ({
       date: point.date,
@@ -102,6 +106,7 @@ export function applyNativeDailyReturns(blocks, input) {
   const currencies = [...new Set(rows.map(row => row.currency))];
   if (currencies.length !== 1) return blocks;
   const currency = currencies[0];
+  const useXnys = currency === "USD";
   const { nativeCalendar, year, month } = input;
   const periodStart = nativeCalendar ? `${year}-${String(month || 1).padStart(2, "0")}-01`
     : rangeStart(input.range.toLowerCase(), input.today);
@@ -118,15 +123,15 @@ export function applyNativeDailyReturns(blocks, input) {
     while ([0, 6].includes(new Date(dateMs(expectedStart)).getUTCDay())) {
       expectedStart = new Date(dateMs(expectedStart) + 86400000).toISOString().slice(0, 10);
     }
-    while (expectedTradingStart <= through && isXnysNonTradingDay(expectedTradingStart)) {
+    while (expectedTradingStart <= through && isNonTradingDay(expectedTradingStart, useXnys)) {
       expectedTradingStart = new Date(dateMs(expectedTradingStart) + 86400000).toISOString().slice(0, 10);
     }
   }
   const incompleteRange = boundedStart && daily[0].date > expectedTradingStart;
-  const gaps = daily.slice(1).some((row, i) => hasSessionGap(daily[i], row));
+  const gaps = daily.slice(1).some((row, i) => hasSessionGap(daily[i], row, useXnys));
   // Today may still be pending, but prior unreported trading days are missing.
   const trailingBoundary = through === input.today ? through : new Date(dateMs(through) + 86400000).toISOString().slice(0, 10);
-  const trailingGap = hasSessionGap(daily.at(-1), { date: trailingBoundary });
+  const trailingGap = hasSessionGap(daily.at(-1), { date: trailingBoundary }, useXnys);
   const incomplete = gaps || incompleteRange;
   let growth = 1;
   const index = daily.map(row => { growth *= 1 + row.value; return { date: row.date, value: growth }; });
@@ -143,7 +148,7 @@ export function applyNativeDailyReturns(blocks, input) {
     native_amount_source: amount === null ? null : "ChangeInNAV", native_amount_method: amount === null ? null : "ibkr_nav_reconciliation" };
   // Native daily returns already have a starting capital boundary. Rebasing the
   // first close to zero would silently remove the first day's actual return.
-  const comparisons = nativeBenchmarks(index, input, gaps);
+  const comparisons = nativeBenchmarks(index, input, gaps, useXnys);
   const stripDietzKeys = [
     "cashflow_method", "approximate", "sizing_eligible", "breaker_eligible",
     "verdict_eligible", "method_version", "multi_day_intervals", "twr_return_percent", "max_drawdown",
@@ -271,7 +276,7 @@ export function applyNativeDailyReturns(blocks, input) {
       const expected = [];
       for (let day = dateMs(`${cell.month}-01`); day <= dateMs(through); day += 86400000) {
         const dayIso = new Date(day).toISOString().slice(0, 10);
-        if (!isXnysNonTradingDay(dayIso)) expected.push(dayIso);
+        if (byDate.has(dayIso) || !isNonTradingDay(dayIso, useXnys)) expected.push(dayIso);
       }
       // Missing trading sessions remain incomplete. Verified XNYS holidays and
       // unscheduled closures are excluded; never turn an unobserved session into a zero-return day.

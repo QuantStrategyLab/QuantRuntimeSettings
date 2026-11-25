@@ -65,7 +65,7 @@ export function maxDrawdown(index) {
     unavailable_reason: null,
   };
 }
-export function dailyChanges(points, { crypto = false } = {}) {
+export function dailyChanges(points, { crypto = false, exchange = null } = {}) {
   const rows = cleanPoints(points),
     byDate = new Map(rows.map((p) => [p.date, p]));
   return rows.map((point) => {
@@ -74,12 +74,20 @@ export function dailyChanges(points, { crypto = false } = {}) {
       let guard = 0;
       while (++guard <= 15) {
         const prevIso = new Date(before).toISOString().slice(0, 10);
-        const closed = xnysClosedReason(prevIso);
-        if (closed === "non_trading_weekend") {
-          before -= DAY;
-          continue;
+        if (exchange === "XNYS") {
+          const closed = xnysClosedReason(prevIso);
+          if (closed === "non_trading_weekend") {
+            before -= DAY;
+            continue;
+          }
+          if (closed === "market_closed" && !byDate.has(prevIso)) {
+            before -= DAY;
+            continue;
+          }
+          break;
         }
-        if (closed === "market_closed" && !byDate.has(prevIso)) {
+        const weekday = new Date(`${prevIso}T00:00:00Z`).getUTCDay();
+        if (weekday === 0 || weekday === 6) {
           before -= DAY;
           continue;
         }
@@ -135,7 +143,13 @@ export function calendarCells(points, year, month, options = {}) {
     return Array.from({ length: count }, (_, i) => {
       const date = `${start.slice(0, 8)}${String(i + 1).padStart(2, "0")}`;
       const future = typeof options.today === "string" && date > options.today;
-      const closedReason = !options.crypto ? xnysClosedReason(date) : null;
+      const fallbackWeekend = !options.crypto
+        && [0, 6].includes(new Date(`${date}T00:00:00Z`).getUTCDay());
+      const closedReason = !options.crypto
+        ? (options.exchange === "XNYS"
+            ? xnysClosedReason(date)
+            : (fallbackWeekend ? "non_trading_weekend" : null))
+        : null;
       const weekend = closedReason === "non_trading_weekend";
       const existing = daily.get(date);
       return {
@@ -202,6 +216,7 @@ export function calendarCells(points, year, month, options = {}) {
     );
     const twr = chainReturns(
       baseline ? [baseline, ...monthlyPoints] : monthlyPoints,
+      { crypto: options.crypto, exchange: options.exchange },
     );
     return {
       month: `${year}-${String(i + 1).padStart(2, "0")}`,
@@ -362,15 +377,23 @@ export function performanceBlocks({
   const drawdowns = currencyDrawdowns(histories, range, today, aggregateEquity, maxDrawdown);
   const currencies = [...new Set(histories.map((h) => h.currency))];
   const mixed = currencies.length > 1;
+  const cryptoDays = histories.length > 0 && histories.every((history) => history.crypto === true);
+  const hasExplicitExchange = histories.some((h) => typeof h.exchange === "string" && h.exchange.length > 0);
+  const xnysExchange =
+    cryptoDays || mixed || currencies.length !== 1
+      ? null
+      : hasExplicitExchange
+        ? (histories.every((h) => h.exchange === "XNYS") ? "XNYS" : null)
+        : (currencies[0] === "USD" ? "XNYS" : null);
   const combined = aggregateEquity(
     histories.map((h) => ({ id: h.id, crypto: h.crypto, points: h.points })),
+    { exchange: xnysExchange },
   );
   const incompleteCohort = failed.length > 0 || combined.missingAccounts.length > 0;
   const allPoints = mixed ? [] : combined.points;
-  const cryptoDays = histories.length > 0 && histories.every((history) => history.crypto === true);
   const points = sliceRange(allPoints, range.toLowerCase(), today);
   const asOf = points.at(-1)?.date || null;
-  const chained = chainReturns(points);
+  const chained = chainReturns(points, { crypto: cryptoDays, exchange: xnysExchange });
   const unknownFlow =
     incompleteCohort || points.length < 2 ||
     points.slice(1).some((p) => finite(p.externalFlow) === null);
@@ -411,7 +434,7 @@ export function performanceBlocks({
     fx: mixed ? "not_applied" : "native_currency",
     trading_dates: histories.length > 0 && histories.every((history) => history.crypto === true)
       ? "calendar_days"
-      : resolveSession("XNYS", today).session_state !== "unknown"
+      : xnysExchange === "XNYS" && resolveSession("XNYS", today).session_state !== "unknown"
       ? "xnys_csa22_holidays_and_weekends_excluded"
       : "stored_observation_date_weekends_excluded_holidays_unknown",
   };
@@ -429,7 +452,7 @@ export function performanceBlocks({
     ...b,
     points: sliceRange(b.points, range.toLowerCase(), today),
   }));
-  const aligned = alignReturns(chained.index, availableBenchmarks);
+  const aligned = alignReturns(chained.index, availableBenchmarks, { crypto: cryptoDays, exchange: xnysExchange });
   const qualified =
     !incompleteCohort && points.length > 1 && !chained.unknownFlow && !chained.invalidPeriod;
   const drawdown = qualified
@@ -442,6 +465,7 @@ export function performanceBlocks({
       };
   const daily = dailyChanges(incompleteCohort ? [] : allPoints, {
     crypto: cryptoDays,
+    exchange: xnysExchange,
   }).filter((d) => d.date >= (points[0]?.date || today) && d.date <= today);
   const validDays = daily.filter((d) => d.amount !== null);
   const ranked = validDays
@@ -463,6 +487,7 @@ export function performanceBlocks({
   const cells = calendarCells(incompleteCohort ? [] : allPoints, year, month, {
     today,
     crypto: cryptoDays,
+    exchange: xnysExchange,
   });
   const calendarHasValues = cells.some(
     (c) =>
@@ -493,7 +518,7 @@ export function performanceBlocks({
     && combined.missingAccounts.length === 0 && combined.omittedDates > 0
     && historyCurves[0]?.asset_points.length > 1
     ? assetChangeCalendarCells(historyCurves[0].asset_points, year, month, {
-        today, crypto: cryptoDays,
+        today, crypto: cryptoDays, exchange: xnysExchange,
       })
     : null;
   const fallbackHasValues = Boolean(fallbackCells?.some((cell) =>

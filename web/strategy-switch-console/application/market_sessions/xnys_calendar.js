@@ -908,6 +908,21 @@ export function classifyUsEquitySessionWindow(timestampUtc, calendarSession) {
     return "closed";
   }
 
+  const openMs = parseUtcInstantMs(calendarSession.open_utc);
+  const closeMs = parseUtcInstantMs(calendarSession.close_utc);
+  if (openMs !== null && closeMs !== null) {
+    if (instMs >= openMs && instMs <= closeMs) {
+      return "core_session_open";
+    }
+    if (instMs > closeMs && parts.hhmm < "20:00") {
+      return "after_hours_extended";
+    }
+    if (parts.hhmm >= "04:00" && instMs < openMs) {
+      return "pre_market_extended";
+    }
+    return "closed";
+  }
+
   const closeLocal = String(calendarSession.close_local || "16:00");
   if (parts.hhmm >= "09:30" && parts.hhmm <= closeLocal) {
     return "core_session_open";
@@ -943,11 +958,12 @@ export function isOfficialCloseBarTimestamp(timestampUtc, calendarSession) {
     return { valid: false, reason: "non_trading_session" };
   }
 
-  const closeLocal = String(calendarSession.close_local || "16:00");
   if (parts.hhmm >= "21:00") {
     return { valid: false, reason: "next_trade_date_contamination" };
   }
-  if (parts.hhmm < "09:30" || parts.hhmm > closeLocal) {
+  const openMs = parseUtcInstantMs(calendarSession.open_utc);
+  const closeMs = parseUtcInstantMs(calendarSession.close_utc);
+  if (openMs === null || closeMs === null || instMs < openMs || instMs > closeMs) {
     return { valid: false, reason: "extended_hours_overnight_rejected" };
   }
   return { valid: true, reason: null };
