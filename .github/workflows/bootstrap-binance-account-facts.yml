@@ -18,6 +18,11 @@ on:
         required: false
         type: string
         default: ''
+      rotate_account_scope:
+        description: Allow intentional account_scope_sha256 and approved_application_revision migration during rotation.
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -39,6 +44,7 @@ jobs:
       STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
       BINANCE_FACTS_BOOTSTRAP_APPLY: ${{ inputs.apply }}
       BINANCE_FACTS_BOOTSTRAP_ROTATE_READER: ${{ inputs.rotate_reader }}
+      BINANCE_FACTS_BOOTSTRAP_ROTATE_ACCOUNT_SCOPE: ${{ inputs.rotate_account_scope }}
       BINANCE_FACTS_NEXT_READER_REVISION: ${{ inputs.reader_revision }}
       BINANCE_ACCOUNT_FACTS_BINDING_JSON: ${{ inputs.rotate_reader && secrets.BINANCE_ACCOUNT_FACTS_BINDING_JSON || '' }}
       BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: ${{ inputs.rotate_reader && secrets.BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON || '' }}

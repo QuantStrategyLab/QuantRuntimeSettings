@@ -4,7 +4,8 @@ import { buildBinanceFactsBinding, runBootstrap } from "../scripts/bootstrap_bin
 import { assertBinanceFactsSourceBinding, normalizeBinanceFactsBinding } from "../web/strategy-switch-console/binance_account_facts.js";
 
 const reader = "4ca436a8910eecd35335f2d04dc69cfb9be4a327";
-const app = "8cb56617115fa45028e34d788e71884b6a303d77";
+const app = "1".repeat(40);
+const priorApp = "2".repeat(40);
 const selector = "synthetic-account-selector";
 const scopeHash = "b".repeat(64);
 const runtimeTarget = {
@@ -237,19 +238,20 @@ assert.deepEqual(alreadyPinned, { status: "applied", match_count: 1, secret_writ
 assert.equal(writes.filter(item => item.command === "gh" && item.args[0] === "variable").length, 0);
 existingVariables.delete("BINANCE_ACCOUNT_FACTS_READER_REVISION");
 
-for (const [changedVariables, changedOptions, code] of [
-  [{ ...variables, BINANCE_RUNTIME_RELEASE_SHA: "a".repeat(40) }, { binance: [accountOption] }, "runtime_application_revision_mismatch"],
-  [variables, { binance: [{ ...accountOption, service_name: "different-service" }] }, "binance_account_option_not_unique"],
+for (const [changedVariables, changedOptions, code, extraArgs] of [
+  [{ ...variables, BINANCE_RUNTIME_RELEASE_SHA: "bad" }, { binance: [accountOption] }, "runtime_application_revision_mismatch", {}],
+  [{ ...variables, BINANCE_RUNTIME_RELEASE_SHA: "a".repeat(40) }, { binance: [accountOption] }, "runtime_application_revision_mismatch", { approvedApplicationRevision: app }],
+  [variables, { binance: [{ ...accountOption, service_name: "different-service" }] }, "binance_account_option_not_unique", {}],
   [{ ...variables, RUNTIME_TARGET_JSON: JSON.stringify({ ...runtimeTarget, account_selector: [selector, "second-selector"] }) },
-    { binance: [accountOption] }, "runtime_selector_invalid"],
+    { binance: [accountOption] }, "runtime_selector_invalid", {}],
   [{ ...variables, RUNTIME_TARGET_JSON: JSON.stringify({ ...runtimeTarget, account_selector: selector }) },
-    { binance: [accountOption] }, "runtime_selector_invalid"],
+    { binance: [accountOption] }, "runtime_selector_invalid", {}],
   [variables, { binance: [accountOption, { ...accountOption, key: "second-wallet" }] },
-    "binance_account_option_not_unique"],
+    "binance_account_option_not_unique", {}],
   [variables, { binance: [accountOption], schwab: [{ ...accountOption, key: "other", runtime_status_target_id:
-    accountOption.runtime_status_target_id }] }, "binance_runtime_status_target_not_unique"],
+    accountOption.runtime_status_target_id }] }, "binance_runtime_status_target_not_unique", {}],
 ]) {
-  assert.throws(() => buildBinanceFactsBinding({ variables: changedVariables, accountOptions: changedOptions }),
+  assert.throws(() => buildBinanceFactsBinding({ variables: changedVariables, accountOptions: changedOptions, ...extraArgs }),
     error => error.code === code);
 }
 
@@ -549,5 +551,81 @@ assert.match(bootstrapWorkflow,
   /BINANCE_ACCOUNT_FACTS_BINDING_JSON: \$\{\{ inputs\.rotate_reader && secrets\.BINANCE_ACCOUNT_FACTS_BINDING_JSON \|\| '' \}\}/);
 assert.match(bootstrapWorkflow,
   /BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: \$\{\{ inputs\.rotate_reader && secrets\.BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON \|\| '' \}\}/);
+assert.match(bootstrapWorkflow, /rotate_account_scope:[\s\S]*?default: false/);
+assert.match(bootstrapWorkflow, /BINANCE_FACTS_BOOTSTRAP_ROTATE_ACCOUNT_SCOPE: \$\{\{ inputs\.rotate_account_scope \}\}/);
+
+const legacyScopeHash = "9".repeat(64);
+const legacyBinding = buildBinanceFactsBinding({
+  variables: {
+    ...variables,
+    BINANCE_RECONCILIATION_EXPECTED_DIGESTS_JSON: JSON.stringify({ account_scope_sha256: legacyScopeHash }),
+    BINANCE_RUNTIME_RELEASE_SHA: priorApp,
+  },
+  accountOptions: { binance: [accountOption] },
+  readerRevision: reader,
+  approvedApplicationRevision: priorApp,
+});
+const scopeMigrationReader = "f1".repeat(20);
+const scopeMigrationFixture = {
+  ...rotationFixture,
+  BINANCE_FACTS_NEXT_READER_REVISION: scopeMigrationReader,
+  BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify(legacyBinding),
+  BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: JSON.stringify([legacyBinding]),
+};
+existingVariables.set("BINANCE_ACCOUNT_FACTS_READER_REVISION", reader);
+await assert.rejects(runBootstrap({
+  env: { ...scopeMigrationFixture, BINANCE_FACTS_BOOTSTRAP_APPLY: "true" },
+  fetchImpl: makeFetch(),
+  command: makeCommand(),
+}), error => error.code === "current_binding_conflict");
+await assert.rejects(runBootstrap({
+  env: {
+    ...scopeMigrationFixture,
+    BINANCE_FACTS_BOOTSTRAP_ROTATE_ACCOUNT_SCOPE: "true",
+    BINANCE_FACTS_BOOTSTRAP_APPLY: "true",
+  },
+  fetchImpl: makeFetch({ untrustedRevision: priorApp }),
+  command: makeCommand(),
+}), error => error.code === "reader_revision_not_trusted_main_ancestor");
+writes.length = 0;
+for (const repository of ["QuantStrategyLab/QuantRuntimeSettings", "QuantStrategyLab/BinancePlatform"]) {
+  secretUpdatedAt.get(repository).set(bindingSecret, "2026-09-30T00:00:00Z");
+  secretUpdatedAt.get(repository).set(syncTokenSecret, "2026-09-30T00:00:00Z");
+}
+const scopeRotated = await runBootstrap({
+  env: {
+    ...scopeMigrationFixture,
+    BINANCE_FACTS_BOOTSTRAP_ROTATE_ACCOUNT_SCOPE: "true",
+    BINANCE_FACTS_BOOTSTRAP_APPLY: "true",
+  },
+  fetchImpl: makeFetch(),
+  command: makeCommand({ modelSecretWrites: true }),
+  randomToken: () => { throw new Error("reader rotation must not generate a token"); },
+});
+assert.deepEqual(scopeRotated, {
+  status: "rotation_applied",
+  history_binding_count: 1,
+  history_secret_write_count: 0,
+  binding_secret_write_count: 2,
+  metadata_readback_count: 2,
+  reader_revision_updated: true,
+});
+const scopeRotatedPayload = JSON.parse(secretValues.get("QuantStrategyLab/BinancePlatform:BINANCE_ACCOUNT_FACTS_BINDING_JSON"));
+assert.equal(scopeRotatedPayload.account_scope_sha256, scopeHash);
+assert.equal(scopeRotatedPayload.approved_application_revision, app);
+assert.equal(scopeRotatedPayload.reader_revision, scopeMigrationReader);
+
+writes.length = 0;
+existingVariables.set("BINANCE_ACCOUNT_FACTS_READER_REVISION", reader);
+await assert.rejects(runBootstrap({
+  env: {
+    ...scopeMigrationFixture,
+    BINANCE_FACTS_BOOTSTRAP_ROTATE_ACCOUNT_SCOPE: "true",
+    BINANCE_FACTS_BOOTSTRAP_APPLY: "true",
+  },
+  fetchImpl: makeFetch({ untrustedRevision: app }),
+  command: makeCommand(),
+}), error => error.code === "reader_revision_not_trusted_main_ancestor");
+assert.equal(writes.filter(item => item.command === "gh").length, 0);
 
 console.log("Binance account-facts bootstrap preview/apply boundaries and synthetic identity checks PASS");
