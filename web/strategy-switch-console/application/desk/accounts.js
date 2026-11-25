@@ -80,13 +80,42 @@ export function brokerFreshness(targets, facts, now) {
   return freshness(times, { now, ttlSeconds: FACTS_STALE_SECONDS, staleKnown });
 }
 
-export function accountsProjection({ config, facts, credential, now }) {
+function brokerReadback9a(ownTargets, readbacks9a) {
+  if (!readbacks9a || typeof readbacks9a !== "object") return undefined;
+  const matched = ownTargets.map(t => readbacks9a[t.id]).filter(Boolean);
+  if (!matched.length) return undefined;
+  const hasDrift = matched.some(r => r.overall === "drift"
+    || r.comparisons?.saved_vs_platform?.status === "drift"
+    || r.comparisons?.platform_vs_observed?.status === "drift"
+    || r.comparisons?.saved_vs_observed?.status === "drift");
+  const allMatch = !hasDrift && matched.length === ownTargets.length && matched.every(r => r.overall === "match");
+  const observedTimes = matched.map(r => r.observed_deployment?.observed_at || r.read_at).filter(Boolean)
+    .sort((a, b) => Date.parse(a) - Date.parse(b));
+  return {
+    status: hasDrift ? "drift" : allMatch ? "match" : "unknown",
+    layers_available: {
+      saved_settings: matched.some(r => Boolean(r.saved_settings)),
+      platform_configuration: matched.some(r => Boolean(r.platform_configuration)),
+      observed_deployment: matched.some(r => r.observed_deployment?.data_status === "ready"),
+    },
+    compared_target_count: matched.length,
+    drift_target_count: matched.filter(r => r.overall === "drift").length,
+    observed_at: observedTimes[0] ?? null,
+    actions: {
+      reapply_saved: { status: "not_enabled", allowed: false, reason_code: "not_enabled" },
+      adopt_platform: { status: "not_enabled", allowed: false, reason_code: "not_enabled" },
+    },
+  };
+}
+
+export function accountsProjection({ config, facts, credential, now, readbacks9a = null }) {
   if (!config.ok) return { brokers: unknown("read_failed", coverage("unavailable", 0, null, ["read_failed"])) };
   const targets = readbackTargets(config.value);
   const platforms = [...new Set(targets.map(target => target.platform))].sort();
   const brokers = platforms.map(platform => {
     const own = targets.filter(target => target.platform === platform);
     const label = platformLabel(platform);
+    const readback9a = brokerReadback9a(own, readbacks9a);
     return {
       platform,
       label,
@@ -103,6 +132,7 @@ export function accountsProjection({ config, facts, credential, now }) {
       },
       credential: credentialFor(platform, credential),
       last_order: notSupported(),
+      ...(readback9a !== undefined ? { readback_9a: readback9a } : {}),
     };
   });
   // The broker list itself is a configuration snapshot read now, not a runtime observation.

@@ -13,14 +13,12 @@
       "observed_saved": {
         "instance_revision": 7,
         "enabled": true,
-        "identity": {
+        "config": {
           "target_name": "syn_tqqq",
           "account_selector": "DU0000001",
           "service_name": "syn-svc-ibkr",
-          "runtime_status_target_id": "rt.syn.tqqq"
-        },
-        "config": {
-          "strategy_profile": "qsl_core_v1",
+          "runtime_status_target_id": "rt.syn.tqqq",
+          "default_strategy_profile": "qsl_core_v1",
           "broker_environment": "paper",
           "income_layer_enabled": true,
           "option_overlay_enabled": false,
@@ -33,7 +31,7 @@
         "draft": {
           "revision": 9,
           "status": "current",
-          "config": {
+          "overrides": {
             "reserved_cash_ratio": "0.2"
           }
         }
@@ -84,14 +82,12 @@
       "observed_saved": {
         "instance_revision": 4,
         "enabled": true,
-        "identity": {
+        "config": {
           "target_name": "syn_tqqq",
           "account_selector": "DU0000001",
           "service_name": "syn-svc-ibkr",
-          "runtime_status_target_id": "rt.syn.tqqq"
-        },
-        "config": {
-          "strategy_profile": "qsl_core_v1",
+          "runtime_status_target_id": "rt.syn.tqqq",
+          "default_strategy_profile": "qsl_core_v1",
           "broker_environment": "paper",
           "income_layer_enabled": false,
           "option_overlay_enabled": false,
@@ -148,14 +144,12 @@
       "observed_saved": {
         "instance_revision": 5,
         "enabled": true,
-        "identity": {
+        "config": {
           "target_name": "syn_tqqq",
           "account_selector": "DU0000001",
           "service_name": "syn-svc-ibkr",
-          "runtime_status_target_id": "rt.syn.tqqq"
-        },
-        "config": {
-          "strategy_profile": "qsl_core_v1",
+          "runtime_status_target_id": "rt.syn.tqqq",
+          "default_strategy_profile": "qsl_core_v1",
           "broker_environment": "paper",
           "income_layer_enabled": false,
           "option_overlay_enabled": false,

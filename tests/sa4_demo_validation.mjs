@@ -26,24 +26,41 @@ const naMatrix = loadJson(new URL("sa4_na_regression_matrix.json", FIXTURES_DIR)
 {
   const d1 = demo.cases.find(c => c.id === "SA4-D1");
   const c0 = readbackMatrix.cases[0];
+  const nowMs = Date.parse(readbackMatrix.now);
+  const fullTarget = {
+    ...readbackMatrix.target,
+    config: c0.observed_saved.config,
+    revision: c0.observed_saved.instance_revision,
+  };
   const kvSpy = createReadOnlyKv({});
   const doSpy = createReadOnlyStorage({ kv: {}, alarm: null, sqlRows: () => [] });
   const store = new readbackMod.DeskReadbackStore(doSpy.storage, async () => readbackMod.buildReadback({
-    target: readbackMatrix.target,
-    effective: c0.platform.effective,
-    readAt: readbackMatrix.now,
+    target: fullTarget,
     observed: c0.observed_saved,
+    platform: c0.platform.effective,
+    now: nowMs,
     platformMeta: c0.platform,
     deployment: c0.deployment,
-  }), () => Date.parse(readbackMatrix.now));
+  }), () => nowMs);
 
   const res = await readbackMod.deskReadbackResponse(
     new Request(`https://example.invalid/api/desk/targets/${encodeURIComponent(d1.target_id)}/readback`, { method: "GET" }),
     { STRATEGY_SWITCH_CONFIG: kvSpy.namespace },
     {
-      targets: async () => [{ id: d1.target_id, platform: "ibkr", key: "syn_tqqq", label: "SYN TQQQ", revision: 7, options: [] }],
-      command: cmd => store.command(cmd),
-      now: () => Date.parse(readbackMatrix.now),
+      auth: async () => ({ login: "syn-reader" }),
+      options: async () => ({
+        revision: 7,
+        options: {
+          ibkr: [{
+            key: fullTarget.key,
+            target_name: fullTarget.key,
+            label: fullTarget.label,
+            ...fullTarget.config,
+          }],
+        },
+      }),
+      command: (_env, cmd) => store.command({ owner: "syn-owner", actor: "syn-reader", ...cmd }),
+      now: () => nowMs,
     },
   );
   assert.equal(res.status, 200, "SA4-D1 GET returns 200");
@@ -63,10 +80,14 @@ const naMatrix = loadJson(new URL("sa4_na_regression_matrix.json", FIXTURES_DIR)
   const d2 = demo.cases.find(c => c.id === "SA4-D2");
   const c = readbackMatrix.cases.find(item => item.id === d2.case_id);
   const rb = readbackMod.buildReadback({
-    target: readbackMatrix.target,
-    effective: c.platform.effective,
-    readAt: readbackMatrix.now,
+    target: {
+      ...readbackMatrix.target,
+      config: c.observed_saved.config,
+      revision: c.observed_saved.instance_revision,
+    },
     observed: c.observed_saved,
+    platform: c.platform.effective,
+    now: Date.parse(readbackMatrix.now),
     platformMeta: c.platform,
     deployment: c.deployment,
   });

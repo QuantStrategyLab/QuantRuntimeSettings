@@ -7,6 +7,7 @@ import * as runtimeReadbackMod from "../web/strategy-switch-console/application/
 import * as overviewMod from "../web/strategy-switch-console/application/desk/overview.js";
 import * as ribbonMod from "../web/strategy-switch-console/application/desk/ribbon.js";
 import * as readbackMod from "../web/strategy-switch-console/application/desk/readback.js";
+import { deskResponse } from "../web/strategy-switch-console/application/desk/http.js";
 import * as accountsMod from "../web/strategy-switch-console/application/desk/accounts.js";
 import * as inboxMod from "../web/strategy-switch-console/application/console_api/inbox.js";
 import { createReadOnlyStorage, createReadOnlyKv } from "./helpers/read_only_storage.mjs";
@@ -102,6 +103,12 @@ async function runSaA15(validator) {
 async function runSaA16(validator) {
   const matrix = loadJson(new URL("sa4_9a_three_layer_matrix.json", FIXTURES_DIR));
   const nowIso = matrix.now;
+  const nowMs = Date.parse(nowIso);
+  const fullTarget = {
+    ...matrix.target,
+    config: matrix.cases[0].observed_saved.config,
+    revision: matrix.cases[0].observed_saved.instance_revision,
+  };
 
   // 1) Zero-write GET spy across DeskReadbackStore + deskReadbackResponse + Workers KV
   const kvSpy = createReadOnlyKv({
@@ -113,38 +120,36 @@ async function runSaA16(validator) {
     sqlRows: () => [],
   });
   let observedCalls = 0;
-  const store = new readbackMod.DeskReadbackStore(doSpy.storage, async (id) => {
+  const store = new readbackMod.DeskReadbackStore(doSpy.storage, async () => {
     observedCalls += 1;
     const c = matrix.cases[0];
     return readbackMod.buildReadback({
-      target: matrix.target,
-      effective: c.platform.effective,
-      readAt: nowIso,
-      observed: {
-        instance_revision: c.observed_saved.instance_revision,
-        enabled: c.observed_saved.enabled,
-        identity: c.observed_saved.identity,
-        config: c.observed_saved.config,
-        draft: c.observed_saved.draft,
-      },
+      target: fullTarget,
+      observed: c.observed_saved,
+      platform: c.platform.effective,
+      now: nowMs,
       platformMeta: c.platform,
       deployment: c.deployment,
     });
-  }, () => Date.parse(nowIso));
+  }, () => nowMs);
 
   const getReq = new Request("https://example.invalid/api/desk/targets/ibkr%2Fsyn_tqqq/readback", { method: "GET" });
   const env = { STRATEGY_SWITCH_CONFIG: kvSpy.namespace };
   const deps = {
-    targets: async () => [{
-      id: matrix.target.id,
-      platform: matrix.target.platform,
-      key: matrix.target.key,
-      label: matrix.target.label,
+    auth: async () => ({ login: "syn-reader" }),
+    options: async () => ({
       revision: 7,
-      options: [],
-    }],
-    command: (cmd) => store.command(cmd),
-    now: () => Date.parse(nowIso),
+      options: {
+        ibkr: [{
+          key: fullTarget.key,
+          target_name: fullTarget.key,
+          label: fullTarget.label,
+          ...fullTarget.config,
+        }],
+      },
+    }),
+    command: (_env, cmd) => store.command({ owner: "syn-owner", actor: "syn-reader", ...cmd }),
+    now: () => nowMs,
   };
   const getResp = await readbackMod.deskReadbackResponse(getReq, env, deps);
   assert.equal(getResp.status, 200, "GET target readback returns 200");
@@ -159,10 +164,14 @@ async function runSaA16(validator) {
   // 2) Check all 9A three-layer comparison cases & schema validity
   for (const testCase of matrix.cases) {
     const rb = readbackMod.buildReadback({
-      target: matrix.target,
-      effective: testCase.platform.effective,
-      readAt: nowIso,
+      target: {
+        ...matrix.target,
+        config: testCase.observed_saved.config,
+        revision: testCase.observed_saved.instance_revision,
+      },
       observed: testCase.observed_saved,
+      platform: testCase.platform.effective,
+      now: nowMs,
       platformMeta: testCase.platform,
       deployment: testCase.deployment,
     });
@@ -196,25 +205,34 @@ async function runSaA16(validator) {
     assert.equal(rb.actions.reapply_saved.allowed, false, `SA-A16 ${testCase.id} reapply_saved allowed false`);
     assert.equal(rb.actions.adopt_platform.status, "not_enabled", `SA-A16 ${testCase.id} adopt_platform status not_enabled`);
     assert.equal(rb.actions.adopt_platform.allowed, false, `SA-A16 ${testCase.id} adopt_platform allowed false`);
-    validator.assertValid("readback.json", rb, `SA-A16:${testCase.id}`);
+    const envelope = await (await deskResponse("readback", rb, { now: nowMs })).json();
+    validator.assertValid("readback.json", envelope, `SA-A16:${testCase.id}`);
   }
 
   // 3) Check N1 accounts consumes readback_9a projection
   assert.equal(typeof accountsMod.accountsProjection, "function");
+  const firstCase = matrix.cases[0];
+  const rb0 = readbackMod.buildReadback({
+    target: fullTarget,
+    observed: firstCase.observed_saved,
+    platform: firstCase.platform.effective,
+    now: nowMs,
+    platformMeta: firstCase.platform,
+    deployment: firstCase.deployment,
+  });
   const acctOut = accountsMod.accountsProjection({
-    accounts: [{ platform: "ibkr", key: "syn_tqqq", target_id: "ibkr/syn_tqqq" }],
-    facts: { "ibkr/syn_tqqq": { status: "ready", observed_at: "2030-01-08T14:55:00Z", fields: {} } },
-    credentials: [],
-    now: Date.parse(nowIso),
+    config: {
+      ok: true,
+      value: {
+        revision: 7,
+        options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001" }] },
+      },
+    },
+    facts: { ok: false },
+    credential: { ok: false },
+    now: nowMs,
     readbacks9a: {
-      "ibkr/syn_tqqq": readbackMod.buildReadback({
-        target: matrix.target,
-        effective: matrix.cases[0].platform.effective,
-        readAt: nowIso,
-        observed: matrix.cases[0].observed_saved,
-        platformMeta: matrix.cases[0].platform,
-        deployment: matrix.cases[0].deployment,
-      }),
+      "ibkr/syn_tqqq": rb0,
     },
   });
   assert.ok(acctOut.brokers.value[0].readback_9a, "SA-A16 accountsProjection wires readback_9a on broker row");

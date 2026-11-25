@@ -47,14 +47,125 @@ export function normalizeReadbackValue(key, value, cleanRatio, splitSelectorValu
   return text || null;
 }
 
-export function buildReadback({ target, observed, platform = {}, platformReason = "never_read", now, cleanRatio, splitSelectorValues }) {
-  const time = new Date(now).toISOString();
+const MUTUAL_OBSERVED_AXES = [
+  { key: "strategy_profile", observedKey: "strategy_profile" },
+  { key: "enabled", observedKey: "runtime_enabled" },
+  { key: "broker_environment", observedKey: "execution_mode" },
+];
+const MUTUAL_OBSERVED_KEYS = new Set(MUTUAL_OBSERVED_AXES.map(item => item.key));
+const defaultCleanRatio = text => (/^(?:0(?:\.\d+)?|1(?:\.0+)?)$/.test(String(text).trim()) ? String(text).trim() : null);
+const defaultSplitSelectors = value => (Array.isArray(value) ? value : String(value ?? "").split(/[\s,;]+/))
+  .map(item => String(item).trim())
+  .filter(Boolean);
+
+function layerConfigValues(targetPlatform, rawValues, normalizedMap) {
+  const out = {};
+  for (const key of READBACK_KEYS) {
+    const norm = normalizedMap.get(key);
+    if (norm === null) {
+      out[key] = null;
+    } else if (key === "account_selector") {
+      out[key] = selectorDisplay(targetPlatform, rawValues[key], norm);
+    } else if (booleans.has(key)) {
+      out[key] = norm === "true";
+    } else {
+      out[key] = norm;
+    }
+  }
+  return out;
+}
+
+function normalizeObservedDeployment(deployment) {
+  const semantics = { monitoring_only: true, not_trading_or_books: true };
+  if (!deployment || typeof deployment !== "object" || Array.isArray(deployment)) {
+    return {
+      data_status: "unavailable",
+      reason: "runtime_observation_missing",
+      observed_at: null,
+      ttl_seconds: null,
+      execution_mode: null,
+      runtime_enabled: null,
+      scheduler_state: "unknown",
+      strategy_profile: null,
+      semantics,
+    };
+  }
+  const dataStatus = ["ready", "stale", "unavailable"].includes(deployment.data_status) ? deployment.data_status : "unavailable";
+  const observedAt = typeof deployment.observed_at === "string" && Number.isFinite(Date.parse(deployment.observed_at))
+    ? deployment.observed_at
+    : null;
+  const ttlSeconds = Number.isSafeInteger(deployment.ttl_seconds) && deployment.ttl_seconds >= 0
+    ? deployment.ttl_seconds
+    : null;
+  const executionMode = dataStatus === "ready" && ["dry_run", "paper", "live"].includes(deployment.execution_mode)
+    ? deployment.execution_mode
+    : null;
+  const runtimeEnabled = dataStatus === "ready" && typeof deployment.runtime_enabled === "boolean"
+    ? deployment.runtime_enabled
+    : null;
+  const schedulerState = dataStatus === "ready" && typeof deployment.scheduler_state === "string" && deployment.scheduler_state
+    ? deployment.scheduler_state
+    : "unknown";
+  const strategyProfile = dataStatus === "ready" && typeof deployment.strategy_profile === "string" && deployment.strategy_profile
+    ? deployment.strategy_profile
+    : null;
+  return {
+    data_status: dataStatus,
+    reason: typeof deployment.reason === "string" ? deployment.reason : (dataStatus === "ready" ? null : "runtime_observation_unavailable"),
+    observed_at: observedAt,
+    ttl_seconds: ttlSeconds,
+    execution_mode: executionMode,
+    runtime_enabled: runtimeEnabled,
+    scheduler_state: schedulerState,
+    strategy_profile: strategyProfile,
+    semantics,
+  };
+}
+
+function compareLayerToObserved(layerValues, observedDeployment) {
+  const skipped = READBACK_KEYS.filter(key => !MUTUAL_OBSERVED_KEYS.has(key));
+  if (observedDeployment.data_status !== "ready") {
+    return {
+      status: "unknown",
+      compared_fields: [],
+      mismatched_fields: [],
+      skipped_non_mutual_fields: [...skipped, ...MUTUAL_OBSERVED_AXES.map(a => a.key)],
+      reason: observedDeployment.reason || "runtime_observation_unavailable",
+    };
+  }
+  const compared = [];
+  const mismatched = [];
+  for (const { key, observedKey } of MUTUAL_OBSERVED_AXES) {
+    const leftVal = layerValues[key];
+    const rightVal = observedDeployment[observedKey];
+    if (leftVal === null || leftVal === undefined || rightVal === null || rightVal === undefined) {
+      skipped.push(key);
+      continue;
+    }
+    compared.push(key);
+    if (leftVal !== rightVal) mismatched.push(key);
+  }
+  const status = mismatched.length ? "drift" : compared.length ? "match" : "unknown";
+  return {
+    status,
+    compared_fields: compared,
+    mismatched_fields: mismatched,
+    skipped_non_mutual_fields: skipped,
+    reason: status === "unknown" ? "no_mutual_fields_available" : null,
+  };
+}
+
+export function buildReadback({ target, observed, platform = {}, platformReason = "never_read", now, cleanRatio = defaultCleanRatio, splitSelectorValues = defaultSplitSelectors, platformMeta = null, deployment = null }) {
+  const nowMs = typeof now === "number" && Number.isFinite(now) ? now : Date.parse(now);
+  const time = new Date(Number.isFinite(nowMs) ? nowMs : Date.now()).toISOString();
   const revision = observed?.instance_revision ?? target.revision;
   if (!Number.isSafeInteger(revision) || revision < 0) throw new DeskError("store_unavailable", 503);
   const config = observed?.config || target.config;
   const draft = observed?.draft;
-  const saved = { ...config, strategy_profile: config.default_strategy_profile, enabled: observed?.enabled };
+  const saved = { ...config, strategy_profile: config.default_strategy_profile ?? config.strategy_profile, enabled: observed?.enabled };
   if (draft?.status === "current") Object.assign(saved, draft.overrides);
+  const savedNormalized = new Map();
+  const platformNormalized = new Map();
   const fields = READBACK_KEYS.map(key => {
     const left = normalizeReadbackValue(key, saved[key], cleanRatio, splitSelectorValues);
     const right = normalizeReadbackValue(key, platform[key], cleanRatio, splitSelectorValues);
@@ -63,11 +174,47 @@ export function buildReadback({ target, observed, platform = {}, platformReason 
     // Compare complete selector identities before choosing what to display.
     const equal = key === "account_selector" ? JSON.stringify(left) === JSON.stringify(right) : left === right;
     const a = draft?.status === "identity_conflict" || !observed ? null : left;
+    savedNormalized.set(key, a);
+    platformNormalized.set(key, right);
     return { key, label: key, saved: wrap(a, saved[key], savedUnknown), platform: wrap(right, platform[key], platformReason),
       state: a === null || right === null ? "unknown" : equal ? "match" : "drift" };
   });
   const summary = { match: 0, drift: 0, unknown: 0 };
   for (const field of fields) summary[field.state]++;
+  const savedValues = layerConfigValues(target.platform, saved, savedNormalized);
+  const platformValues = layerConfigValues(target.platform, platform, platformNormalized);
+  const savedSettings = {
+    instance_revision: revision,
+    draft_revision: Number.isSafeInteger(draft?.revision) ? draft.revision : null,
+    draft_status: typeof draft?.status === "string" ? draft.status : null,
+    values: savedValues,
+  };
+  const platformConfiguration = {
+    source: typeof platformMeta?.source === "string" && platformMeta.source ? platformMeta.source : "github_runtime_configuration",
+    read_at: typeof platformMeta?.read_at === "string" ? platformMeta.read_at : time,
+    source_as_of: typeof platformMeta?.source_as_of === "string" ? platformMeta.source_as_of : null,
+    values: platformValues,
+  };
+  const observedDeployment = normalizeObservedDeployment(deployment);
+  const savedVsPlatformCompared = fields.filter(f => f.state !== "unknown").map(f => f.key);
+  const savedVsPlatformMismatched = fields.filter(f => f.state === "drift").map(f => f.key);
+  const savedVsPlatformSkipped = fields.filter(f => f.state === "unknown").map(f => f.key);
+  const savedVsPlatformStatus = savedVsPlatformMismatched.length
+    ? "drift"
+    : savedVsPlatformSkipped.length === 0 && savedVsPlatformCompared.length > 0
+    ? "match"
+    : "unknown";
+  const comparisons = {
+    saved_vs_platform: {
+      status: savedVsPlatformStatus,
+      compared_fields: savedVsPlatformCompared,
+      mismatched_fields: savedVsPlatformMismatched,
+      skipped_non_mutual_fields: savedVsPlatformSkipped,
+      reason: savedVsPlatformStatus === "unknown" ? (platformReason || "comparison_incomplete") : null,
+    },
+    platform_vs_observed: compareLayerToObserved(platformValues, observedDeployment),
+    saved_vs_observed: compareLayerToObserved(savedValues, observedDeployment),
+  };
   return { target_id: target.id, readback_id: `rb_${crypto.randomUUID()}`, read_at: time,
     saved_revision: revision,
     overall: summary.drift ? "drift" : summary.unknown ? "unknown" : "match", summary, fields,
@@ -75,7 +222,14 @@ export function buildReadback({ target, observed, platform = {}, platformReason 
       broker_environment: ["live", "paper"].includes(config.broker_environment) ? config.broker_environment : null,
       service: config.service_name || null, runtime_status_target_id: config.runtime_status_target_id || null },
     facts_binding: unknown("identity_unverified"), alert_route: null,
-    actions: { reapply_saved: { allowed: false, reason_code: "not_enabled" }, adopt_platform: { allowed: false, reason_code: "not_enabled" } } };
+    actions: {
+      reapply_saved: { status: "not_enabled", allowed: false, reason_code: "not_enabled" },
+      adopt_platform: { status: "not_enabled", allowed: false, reason_code: "not_enabled" },
+    },
+    saved_settings: savedSettings,
+    platform_configuration: platformConfiguration,
+    observed_deployment: observedDeployment,
+    comparisons };
 }
 
 export function readbackTargets(config) {
@@ -153,7 +307,21 @@ export function createDeskTargetReadback(deps) {
         platformReason = "never_read";
       } catch { platform = {}; platformReason = "read_failed"; }
     }
-    return buildReadback({ target, observed, platform, platformReason, now: Date.now(), cleanRatio: cleanCurrentRatio, splitSelectorValues });
+    const nowMs = Date.now();
+    return buildReadback({
+      target,
+      observed,
+      platform,
+      platformReason,
+      now: nowMs,
+      cleanRatio: cleanCurrentRatio,
+      splitSelectorValues,
+      platformMeta: {
+        source: "github_runtime_configuration",
+        read_at: new Date(nowMs).toISOString(),
+        source_as_of: null,
+      },
+    });
   };
 }
 
@@ -181,7 +349,7 @@ export async function deskReadbackResponse(request, env, deps) {
       const targets = await targetsForRequest();
       const target = targets.find(item => item.id === decodeURIComponent(targetMatch[1]));
       if (!target) throw new DeskError("not_found", 404);
-      const { payload } = await command({ action: "desk_readback_fresh", id: target.id });
+      const { payload } = await command({ action: "desk_readback_read", id: target.id });
       return deskResponse("readback", payload);
     }
     const pollMatch = url.pathname.match(/^\/api\/desk\/readbacks\/([A-Za-z0-9_-]+)$/);
@@ -242,14 +410,9 @@ export class DeskReadbackStore {
     const { storage } = this;
     const now = this.now();
     if (!command.owner || !command.actor) throw new DeskError("login_required", 401);
-    if (command.action === "desk_readback_fresh") {
-      const id = crypto.randomUUID();
-      await storage.transaction(txn => this.claim(txn, command.actor, id, now));
-      try {
-        const payload = await this.read(command.id, command.actor);
-        await this.command({ ...command, action: "desk_readback_put", payload });
-        return { payload };
-      } finally { await this.release(command.actor, id); }
+    if (command.action === "desk_readback_read") {
+      const payload = await this.read(command.id, command.actor);
+      return { payload };
     }
     if (command.action === "desk_readback_start") {
       const payloadFor = id => ({ readback_id: `rbj_${id}`, state: "running", started_at: new Date(now).toISOString(), retry_after_ms: 2000 });

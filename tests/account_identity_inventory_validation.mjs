@@ -598,7 +598,7 @@ async function deskRecords() {
     splitSelectorValues: item => String(item).split(","), ...(id === "t-job" ? { observed: { instance_revision: 1, config, enabled: true },
       platform: { strategy_profile: "profile-b" } } : { observed: null }) });
   const store = new DeskReadbackStore(storage, read);
-  await store.command({ action: "desk_readback_fresh", owner: "owner-a", actor: "actor-a", id: "t-fresh" });
+  await store.command({ action: "desk_readback_put", owner: "owner-a", actor: "actor-a", payload: await read("t-fresh") });
   await store.command({ action: "desk_readback_start", owner: "owner-b", actor: "actor-b", body: { idempotency_key: "k-done" }, ids: ["t-job"] });
   await store.alarm();
   await store.command({ action: "desk_readback_start", owner: "owner-c", actor: "actor-c", body: { idempotency_key: "k-running" }, ids: ["t-later"] });
