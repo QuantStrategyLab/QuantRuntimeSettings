@@ -660,6 +660,67 @@ assert.deepEqual(sameUidRotated, {
 const sameUidPayload = JSON.parse(secretValues.get("QuantStrategyLab/BinancePlatform:BINANCE_ACCOUNT_FACTS_BINDING_JSON"));
 await assertBinanceFactsHistoryBindings([sameUidPriorAppBinding], sameUidPayload);
 
+const followUpReader = "f3".repeat(20);
+const followUpFixture = {
+  ...rotationFixture,
+  BINANCE_FACTS_NEXT_READER_REVISION: followUpReader,
+  BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify(sameUidPayload),
+  BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: JSON.stringify([sameUidPriorAppBinding]),
+};
+existingVariables.set("BINANCE_ACCOUNT_FACTS_READER_REVISION", sameUidNextReader);
+assert.deepEqual(await runBootstrap({
+  env: { ...followUpFixture, BINANCE_FACTS_BOOTSTRAP_APPLY: "false" },
+  fetchImpl: makeFetch(),
+  command: makeCommand(),
+}), {
+  status: "rotation_preview",
+  match_count: 1,
+  writes: 0,
+  history_binding_count: 2,
+});
+await assert.rejects(runBootstrap({
+  env: { ...followUpFixture, BINANCE_FACTS_BOOTSTRAP_APPLY: "false" },
+  fetchImpl: makeFetch({ untrustedRevision: priorApp }),
+  command: makeCommand(),
+}), error => error.code === "reader_revision_not_trusted_main_ancestor");
+await assert.rejects(runBootstrap({
+  env: {
+    ...followUpFixture,
+    BINANCE_FACTS_BOOTSTRAP_APPLY: "false",
+    BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: JSON.stringify([legacyBinding]),
+  },
+  fetchImpl: makeFetch(),
+  command: makeCommand(),
+}), error => error.code === "history_binding_invalid");
+
+writes.length = 0;
+for (const repository of ["QuantStrategyLab/QuantRuntimeSettings", "QuantStrategyLab/BinancePlatform"]) {
+  secretUpdatedAt.get(repository).set(bindingSecret, "2026-09-30T00:00:00Z");
+  secretUpdatedAt.get(repository).set(syncTokenSecret, "2026-09-30T00:00:00Z");
+}
+secretUpdatedAt.get("QuantStrategyLab/QuantRuntimeSettings").set(
+  "BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON", "2026-09-30T00:00:00Z",
+);
+const followUpRotated = await runBootstrap({
+  env: { ...followUpFixture, BINANCE_FACTS_BOOTSTRAP_APPLY: "true" },
+  fetchImpl: makeFetch(),
+  command: makeCommand({ modelSecretWrites: true }),
+  randomToken: () => { throw new Error("reader rotation must not generate a token"); },
+});
+assert.deepEqual(followUpRotated, {
+  status: "rotation_applied",
+  history_binding_count: 2,
+  history_secret_write_count: 1,
+  binding_secret_write_count: 2,
+  metadata_readback_count: 3,
+  reader_revision_updated: true,
+});
+const followUpPayload = JSON.parse(secretValues.get("QuantStrategyLab/BinancePlatform:BINANCE_ACCOUNT_FACTS_BINDING_JSON"));
+const followUpHistory = JSON.parse(secretValues.get("QuantStrategyLab/QuantRuntimeSettings:BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON"));
+assert.equal(followUpPayload.reader_revision, followUpReader);
+assert.equal(followUpHistory.length, 2);
+await assertBinanceFactsHistoryBindings(followUpHistory, followUpPayload);
+
 writes.length = 0;
 existingVariables.set("BINANCE_ACCOUNT_FACTS_READER_REVISION", reader);
 await assert.rejects(runBootstrap({

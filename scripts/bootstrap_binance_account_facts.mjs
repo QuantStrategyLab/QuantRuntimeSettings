@@ -326,11 +326,12 @@ async function verifyExistingBinding({
   binding,
   variables,
   accountOptions,
-  rotateScope,
+  allowAccountScopeMismatch = false,
+  allowApplicationRevisionMismatch = false,
   context,
   mismatchCode,
 }) {
-  if (!rotateScope) {
+  if (!allowAccountScopeMismatch && !allowApplicationRevisionMismatch) {
     const expected = buildBinanceFactsBinding({
       variables,
       accountOptions,
@@ -339,30 +340,40 @@ async function verifyExistingBinding({
     if (!isDeepStrictEqual(binding, expected)) fail(mismatchCode);
     return;
   }
-  if (!exactDigest(binding.account_scope_sha256)
-      || !/^[a-f0-9]{40}$/.test(binding.approved_application_revision || "")) {
+  const approvedApplicationRevision = allowApplicationRevisionMismatch
+    ? binding.approved_application_revision
+    : variables.BINANCE_RUNTIME_RELEASE_SHA;
+  if (!/^[a-f0-9]{40}$/.test(approvedApplicationRevision || "")) {
     fail(mismatchCode);
   }
-  if (binding.approved_application_revision !== variables.BINANCE_RUNTIME_RELEASE_SHA) {
-    await assertReaderRevisionIsTrustedAncestor(context, binding.approved_application_revision);
+  if (approvedApplicationRevision !== variables.BINANCE_RUNTIME_RELEASE_SHA) {
+    await assertReaderRevisionIsTrustedAncestor(context, approvedApplicationRevision);
   }
-  const expectedDigests = parseJson(
-    variables.BINANCE_RECONCILIATION_EXPECTED_DIGESTS_JSON,
-    "expected_digests_missing",
-  );
-  const scopedVariables = {
+  let scopedVariables = {
     ...variables,
-    BINANCE_RECONCILIATION_EXPECTED_DIGESTS_JSON: JSON.stringify({
-      ...expectedDigests,
-      account_scope_sha256: binding.account_scope_sha256,
-    }),
-    BINANCE_RUNTIME_RELEASE_SHA: binding.approved_application_revision,
+    BINANCE_RUNTIME_RELEASE_SHA: approvedApplicationRevision,
   };
+  if (allowAccountScopeMismatch) {
+    if (!exactDigest(binding.account_scope_sha256)) {
+      fail(mismatchCode);
+    }
+    const expectedDigests = parseJson(
+      variables.BINANCE_RECONCILIATION_EXPECTED_DIGESTS_JSON,
+      "expected_digests_missing",
+    );
+    scopedVariables = {
+      ...scopedVariables,
+      BINANCE_RECONCILIATION_EXPECTED_DIGESTS_JSON: JSON.stringify({
+        ...expectedDigests,
+        account_scope_sha256: binding.account_scope_sha256,
+      }),
+    };
+  }
   const expected = buildBinanceFactsBinding({
     variables: scopedVariables,
     accountOptions,
     readerRevision: binding.reader_revision,
-    approvedApplicationRevision: binding.approved_application_revision,
+    approvedApplicationRevision,
   });
   if (!isDeepStrictEqual(binding, expected)) fail(mismatchCode);
 }
@@ -429,7 +440,8 @@ async function runReaderRotation({ env, fetchImpl, command }) {
     binding: oldBinding,
     variables,
     accountOptions,
-    rotateScope,
+    allowAccountScopeMismatch: rotateScope,
+    allowApplicationRevisionMismatch: rotateScope,
     context,
     mismatchCode: "current_binding_conflict",
   });
@@ -453,7 +465,8 @@ async function runReaderRotation({ env, fetchImpl, command }) {
       binding: historyBinding,
       variables,
       accountOptions,
-      rotateScope,
+      allowAccountScopeMismatch: rotateScope,
+      allowApplicationRevisionMismatch: true,
       context,
       mismatchCode: "history_binding_invalid",
     });
