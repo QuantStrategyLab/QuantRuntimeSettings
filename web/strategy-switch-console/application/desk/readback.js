@@ -276,7 +276,7 @@ export function createDeskTargetReadback(deps) {
 
   // Desk reads deliberately bypass the current-strategies memory/KV cache. Raw
   // variable maps stay local; only explicit resolver fields enter the projection.
-  return async function deskTargetReadback(env, target, actor, suppliedObserved = undefined) {
+  return async function deskTargetReadback(env, target, actor, suppliedObserved = undefined, suppliedAccountOptions = undefined) {
     let observed = suppliedObserved;
     if (observed === undefined) {
       try {
@@ -330,16 +330,22 @@ export function createDeskTargetReadback(deps) {
       try {
         const snapshot = await readLifecycleSnapshot(env);
         if (snapshot && Array.isArray(snapshot.targets)) {
-          const optMap = observed?.account_options;
-          const configured = optMap && typeof optMap === "object"
-            ? Object.entries(optMap).flatMap(([p, rows]) => (Array.isArray(rows) ? rows : []).map(row => ({ ...row, platform: p })))
-            : [{ ...config, platform: target.platform, key: target.key }];
-          deployment = runtimeReadbackProjection(
-            { platform: target.platform, key: target.key, runtime_status_target_id: config?.runtime_status_target_id || null },
-            configured,
-            snapshot,
-            nowMs,
-          );
+          const optMap = (observed?.account_options && typeof observed.account_options === "object")
+            ? observed.account_options
+            : (suppliedAccountOptions && typeof suppliedAccountOptions === "object" ? suppliedAccountOptions : null);
+          if (optMap) {
+            const configured = Object.entries(optMap).flatMap(([p, rows]) =>
+              (Array.isArray(rows) ? rows : []).map(row => ({ ...row, platform: p }))
+            );
+            deployment = runtimeReadbackProjection(
+              { platform: target.platform, key: target.key, runtime_status_target_id: config?.runtime_status_target_id || null },
+              configured,
+              snapshot,
+              nowMs,
+            );
+          } else {
+            deployment = { data_status: "unavailable", reason: "runtime_binding_cohort_unavailable" };
+          }
         }
       } catch {
         deployment = { data_status: "unavailable", reason: "runtime_source_read_failed" };

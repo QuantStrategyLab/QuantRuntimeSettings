@@ -124,11 +124,12 @@ export class RuntimeInstances {
     this.managementRead = managementReadCapability(ctx.storage);
     this.deskReadbacks = new DeskReadbackStore(ctx.storage, async (id, actor) => {
       const state = this.read();
-      const target = readbackTargets({ options: runtimeInstanceAccountOptions(state.instances), revision: state.revision }).find(target => target.id === id);
+      const options = runtimeInstanceAccountOptions(state.instances);
+      const target = readbackTargets({ options, revision: state.revision }).find(target => target.id === id);
       if (!target) throw new DeskError("not_found", 404);
       let observed = null;
       try { observed = this.readAccountSettings({ platform: target.platform, key: target.key, read_only: true }); } catch { /* Degrade saved independently. */ }
-      return deskTargetReadback(env, target, actor, observed);
+      return deskTargetReadback(env, target, actor, observed, options);
     });
   }
 

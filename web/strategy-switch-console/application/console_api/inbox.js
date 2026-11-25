@@ -160,6 +160,7 @@ export const EXPECTED_OWNER_QUEUE_FAMILIES_12A = Object.freeze([
 ]);
 
 const RESOLVED_QUEUE_STATUSES = new Set(["decided", "completed", "superseded"]);
+const TERMINAL_PROMOTION_STATES = new Set(["human_accepted", "human_rejected", "decided", "completed", "superseded"]);
 const VALID_SOURCE_STATUSES = new Set(["ok", "stale", "unavailable", "read_failed"]);
 const REGISTERED_BY_PLATFORM = (() => {
   const byPlatform = new Map();
@@ -353,7 +354,7 @@ export function projectUnifiedOwnerQueue12A({
   const anyTruncated = normalizedSources.some((s) => s.truncated);
   const corruptOmittedTotal = normalizedSources.reduce((acc, s) => acc + s.corrupt_omitted_count, 0);
   const anyReadFailed = normalizedSources.some((s) => s.status === "read_failed" || s.status === "unavailable");
-  const anyStaleOrPartial = normalizedSources.some((s) => s.status === "stale" || s.truncated || s.corrupt_omitted_count > 0);
+  const anyStaleOrPartial = normalizedSources.some((s) => s.status === "stale" || s.truncated || s.corrupt_omitted_count > 0 || s.errors.length > 0);
   const queueState = totalUnresolved > 0
     ? "non_empty"
     : anyReadFailed
@@ -405,12 +406,15 @@ function toQueueItem12A(row, category, fallbackObservedAt) {
   };
 }
 
-function sourceStatusFromPayload(ok, body) {
+function sourceStatusFromPayload(ok, body, errors = []) {
   if (!ok || !body || typeof body !== "object") return "read_failed";
+  if (Array.isArray(errors) && errors.some(code => /(?:source_invalid|source_unavailable|read_failed|unreadable|storage_unavailable|do_unavailable)/.test(code))) {
+    return "read_failed";
+  }
   const ds = body.data_status;
-  if (ds === "ready" || ds === "partial") return "ok";
-  if (ds === "stale") return "stale";
   if (ds === "unavailable") return "unavailable";
+  if (ds === "stale") return "stale";
+  if (ds === "ready" || ds === "partial") return "ok";
   return "read_failed";
 }
 
@@ -438,7 +442,7 @@ async function readQueueFamilyHttpSource(request, env, reader, {
       : 0;
     const truncated = Boolean(body?.truncated === true || errors.some(e => /truncated|capped/.test(e)));
     return {
-      status: sourceStatusFromPayload(true, body),
+      status: sourceStatusFromPayload(true, body, errors),
       observed_at: observedAt,
       cap,
       truncated,
@@ -487,15 +491,19 @@ export async function readOwnerQueueSources12A(request, env, {
         const items = [...merged.values()].map(row => toQueueItem12A(row, "strategy_promotion", observedAt));
         for (const inv of (Array.isArray(body?.invalid_tickets) ? body.invalid_tickets : [])) {
           const blockers = Array.isArray(inv?.decision_material?.blocker_codes) ? inv.decision_material.blocker_codes : ["research_promotion_review_material_invalid"];
+          const rawState = typeof inv?.state === "string" ? inv.state : "";
+          const isTerminal = TERMINAL_PROMOTION_STATES.has(rawState)
+            || inv?.human_decision === "accept"
+            || inv?.human_decision === "reject";
           items.push({
             id: `strategy_promotion:${inv?.ticket_id || "invalid"}`,
             platform: null,
             account_alias: null,
             target_id: null,
-            status: "pending",
-            decision_state: "pending",
+            status: isTerminal ? "decided" : "pending",
+            decision_state: rawState || (isTerminal ? "decided" : "pending"),
             actionable: false,
-            blocked: true,
+            blocked: !isTerminal,
             expired: false,
             blocker_reasons: blockers,
             title: inv?.strategy_profile || inv?.ticket_id || "invalid_promotion_ticket",

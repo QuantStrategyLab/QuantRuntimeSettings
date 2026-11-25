@@ -4384,7 +4384,7 @@ export async function fetchResearchPromotionTicketResponse(request, env) {
   });
 }
 
-export async function collectResearchPromotionTickets(env) {
+async function collectResearchPromotionTickets(env) {
   return collectResearchPromotionTicketsImpl(env, {
     readHumanDecisionAuthority,
     overlayPromotionDecision,
@@ -6848,8 +6848,8 @@ function deskTargetReadbackDeps() {
 
 const deskTargetReadbackImpl = createDeskTargetReadback(deskTargetReadbackDeps());
 
-export async function deskTargetReadback(env, target, actor, suppliedObserved = undefined) {
-  return deskTargetReadbackImpl(env, target, actor, suppliedObserved);
+export async function deskTargetReadback(env, target, actor, suppliedObserved = undefined, suppliedAccountOptions = undefined) {
+  return deskTargetReadbackImpl(env, target, actor, suppliedObserved, suppliedAccountOptions);
 }
 
 export async function effectiveAccountSettings(env, observed) {

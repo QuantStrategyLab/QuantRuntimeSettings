@@ -356,7 +356,9 @@ export async function deskOverviewResponse(request, env, deps) {
     if (config.ok) {
       if (typeof deps.runtimeLifecycle === "function") {
         const lc = await readOnce(() => deps.runtimeLifecycle(env));
-        runtimeLifecycle = lc.ok ? lc.value : { targets: null, errors: ["runtime_source_read_failed"] };
+        runtimeLifecycle = lc.ok && lc.value && typeof lc.value === "object"
+          ? lc.value
+          : { targets: null, errors: ["runtime_source_read_failed"] };
       }
       if (typeof deps.ownerQueueSources === "function") {
         const q = await readOnce(() => deps.ownerQueueSources(request, env, { credential, now }));

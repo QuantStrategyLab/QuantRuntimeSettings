@@ -427,6 +427,112 @@ async function runSaA17(validator) {
   const ibkrBroker = accountsPayload.brokers.value.find(b => b.platform === "ibkr");
   assert.equal(ibkrBroker.readback_9a.status, "drift");
 
+  // P2 regression: recovery source error alongside data_status:"ready" never reports verified_empty.
+  const req0 = new Request("https://example.invalid/api/desk/overview");
+  const emptyOwnerFn = async () => Response.json({
+    computed_at: matrix.now, data_status: "ready", candidates: [], errors: [], cap: 100, truncated: false, corrupt_omitted_count: 0,
+  });
+  const emptyPromoFn = async () => Response.json({
+    computed_at: matrix.now, data_status: "ready", tickets: [], applications: [], errors: [], cap: 200, truncated: false, corrupt_omitted_count: 0,
+  });
+  const invalidRecSources = await inboxMod.readOwnerQueueSources12A(req0, {}, {
+    owner: emptyOwnerFn,
+    promotion: emptyPromoFn,
+    recovery: async () => Response.json({
+      computed_at: matrix.now, data_status: "ready", recoveries: [], errors: ["reconciliation_recovery_source_invalid"], cap: 100,
+    }),
+    credential: { ok: true, raw: { id: "ibkr_flex", expires_at: "2031-01-01T00:00:00Z", metadata_revision: 1, observed_at: matrix.now } },
+    now: nowMs,
+    accountsCredentialCalendarProjection: () => ({ records: [] }),
+  });
+  assert.equal(invalidRecSources.reconciliation_recovery.status, "read_failed");
+  const qInvalidRec = inboxMod.projectUnifiedOwnerQueue12A({
+    sources: invalidRecSources,
+    expectedFamilies: matrix.expected_families,
+    now: nowMs,
+  });
+  assert.equal(qInvalidRec.queue_state, "read_failed");
+  validator.assertValid("common.json#/$defs/OwnerQueue12A", qInvalidRec, "SA-A17:rec-source-invalid");
+
+  // P2 regression: invalid_tickets in terminal human_accepted/human_rejected states are excluded from unresolved items.
+  const terminalInvalidSources = await inboxMod.readOwnerQueueSources12A(req0, {}, {
+    owner: emptyOwnerFn,
+    promotion: async () => Response.json({
+      computed_at: matrix.now,
+      data_status: "partial",
+      tickets: [],
+      applications: [],
+      invalid_tickets: [
+        { ticket_id: "t-done", state: "human_accepted", decision_material: { blocker_codes: ["research_promotion_review_material_invalid"] } },
+        { ticket_id: "t-rej", state: "human_rejected", decision_material: { blocker_codes: ["research_promotion_review_material_invalid"] } },
+      ],
+      errors: ["research_promotion_review_material_invalid"],
+      cap: 200,
+      corrupt_omitted_count: 0,
+    }),
+    recovery: async () => Response.json({
+      computed_at: matrix.now, data_status: "ready", recoveries: [], errors: [], cap: 100,
+    }),
+    credential: { ok: true, raw: { id: "ibkr_flex", expires_at: "2031-01-01T00:00:00Z", metadata_revision: 1, observed_at: matrix.now } },
+    now: nowMs,
+    accountsCredentialCalendarProjection: () => ({ records: [] }),
+  });
+  const qTermInvalid = inboxMod.projectUnifiedOwnerQueue12A({
+    sources: terminalInvalidSources,
+    expectedFamilies: matrix.expected_families,
+    now: nowMs,
+  });
+  assert.equal(qTermInvalid.total_unresolved, 0);
+  assert.equal(qTermInvalid.actionable_items.length, 0);
+  assert.equal(qTermInvalid.blocked_or_expired_items.length, 0);
+  assert.equal(qTermInvalid.queue_state, "partial_empty");
+  assert.ok(qTermInvalid.errors.includes("research_promotion_review_material_invalid"));
+  validator.assertValid("common.json#/$defs/OwnerQueue12A", qTermInvalid, "SA-A17:terminal-invalid-promo");
+
+  // P2 regression: deskOverviewResponse degrades cleanly to HTTP 200 when deps.runtimeLifecycle throws.
+  const overviewThrowRes = await overviewMod.deskOverviewResponse(new Request("https://example.invalid/api/desk/overview"), {}, {
+    ...sharedHttpDeps,
+    runtimeLifecycle: async () => { throw new Error("lifecycle_boom"); },
+  });
+  assert.equal(overviewThrowRes.status, 200);
+  const overviewThrowPayload = await overviewThrowRes.json();
+  validator.assertValid("n1-overview.json", overviewThrowPayload, "SA4-HTTP:n1-overview-lc-throw");
+  assert.equal(overviewThrowPayload.fleet_mode_summary.status, "incomplete");
+  assert.ok(overviewThrowPayload.fleet_mode_summary.reasons.includes("runtime_source_read_failed"));
+  assert.ok(overviewThrowPayload.book.value.every(row => row.execution_mode === null && row.scheduler_state === "unknown"));
+
+  // P2 regression: createDeskTargetReadback when observed === null retains full binding cohort or fails unavailable.
+  const targetCfg = {
+    id: "ibkr/syn_tqqq",
+    platform: "ibkr",
+    key: "syn_tqqq",
+    revision: 3,
+    optionsCount: 2,
+    config: {
+      ...rbMatrix.cases[0].observed_saved.config,
+      key: "syn_tqqq",
+      target_name: "syn_tqqq",
+      runtime_status_target_id: fleetCase.accounts[0].runtime_status_target_id,
+    },
+  };
+  const readbackFn = readbackMod.createDeskTargetReadback({
+    platformRepositories: () => ({}),
+    cleanCurrentRatio: value => (value !== null && value !== undefined && Number.isFinite(Number(value)) ? String(value) : null),
+    splitSelectorValues: value => String(value || "").split(/[\s,]+/).map(item => item.trim()).filter(Boolean),
+    readLifecycleSnapshot: async () => fleetCase.snapshot,
+  });
+  const rbDupCohort = await readbackFn({}, targetCfg, "syn-reader", null, {
+    ibkr: [
+      targetCfg.config,
+      { ...targetCfg.config, key: "syn_other", target_name: "syn_other" },
+    ],
+  });
+  assert.equal(rbDupCohort.observed_deployment.data_status, "unavailable");
+  assert.equal(rbDupCohort.observed_deployment.reason, "runtime_binding_conflict");
+  const rbMissingCohort = await readbackFn({}, targetCfg, "syn-reader", null);
+  assert.equal(rbMissingCohort.observed_deployment.data_status, "unavailable");
+  assert.equal(rbMissingCohort.observed_deployment.reason, "runtime_binding_cohort_unavailable");
+
   console.log(`SA-A17 passed (${matrix.cases.length} 12A queue scenarios + unobserved C-SA-26 + HTTP wiring)`);
 }
 

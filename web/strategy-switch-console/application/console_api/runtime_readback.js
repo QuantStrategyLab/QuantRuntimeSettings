@@ -22,8 +22,12 @@ export function runtimeReadbackProjection(account, accounts, snapshot, now = Dat
   const targetId = account.runtime_status_target_id;
   if (!targetId) return result;
   const bindings = accounts.filter(row => row.runtime_status_target_id === targetId);
-  if (bindings.length !== 1 || snapshot.errors?.includes("runtime_target_lifecycle_duplicate_target")) {
+  if (bindings.length !== 1 || snapshot?.errors?.includes("runtime_target_lifecycle_duplicate_target")) {
     return { ...result, reason: "runtime_binding_conflict" };
+  }
+  if (!snapshot || !Array.isArray(snapshot.targets)) {
+    const readFailed = snapshot?.errors?.includes("runtime_source_read_failed");
+    return { ...result, reason: readFailed ? "runtime_source_read_failed" : "runtime_source_incomplete" };
   }
   const matches = snapshot.targets.filter(entry => entry.target.target_id === targetId);
   if (matches.length !== 1) return { ...result, reason: matches.length ? "runtime_binding_conflict" : "runtime_observation_missing" };
