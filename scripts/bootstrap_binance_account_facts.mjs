@@ -20,6 +20,7 @@ const GITHUB_API = "https://api.github.com";
 const BINANCE_TARGET_ID = "binance-homepage";
 const COMMAND_TIMEOUT_MS = 20_000;
 const BINANCE_ACCOUNT_FACTS_ENABLED_VARIABLE = "BINANCE_ACCOUNT_FACTS_ENABLED";
+const BINANCE_RISK_AUTHORITY_SOURCE_REVISION_VARIABLE = "BINANCE_RISK_AUTHORITY_SOURCE_REVISION";
 const ALLOWED_BINANCE_ENVIRONMENT_BRANCHES = new Set(["runtime-production", "main"]);
 
 function fail(code) {
@@ -280,15 +281,9 @@ async function assertRuntimeProductionOnlyEnvironment(context) {
   }
 }
 
-async function assertReaderRevisionIsTrustedAncestor(
-  context,
-  readerRevision = BINANCE_ACCOUNT_FACTS_READER_REVISION,
-) {
-  if (typeof readerRevision !== "string" || !/^[a-f0-9]{40}$/.test(readerRevision)) {
-    fail("reader_revision_invalid");
-  }
+async function isTrustedAncestorOfRef(context, revision, ref) {
   const compare = await githubJson(
-    `/repos/${BINANCE_REPOSITORY}/compare/${readerRevision}...main`, context,
+    `/repos/${BINANCE_REPOSITORY}/compare/${revision}...${ref}`, context,
   );
   const ahead = compare?.ahead_by;
   const total = compare?.total_commits;
@@ -297,12 +292,51 @@ async function assertReaderRevisionIsTrustedAncestor(
   const relationMatches = compare?.status === "identical"
     ? ahead === 0 && total === 0
     : compare?.status === "ahead" && ahead > 0;
-  if (!compare || !relationMatches || !countsMatch
-      || compare.base_commit?.sha !== readerRevision
-      || compare.merge_base_commit?.sha !== readerRevision
-      || compare.behind_by !== 0) {
+  return Boolean(
+    compare && relationMatches && countsMatch
+    && compare.base_commit?.sha === revision
+    && compare.merge_base_commit?.sha === revision
+    && compare.behind_by === 0,
+  );
+}
+
+async function assertReaderRevisionIsTrustedAncestor(
+  context,
+  readerRevision = BINANCE_ACCOUNT_FACTS_READER_REVISION,
+) {
+  if (typeof readerRevision !== "string" || !/^[a-f0-9]{40}$/.test(readerRevision)) {
+    fail("reader_revision_invalid");
+  }
+  if (!(await isTrustedAncestorOfRef(context, readerRevision, "main"))) {
     fail("reader_revision_not_trusted_main_ancestor");
   }
+}
+
+async function assertApplicationRevisionIsTrusted(
+  context,
+  revision,
+  { allowRuntimeProductionAncestor = false } = {},
+) {
+  if (typeof revision !== "string" || !/^[a-f0-9]{40}$/.test(revision)) {
+    fail("reader_revision_invalid");
+  }
+  const authorityRevision = await readEnvironmentVariable(
+    BINANCE_REPOSITORY,
+    BINANCE_ENVIRONMENT,
+    BINANCE_RISK_AUTHORITY_SOURCE_REVISION_VARIABLE,
+    context,
+    { optional: true },
+  );
+  if (authorityRevision !== null && /^[a-f0-9]{40}$/.test(authorityRevision) && authorityRevision === revision) {
+    return;
+  }
+  if (await isTrustedAncestorOfRef(context, revision, "main")) {
+    return;
+  }
+  if (allowRuntimeProductionAncestor && await isTrustedAncestorOfRef(context, revision, "runtime-production")) {
+    return;
+  }
+  fail("reader_revision_not_trusted_main_ancestor");
 }
 
 async function readProtectedVariables(context) {
@@ -359,7 +393,11 @@ async function verifyExistingBinding({
     fail(mismatchCode);
   }
   if (approvedApplicationRevision !== variables.BINANCE_RUNTIME_RELEASE_SHA) {
-    await assertReaderRevisionIsTrustedAncestor(context, approvedApplicationRevision);
+    await assertApplicationRevisionIsTrusted(
+      context,
+      approvedApplicationRevision,
+      { allowRuntimeProductionAncestor: true },
+    );
   }
   let scopedVariables = {
     ...variables,
@@ -443,7 +481,7 @@ async function runReaderRotation({ env, fetchImpl, command }) {
   if (!/^[a-f0-9]{40}$/.test(variables.BINANCE_RUNTIME_RELEASE_SHA || "")) {
     fail("runtime_application_revision_mismatch");
   }
-  await assertReaderRevisionIsTrustedAncestor(context, variables.BINANCE_RUNTIME_RELEASE_SHA);
+  await assertApplicationRevisionIsTrusted(context, variables.BINANCE_RUNTIME_RELEASE_SHA);
   const accountOptions = parseJson(command("npx", ["--yes", "wrangler@4.106.0", "kv", "key", "get", "account_options",
     "--namespace-id", namespaceId, "--remote"], {
     cwd: "web/strategy-switch-console", env, timeout: COMMAND_TIMEOUT_MS,
@@ -631,7 +669,7 @@ export async function runBootstrap({
   if (!/^[a-f0-9]{40}$/.test(variables.BINANCE_RUNTIME_RELEASE_SHA || "")) {
     fail("runtime_application_revision_mismatch");
   }
-  await assertReaderRevisionIsTrustedAncestor(context, variables.BINANCE_RUNTIME_RELEASE_SHA);
+  await assertApplicationRevisionIsTrusted(context, variables.BINANCE_RUNTIME_RELEASE_SHA);
   const binding = buildBinanceFactsBinding({ variables, accountOptions });
   if (env.BINANCE_FACTS_BOOTSTRAP_APPLY !== "true") return { status: "preview", match_count: 1, writes: 0 };
 
