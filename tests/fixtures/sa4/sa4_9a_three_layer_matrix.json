@@ -64,7 +64,7 @@
         "ttl_seconds": 3600,
         "execution_mode": "paper",
         "runtime_enabled": true,
-        "scheduler_state": "active",
+        "scheduler_state": "enabled",
         "strategy_profile": "qsl_core_v1"
       },
       "expected": {

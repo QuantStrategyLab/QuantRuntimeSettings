@@ -12,6 +12,7 @@
 //   unconfirmed runs → outcome null (never "filled" from a transport acceptance);
 //   confirmed "filled" → "filled"; confirmed no_submission/no_signal/no_rebalance → "no_op".
 import { runtimeDailyRunIssue, RUNTIME_DAILY_TIMEZONE } from "../../runtime_daily_contract.js";
+import { runtimeReadbackProjection } from "../console_api/runtime_readback.js";
 import { projectSessionClosureLabel, resolveNextTradingDate, resolveSession } from "../market_sessions/xnys_calendar.js";
 import { DeskError } from "./http.js";
 import { readbackTargets } from "./readback.js";
@@ -255,7 +256,120 @@ export function ribbonSessions(date, now) {
   return ["US", "HK", "CN"].map(resolveVenue);
 }
 
-export async function ribbonProjection(request, env, deps, { date, now, config }) {
+export function projectFleetExecutionMode({ accounts, snapshot, now = Date.now() } = {}) {
+  const list = Array.isArray(accounts) ? accounts : [];
+  const modes = { dry_run: 0, paper: 0, live: 0 };
+  const semantics = { monitoring_only: true, not_trading_or_books: true };
+  const snapshotErrors = Array.isArray(snapshot?.errors) ? snapshot.errors.filter(Boolean) : [];
+  if (list.length === 0) {
+    const failedCount = !snapshot || snapshotErrors.some(code => code !== "runtime_target_lifecycle_source_stale") ? 1 : 0;
+    return {
+      status: failedCount ? "incomplete" : "verified_empty",
+      mode: null,
+      observed_at: null,
+      cohort_count: 0,
+      observed_count: 0,
+      modes,
+      missing_count: 0,
+      stale_count: 0,
+      failed_count: failedCount,
+      conflict_count: 0,
+      reasons: failedCount ? (snapshotErrors.length ? [...new Set(snapshotErrors)] : ["runtime_source_unavailable"]) : [],
+      cohort_basis: "all_configured_targets",
+      semantics,
+    };
+  }
+  if (!snapshot || !Array.isArray(snapshot.targets)) {
+    return {
+      status: "incomplete",
+      mode: null,
+      observed_at: null,
+      cohort_count: list.length,
+      observed_count: 0,
+      modes,
+      missing_count: 0,
+      stale_count: 0,
+      failed_count: list.length,
+      conflict_count: 0,
+      reasons: snapshotErrors.length ? [...new Set(snapshotErrors)] : ["runtime_source_unavailable"],
+      cohort_basis: "all_configured_targets",
+      semantics,
+    };
+  }
+  const failedPlatforms = new Set();
+  for (const code of snapshotErrors) {
+    const idx = typeof code === "string" ? code.lastIndexOf(":") : -1;
+    if (idx > 0) failedPlatforms.add(code.slice(idx + 1));
+  }
+  let observedCount = 0;
+  let missingCount = 0;
+  let staleCount = 0;
+  let failedCount = 0;
+  let conflictCount = 0;
+  const distinctModes = new Set();
+  const observedTimes = [];
+  const reasons = new Set();
+  for (const account of list) {
+    const targetErrors = snapshotErrors.filter(code => {
+      if (typeof code !== "string") return true;
+      const idx = code.lastIndexOf(":");
+      if (idx === -1) return true;
+      return code.slice(idx + 1) === account.platform;
+    });
+    const rt = runtimeReadbackProjection(account, list, { ...snapshot, errors: targetErrors }, now);
+    if (rt.reason === "runtime_binding_conflict") {
+      conflictCount += 1;
+      reasons.add("runtime_binding_conflict");
+    } else if (rt.data_status === "stale") {
+      staleCount += 1;
+      reasons.add(rt.reason || "runtime_observation_stale");
+    } else if (rt.data_status === "ready" && rt.execution_mode !== null) {
+      observedCount += 1;
+      modes[rt.execution_mode] += 1;
+      distinctModes.add(rt.execution_mode);
+      const ms = Date.parse(rt.deployment_observed_at);
+      if (Number.isFinite(ms)) observedTimes.push(ms);
+    } else if (rt.data_status === "ready" && rt.execution_mode === null) {
+      missingCount += 1;
+      reasons.add("runtime_mode_unavailable");
+    } else if (failedPlatforms.has(account.platform) || rt.reason === "runtime_source_incomplete") {
+      failedCount += 1;
+      reasons.add(rt.reason || "runtime_source_incomplete");
+    } else {
+      missingCount += 1;
+      reasons.add(rt.reason || "runtime_observation_missing");
+    }
+  }
+  const oldestAt = observedTimes.length ? utcInstant(Math.min(...observedTimes)) : null;
+  let status = "incomplete";
+  let mode = null;
+  if (observedCount === list.length && missingCount === 0 && staleCount === 0 && failedCount === 0 && conflictCount === 0) {
+    if (distinctModes.size === 1) {
+      status = "single_mode";
+      mode = [...distinctModes][0];
+    } else if (distinctModes.size > 1) {
+      status = "mixed";
+      mode = null;
+    }
+  }
+  return {
+    status,
+    mode,
+    observed_at: oldestAt,
+    cohort_count: list.length,
+    observed_count: observedCount,
+    modes,
+    missing_count: missingCount,
+    stale_count: staleCount,
+    failed_count: failedCount,
+    conflict_count: conflictCount,
+    reasons: [...reasons],
+    cohort_basis: "all_configured_targets",
+    semantics,
+  };
+}
+
+export async function ribbonProjection(request, env, deps, { date, now, config, runtimeLifecycle } = {}) {
   const accounts = configuredAccounts(config);
   const dates = ribbonBusinessDates(date, now);
   // Only the current NY business day's read opts in to its schedule fields; no extra read.
@@ -274,6 +388,9 @@ export async function ribbonProjection(request, env, deps, { date, now, config }
   const nextRun = todayRead
     ? nextScheduledRun({ summary: todayRead.summary, accounts, businessDate: today, now })
     : unknown("source_unavailable", coverage("unavailable", 0, null, ["source_unavailable"]));
+  const fleetModeSummary = runtimeLifecycle !== undefined
+    ? projectFleetExecutionMode({ accounts, snapshot: runtimeLifecycle, now })
+    : undefined;
   return {
     date,
     date_basis: "utc_day",
@@ -289,6 +406,7 @@ export async function ribbonProjection(request, env, deps, { date, now, config }
     // Observed schedule instants only; "no next run" is never inferred.
     next_run: nextRun,
     tape: result.tape,
+    ...(fleetModeSummary !== undefined ? { fleet_mode_summary: fleetModeSummary } : {}),
   };
 }
 

@@ -20,7 +20,7 @@
             "target": {
               "target_id": "rt.syn.a",
               "target": { "platform": "ibkr", "configured_state": "enabled", "execution_mode": "paper" },
-              "deployment": { "observed_at": "2030-01-08T14:50:00Z", "runtime_enabled": true, "scheduler_state": "active", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
+              "deployment": { "observed_at": "2030-01-08T14:50:00Z", "runtime_enabled": true, "scheduler_state": "enabled", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
             }
           },
           {
@@ -31,7 +31,7 @@
             "target": {
               "target_id": "rt.syn.b",
               "target": { "platform": "schwab", "configured_state": "enabled", "execution_mode": "paper" },
-              "deployment": { "observed_at": "2030-01-08T14:54:00Z", "runtime_enabled": true, "scheduler_state": "active", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
+              "deployment": { "observed_at": "2030-01-08T14:54:00Z", "runtime_enabled": true, "scheduler_state": "enabled", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
             }
           }
         ]
@@ -66,7 +66,7 @@
             "target": {
               "target_id": "rt.syn.a",
               "target": { "platform": "ibkr", "configured_state": "enabled", "execution_mode": "paper" },
-              "deployment": { "observed_at": "2030-01-08T14:40:00Z", "runtime_enabled": true, "scheduler_state": "active", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
+              "deployment": { "observed_at": "2030-01-08T14:40:00Z", "runtime_enabled": true, "scheduler_state": "enabled", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
             }
           },
           {
@@ -112,7 +112,7 @@
             "target": {
               "target_id": "rt.syn.a",
               "target": { "platform": "ibkr", "configured_state": "enabled", "execution_mode": "paper" },
-              "deployment": { "observed_at": "2030-01-08T14:52:00Z", "runtime_enabled": true, "scheduler_state": "active", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
+              "deployment": { "observed_at": "2030-01-08T14:52:00Z", "runtime_enabled": true, "scheduler_state": "enabled", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
             }
           },
           {
@@ -123,7 +123,7 @@
             "target": {
               "target_id": "rt.syn.b",
               "target": { "platform": "schwab", "configured_state": "enabled", "execution_mode": "paper" },
-              "deployment": { "observed_at": "2030-01-08T12:00:00Z", "runtime_enabled": true, "scheduler_state": "active", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
+              "deployment": { "observed_at": "2030-01-08T12:00:00Z", "runtime_enabled": true, "scheduler_state": "enabled", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
             }
           }
         ]
@@ -158,7 +158,7 @@
             "target": {
               "target_id": "rt.syn.a",
               "target": { "platform": "ibkr", "configured_state": "enabled", "execution_mode": "live" },
-              "deployment": { "observed_at": "2030-01-08T14:51:00Z", "runtime_enabled": true, "scheduler_state": "active", "strategy_profile": "qsl_core_v1", "execution_mode": "live" }
+              "deployment": { "observed_at": "2030-01-08T14:51:00Z", "runtime_enabled": true, "scheduler_state": "enabled", "strategy_profile": "qsl_core_v1", "execution_mode": "live" }
             }
           }
         ]
@@ -193,7 +193,7 @@
             "target": {
               "target_id": "rt.syn.a",
               "target": { "platform": "ibkr", "configured_state": "enabled", "execution_mode": "paper" },
-              "deployment": { "observed_at": "2030-01-08T14:55:00Z", "runtime_enabled": true, "scheduler_state": "active", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
+              "deployment": { "observed_at": "2030-01-08T14:55:00Z", "runtime_enabled": true, "scheduler_state": "enabled", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
             }
           }
         ]
@@ -248,7 +248,7 @@
             "target": {
               "target_id": "rt.shared",
               "target": { "platform": "ibkr", "configured_state": "enabled", "execution_mode": "paper" },
-              "deployment": { "observed_at": "2030-01-08T14:55:00Z", "runtime_enabled": true, "scheduler_state": "active", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
+              "deployment": { "observed_at": "2030-01-08T14:55:00Z", "runtime_enabled": true, "scheduler_state": "enabled", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
             }
           }
         ]
