@@ -72,8 +72,8 @@
         "saved_vs_platform": "drift",
         "saved_vs_platform_mismatches": ["reserved_cash_ratio"],
         "platform_vs_observed": "match",
-        "platform_vs_observed_compared": ["strategy_profile", "enabled", "broker_environment"],
-        "skipped_non_mutual_in_observed_include": ["reserved_cash_floor", "dca_mode"],
+        "platform_vs_observed_compared": ["strategy_profile", "enabled"],
+        "skipped_non_mutual_in_observed_include": ["reserved_cash_floor", "dca_mode", "broker_environment"],
         "actions_status": "not_enabled"
       }
     },

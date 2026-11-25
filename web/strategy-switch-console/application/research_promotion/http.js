@@ -229,6 +229,7 @@ export async function researchPromotionTicketsResponse(request, env, deps) {
   const {
     exactHumanDecisionResponse,
     listResearchPromotionTickets: listTickets,
+    collectResearchPromotionTickets: collectTickets,
     researchPromotionReviewBinding,
     ResearchPromotionReviewMaterialError,
     RESEARCH_PROMOTION_REVIEW_INVALID,
@@ -245,7 +246,21 @@ export async function researchPromotionTicketsResponse(request, env, deps) {
   if (exact) return exact;
   const tickets = [];
   const invalidTickets = [];
-  for (const ticket of await listTickets(env)) {
+  const collected = typeof collectTickets === "function"
+    ? await collectTickets(env)
+    : {
+        tickets: await listTickets(env),
+        corrupt_omitted_count: 0,
+        cap: RESEARCH_PROMOTION_MAX_TICKETS,
+        truncated: false,
+      };
+  const listedTickets = Array.isArray(collected?.tickets)
+    ? collected.tickets.slice(0, collected?.cap ?? RESEARCH_PROMOTION_MAX_TICKETS)
+    : [];
+  const corruptOmittedCount = Number.isSafeInteger(collected?.corrupt_omitted_count) ? collected.corrupt_omitted_count : 0;
+  const promotionCap = Number.isSafeInteger(collected?.cap) ? collected.cap : RESEARCH_PROMOTION_MAX_TICKETS;
+  const promotionTruncated = Boolean(collected?.truncated);
+  for (const ticket of listedTickets) {
     let reviewBinding;
     try {
       reviewBinding = await researchPromotionReviewBinding(ticket);
@@ -284,13 +299,19 @@ export async function researchPromotionTicketsResponse(request, env, deps) {
     }
     applications.push({ ...preparation, application });
   }
+  const promotionErrors = [];
+  if (invalidTickets.length) promotionErrors.push(RESEARCH_PROMOTION_REVIEW_INVALID);
+  if (corruptOmittedCount > 0) promotionErrors.push("research_promotion_corrupt_tickets_omitted");
   return json({
     schema_version: RESEARCH_PROMOTION_QUEUE_SCHEMA,
-    data_status: hasConfigStore(env) ? (invalidTickets.length ? "partial" : "ready") : "unavailable",
+    data_status: hasConfigStore(env) ? (invalidTickets.length || corruptOmittedCount > 0 ? "partial" : "ready") : "unavailable",
     computed_at: new Date().toISOString(),
     tickets: decorateQueue({ tickets: awaiting.map(attachRiskEnvelopeView) }, "tickets", "strategy_promotion").tickets,
     applications,
     ...(invalidTickets.length ? { invalid_tickets: invalidTickets } : {}),
+    corrupt_omitted_count: corruptOmittedCount,
+    cap: promotionCap,
+    truncated: promotionTruncated,
     summary: {
       ticket_count: awaiting.length,
       awaiting_human: awaiting.length,
@@ -305,6 +326,6 @@ export async function researchPromotionTicketsResponse(request, env, deps) {
       activation_status: "not_connected",
       notice: "网页只记录晋级人工意图；确认不授予实盘权限，也不下单。",
     },
-    errors: invalidTickets.length ? [RESEARCH_PROMOTION_REVIEW_INVALID] : [],
+    errors: promotionErrors,
   });
 }

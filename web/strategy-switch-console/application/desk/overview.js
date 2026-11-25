@@ -351,11 +351,25 @@ export async function deskOverviewResponse(request, env, deps) {
       summary = read.ok && read.value && Array.isArray(read.value.accounts) ? read.value : null;
     }
     const { performance, members, end } = await readPerformanceSources(env, deps, { range: OVERVIEW_RANGE, now, config, facts });
+    let runtimeLifecycle;
+    let ownerQueueSources;
+    if (config.ok) {
+      if (typeof deps.runtimeLifecycle === "function") {
+        const lc = await readOnce(() => deps.runtimeLifecycle(env));
+        runtimeLifecycle = lc.ok ? lc.value : { targets: null, errors: ["runtime_source_read_failed"] };
+      }
+      if (typeof deps.ownerQueueSources === "function") {
+        const q = await readOnce(() => deps.ownerQueueSources(request, env, { credential, now }));
+        ownerQueueSources = q.ok && q.value && typeof q.value === "object"
+          ? q.value
+          : { owner_decisions: null, promotion_applications: null, reconciliation_recovery: null, credential_maintenance: null };
+      }
+    }
     return n1Response("overview", {
       time_basis: timeBasis("UTC", [
         ["account_facts", "UTC"], ["account_facts_history", "Asia/Shanghai"], ["runtime_daily", RUNTIME_DAILY_TIMEZONE],
       ]),
-      ...overviewProjection({ config, facts, credential, summary, businessDate, performance, now, members, historyEnd: end }),
+      ...overviewProjection({ config, facts, credential, summary, businessDate, performance, now, members, historyEnd: end, runtimeLifecycle, ownerQueueSources }),
     }, { now });
   });
 }

@@ -100,7 +100,8 @@ try {
 
 const bindings = { SESSION_SECRET: "synthetic-session-only", ALLOWED_GITHUB_LOGINS: "synthetic-admin,synthetic-reader",
   STRATEGY_SWITCH_ADMIN_LOGINS: "synthetic-admin", RUNTIME_SETTINGS_DISPATCH_TOKEN: "synthetic-upstream-only",
-  STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ longbridge: [config, { ...config, key: "failed", target_name: "failed", account_selector: "FAKE0002", deployment_selector: "failed", account_scope: "FAKE0002", service_name: "synthetic-failed" }] }) };
+  EXECUTION_EVIDENCE_SYNC_TOKEN: "synthetic-lifecycle-sync",
+  STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ longbridge: [config, { ...config, key: "failed", target_name: "failed", account_selector: "FAKE0002", deployment_selector: "failed", account_scope: "FAKE0002", service_name: "synthetic-failed", runtime_status_target_id: "longbridge.failed" }] }) };
 let cookie, otherCookie, renewedCookie;
 Date.now = () => now;
 try {
@@ -125,8 +126,9 @@ const mf = new Miniflare({ modules: true, compatibilityDate: "2026-06-08", modul
       { name: "LONGBRIDGE_RESERVED_CASH_RATIO", value: "0.0800" }, { name: "TOKEN", value: "synthetic-poison" }] });
   },
 });
-async function call(path, { body, auth = cookie, origin = "https://synthetic.example", raw } = {}) {
-  const response = await mf.dispatchFetch(`https://synthetic.example${path}`, { method: body !== undefined || raw !== undefined ? "POST" : "GET", headers: { Cookie: auth, Origin: origin, "Content-Type": "application/json" }, ...(body !== undefined ? { body: JSON.stringify(body) } : raw !== undefined ? { body: raw } : {}) });
+async function call(path, { body, auth = cookie, origin = "https://synthetic.example", raw, bearer } = {}) {
+  const headers = { ...(bearer ? { Authorization: `Bearer ${bearer}` } : { Cookie: auth, Origin: origin }), "Content-Type": "application/json" };
+  const response = await mf.dispatchFetch(`https://synthetic.example${path}`, { method: body !== undefined || raw !== undefined ? "POST" : "GET", headers, ...(body !== undefined ? { body: JSON.stringify(body) } : raw !== undefined ? { body: raw } : {}) });
   const data = await response.json();
   if (!path.startsWith("/test/")) assert.equal(response.headers.get("cache-control"), "no-store");
   return { status: response.status, body: data };
@@ -232,6 +234,64 @@ try {
   const successful = await call(`/api/desk/readbacks/${success.body.readback_id}`);
   assert.equal(successful.body.state, "done"); conforms("readback-job", successful.body);
   const finalSavedId = successful.body.results[0].readback_id;
+  // Seed runtime target lifecycle evidence and verify real HTTP readback + /api/desk/accounts readback_9a wiring.
+  const lifecycleTs = new Date(now - 60_000).toISOString();
+  const lifecycleSeed = await call("/api/internal/sync-runtime-target-lifecycle-source", {
+    bearer: "synthetic-lifecycle-sync",
+    body: {
+      schema_version: "qsl_runtime_target_lifecycle_source_snapshot.v1",
+      source_id: "longbridge.synthetic",
+      generated_at: lifecycleTs,
+      computed_at: lifecycleTs,
+      data_status: "ready",
+      errors: [],
+      targets: [{
+        target_id: "longbridge.demo",
+        target: { platform: "longbridge", configured_state: "enabled", execution_mode: "live" },
+        monitoring: { runtime_guard: "pass", execution_heartbeat: "pass" },
+        disposition: { code: "continue_enabled_monitoring", reason_code: "none" },
+        no_order: true,
+        deployment: {
+          observed_at: lifecycleTs,
+          runtime_enabled: true,
+          scheduler_state: "enabled",
+          strategy_profile: "demo_profile",
+          execution_mode: "live",
+        },
+      }],
+    },
+  });
+  assert.equal(lifecycleSeed.status, 200, "lifecycle source sync succeeds in Miniflare");
+  assert.equal((await call("/api/admin/kv-directory", { body: {} })).status, 200, "kv-directory index maintained");
+  const countBeforeDeploymentReadback = (await call("/test/count")).body.count;
+  const deployedReadback = await call("/api/desk/targets/longbridge%2Fdemo/readback");
+  assert.equal(deployedReadback.status, 200);
+  conforms("readback", deployedReadback.body);
+  assert.equal((await call("/test/count")).body.count, countBeforeDeploymentReadback, "GET with lifecycle deployment performs zero DO writes");
+  assert.equal(deployedReadback.body.observed_deployment.data_status, "ready", `unexpected observed_deployment: ${JSON.stringify(deployedReadback.body.observed_deployment)}`);
+  assert.equal(deployedReadback.body.observed_deployment.execution_mode, "live");
+  assert.equal(deployedReadback.body.comparisons.platform_vs_observed.status, "drift");
+  assert.deepEqual(deployedReadback.body.comparisons.platform_vs_observed.mismatched_fields, ["enabled"]);
+  assert.equal(deployedReadback.body.comparisons.saved_vs_observed.status, "match", "paper broker_environment + live default_execution_mode matches observed live without false drift");
+  assert.ok(deployedReadback.body.comparisons.saved_vs_observed.skipped_non_mutual_fields.includes("broker_environment"));
+  // Refresh stored readback job with lifecycle evidence present so /api/desk/accounts reflects observed deployment & drift.
+  await call("/test/advance");
+  const refreshWithDeploy = await call("/api/desk/readbacks", { body: { idempotency_key: "with-deploy", target_ids: ["longbridge/demo"] } });
+  assert.equal(refreshWithDeploy.status, 202);
+  await call("/test/alarm");
+  const upstreamBeforeAccounts = upstreamReads;
+  const accountsAfterJob = await call("/api/desk/accounts");
+  assert.equal(accountsAfterJob.status, 200);
+  assert.equal(upstreamReads, upstreamBeforeAccounts, "GET /api/desk/accounts makes zero outbound fetches");
+  assert.equal(accountsAfterJob.body.brokers.value[0].readback_9a.status, "drift", "accounts route surfaces stored 9A readback summary");
+  assert.equal(accountsAfterJob.body.brokers.value[0].readback_9a.layers_available.observed_deployment, true);
+  assert.equal(accountsAfterJob.body.brokers.value[0].readback_9a.drift_target_count, 1);
+  const otherAccounts = await call("/api/desk/accounts", { auth: otherCookie });
+  assert.equal(otherAccounts.status, 200);
+  assert.equal(otherAccounts.body.brokers.value[0].readback_9a.layers_available.observed_deployment, false, "other owner sees only its own older snapshot");
+  const freshAccounts = await call("/api/desk/accounts", { auth: renewedCookie });
+  assert.equal(freshAccounts.status, 200);
+  assert.equal(freshAccounts.body.brokers.value[0].readback_9a, undefined, "stored 9A readbacks remain owner-isolated");
   await call("/test/expire");
   assert.equal((await call("/test/count")).body.count, 0, "expired snapshots and jobs are physically removed");
   assert.equal((await call("/test/count")).body.admissions, 0, "expired admission records are physically removed");

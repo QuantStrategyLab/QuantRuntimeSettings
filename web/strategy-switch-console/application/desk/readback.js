@@ -1,6 +1,7 @@
 import { known, unknown } from "./read.js";
 import { DeskError, deskResponse, deskJson, deskErrorResponse } from "./http.js";
 import { withIdempotency } from "./idempotency.js";
+import { runtimeReadbackProjection } from "../console_api/runtime_readback.js";
 
 export const READBACK_KEYS = Object.freeze(["strategy_profile", "broker_environment", "income_layer_enabled",
   "option_overlay_enabled", "reserved_cash_floor", "reserved_cash_ratio", "dca_mode",
@@ -47,12 +48,13 @@ export function normalizeReadbackValue(key, value, cleanRatio, splitSelectorValu
   return text || null;
 }
 
+const EXECUTION_MODE_VALUES = new Set(["dry_run", "paper", "live"]);
 const MUTUAL_OBSERVED_AXES = [
   { key: "strategy_profile", observedKey: "strategy_profile" },
   { key: "enabled", observedKey: "runtime_enabled" },
-  { key: "broker_environment", observedKey: "execution_mode" },
+  { key: "execution_mode", observedKey: "execution_mode", rawKeys: ["execution_mode", "default_execution_mode"] },
 ];
-const MUTUAL_OBSERVED_KEYS = new Set(MUTUAL_OBSERVED_AXES.map(item => item.key));
+const MUTUAL_OBSERVED_KEYS = new Set(MUTUAL_OBSERVED_AXES.filter(item => !item.rawKeys).map(item => item.key));
 const defaultCleanRatio = text => (/^(?:0(?:\.\d+)?|1(?:\.0+)?)$/.test(String(text).trim()) ? String(text).trim() : null);
 const defaultSplitSelectors = value => (Array.isArray(value) ? value : String(value ?? "").split(/[\s,;]+/))
   .map(item => String(item).trim())
@@ -122,7 +124,16 @@ function normalizeObservedDeployment(deployment) {
   };
 }
 
-function compareLayerToObserved(layerValues, observedDeployment) {
+function pickExplicitExecutionMode(rawLayer, rawKeys) {
+  if (!rawLayer || typeof rawLayer !== "object") return null;
+  for (const rawKey of rawKeys) {
+    const val = typeof rawLayer[rawKey] === "string" ? rawLayer[rawKey].trim().toLowerCase() : "";
+    if (EXECUTION_MODE_VALUES.has(val)) return val;
+  }
+  return null;
+}
+
+function compareLayerToObserved(layerValues, observedDeployment, rawLayer = null) {
   const skipped = READBACK_KEYS.filter(key => !MUTUAL_OBSERVED_KEYS.has(key));
   if (observedDeployment.data_status !== "ready") {
     return {
@@ -135,8 +146,8 @@ function compareLayerToObserved(layerValues, observedDeployment) {
   }
   const compared = [];
   const mismatched = [];
-  for (const { key, observedKey } of MUTUAL_OBSERVED_AXES) {
-    const leftVal = layerValues[key];
+  for (const { key, observedKey, rawKeys } of MUTUAL_OBSERVED_AXES) {
+    const leftVal = rawKeys ? pickExplicitExecutionMode(rawLayer, rawKeys) : layerValues[key];
     const rightVal = observedDeployment[observedKey];
     if (leftVal === null || leftVal === undefined || rightVal === null || rightVal === undefined) {
       skipped.push(key);
@@ -212,8 +223,12 @@ export function buildReadback({ target, observed, platform = {}, platformReason 
       skipped_non_mutual_fields: savedVsPlatformSkipped,
       reason: savedVsPlatformStatus === "unknown" ? (platformReason || "comparison_incomplete") : null,
     },
-    platform_vs_observed: compareLayerToObserved(platformValues, observedDeployment),
-    saved_vs_observed: compareLayerToObserved(savedValues, observedDeployment),
+    platform_vs_observed: compareLayerToObserved(platformValues, observedDeployment, platform),
+    saved_vs_observed: compareLayerToObserved(
+      savedValues,
+      observedDeployment,
+      draft?.status === "identity_conflict" || !observed ? null : saved,
+    ),
   };
   return { target_id: target.id, readback_id: `rb_${crypto.randomUUID()}`, read_at: time,
     saved_revision: revision,
@@ -256,6 +271,7 @@ export function createDeskTargetReadback(deps) {
     runtimeTargetMatchesAccount,
     cleanCurrentRatio,
     splitSelectorValues,
+    readLifecycleSnapshot,
   } = deps;
 
   // Desk reads deliberately bypass the current-strategies memory/KV cache. Raw
@@ -298,7 +314,8 @@ export function createDeskTargetReadback(deps) {
         if (failed) throw new Error("read_failed");
         const identity = current?.source === "CLOUD_RUN_SERVICE_TARGETS_JSON" ? service
           : runtime && runtimeTargetMatchesAccount(runtime, target.platform, config) ? runtime : null;
-        platform = { strategy_profile: current?.strategy_profile, enabled: current?.runtime_target_enabled,
+        platform = { strategy_profile: current?.strategy_profile, execution_mode: current?.execution_mode,
+          enabled: current?.runtime_target_enabled,
           income_layer_enabled: current?.income_layer_enabled, option_overlay_enabled: current?.option_overlay_enabled,
           reserved_cash_floor: current?.min_reserved_cash_usd, reserved_cash_ratio: current?.reserved_cash_ratio,
           dca_mode: current?.dca_mode, dca_base_investment_usd: current?.dca_base_investment_usd,
@@ -308,6 +325,26 @@ export function createDeskTargetReadback(deps) {
       } catch { platform = {}; platformReason = "read_failed"; }
     }
     const nowMs = Date.now();
+    let deployment = null;
+    if (typeof readLifecycleSnapshot === "function") {
+      try {
+        const snapshot = await readLifecycleSnapshot(env);
+        if (snapshot && Array.isArray(snapshot.targets)) {
+          const optMap = observed?.account_options;
+          const configured = optMap && typeof optMap === "object"
+            ? Object.entries(optMap).flatMap(([p, rows]) => (Array.isArray(rows) ? rows : []).map(row => ({ ...row, platform: p })))
+            : [{ ...config, platform: target.platform, key: target.key }];
+          deployment = runtimeReadbackProjection(
+            { platform: target.platform, key: target.key, runtime_status_target_id: config?.runtime_status_target_id || null },
+            configured,
+            snapshot,
+            nowMs,
+          );
+        }
+      } catch {
+        deployment = { data_status: "unavailable", reason: "runtime_source_read_failed" };
+      }
+    }
     return buildReadback({
       target,
       observed,
@@ -321,8 +358,17 @@ export function createDeskTargetReadback(deps) {
         read_at: new Date(nowMs).toISOString(),
         source_as_of: null,
       },
+      deployment,
     });
   };
+}
+
+export async function deskReadbackSessionOwner(request, session) {
+  const cookie = (request.headers.get("Cookie") || "").split(";").map(part => part.trim())
+    .filter(part => part.startsWith("qsl_switch_session=")).at(-1)?.slice(19) || "";
+  const sessionKey = decodeURIComponent(cookie).split(".", 2).join(".");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(sessionKey || session.login));
+  return Array.from(new Uint8Array(digest), x => x.toString(16).padStart(2, "0")).join("");
 }
 
 export async function deskReadbackResponse(request, env, deps) {
@@ -331,11 +377,7 @@ export async function deskReadbackResponse(request, env, deps) {
     const session = await deps.auth(request, env, { write: request.method === "POST" });
     // Session cookie is hashed; no raw session token is persisted or forwarded.
     // Match readSession's last-cookie-wins decoding and accepted token parts.
-    const cookie = (request.headers.get("Cookie") || "").split(";").map(part => part.trim())
-      .filter(part => part.startsWith("qsl_switch_session=")).at(-1)?.slice(19) || "";
-    const sessionKey = decodeURIComponent(cookie).split(".", 2).join(".");
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(sessionKey || session.login));
-    const owner = Array.from(new Uint8Array(digest), x => x.toString(16).padStart(2, "0")).join("");
+    const owner = await deskReadbackSessionOwner(request, session);
     const command = async data => {
       try { return await deps.command(env, { ...data, owner, actor: session.login }); }
       catch (error) { throw new DeskError([400, 404, 409, 429, 503].includes(error.status) ? error.message : "store_unavailable", [400, 404, 409, 429, 503].includes(error.status) ? error.status : 503); }
@@ -438,6 +480,23 @@ export class DeskReadbackStore {
       const record = await storage.get(prefix + command.id);
       if (!record || record.owner !== command.owner || record.expires <= now) throw new DeskError("not_found", 404);
       return { payload: record.payload };
+    }
+    if (command.action === "desk_readback_latest") {
+      const records = await storage.list({ prefix });
+      const readbacks = {};
+      for (const record of records.values()) {
+        if (!record || record.owner !== command.owner || record.expires <= now) continue;
+        const payload = record.payload;
+        const targetId = payload?.target_id;
+        if (typeof targetId !== "string" || !targetId) continue;
+        const prev = readbacks[targetId];
+        const prevMs = prev ? Date.parse(prev.read_at || "") : -Infinity;
+        const currMs = Date.parse(payload.read_at || "");
+        if (!prev || (Number.isFinite(currMs) ? (!Number.isFinite(prevMs) || currMs >= prevMs) : false)) {
+          readbacks[targetId] = payload;
+        }
+      }
+      return { readbacks };
     }
     throw new DeskError("invalid_request", 400);
   }

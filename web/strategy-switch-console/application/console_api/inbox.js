@@ -186,7 +186,11 @@ function projectCsa26QueueItems(csa26Records, sourceObservedAt, nowMs) {
       : REGISTERED_BY_PLATFORM.get(rec.platform);
     if (!reg) continue;
     const expiresIso = normalizeIsoOrNull(rec.expires_at);
-    const obsIso = normalizeIsoOrNull(rec.observed_at) || normalizeIsoOrNull(rec.last_rotated_at) || sourceObservedAt || (expiresIso ? evalIso : null);
+    const explicitObsIso = normalizeIsoOrNull(rec.observed_at) || normalizeIsoOrNull(rec.last_rotated_at);
+    const evidenceSource = rec.evidence_source || (expiresIso || explicitObsIso ? "operator_declared" : "unobserved");
+    const obsIso = evidenceSource === "unobserved"
+      ? explicitObsIso
+      : (explicitObsIso || sourceObservedAt || (expiresIso ? evalIso : null));
     prepared.push({
       credential_id: reg.credential_id,
       platform: reg.platform,
@@ -199,7 +203,7 @@ function projectCsa26QueueItems(csa26Records, sourceObservedAt, nowMs) {
       expires_at: expiresIso,
       observed_at: obsIso,
       evaluated_at: evalIso,
-      evidence_source: rec.evidence_source || (expiresIso || obsIso ? "operator_declared" : "unobserved"),
+      evidence_source: evidenceSource,
     });
   }
   if (!prepared.length) return [];
@@ -373,5 +377,184 @@ export function projectUnifiedOwnerQueue12A({
     corrupt_omitted_total: corruptOmittedTotal,
     errors: [...new Set(allErrors)],
     observed_at: oldestObserved,
+  };
+}
+
+function toQueueItem12A(row, category, fallbackObservedAt) {
+  const item = canonicalItem(row, category);
+  const blockers = Array.isArray(item.blocking_reason_codes) ? item.blocking_reason_codes : [];
+  const decisionStatus = typeof item.decision_state?.status === "string"
+    ? item.decision_state.status
+    : null;
+  return {
+    id: item.id,
+    platform: item.platform ?? null,
+    account_alias: item.account_alias ?? null,
+    target_id: null,
+    status: item.status,
+    decision_state: decisionStatus,
+    actionable: item.actionable === true,
+    blocked: blockers.length > 0 || (item.actionable !== true && item.status !== "decided"),
+    expired: item.status === "expired",
+    blocker_reasons: blockers,
+    title: item.title_key || item.short_id || item.id,
+    detail: item.short_id || null,
+    observed_at: item.evidence_freshness?.as_of || item.created_at || fallbackObservedAt || null,
+    expires_at: item.expires_at || null,
+    route: item.action_endpoint || "/?page=decisions",
+  };
+}
+
+function sourceStatusFromPayload(ok, body) {
+  if (!ok || !body || typeof body !== "object") return "read_failed";
+  const ds = body.data_status;
+  if (ds === "ready" || ds === "partial") return "ok";
+  if (ds === "stale") return "stale";
+  if (ds === "unavailable") return "unavailable";
+  return "read_failed";
+}
+
+async function readQueueFamilyHttpSource(request, env, reader, {
+  family,
+  category,
+  defaultCap,
+  extractRows,
+  readErrorCode,
+}) {
+  if (typeof reader !== "function") {
+    return { status: "read_failed", observed_at: null, cap: null, truncated: false, corrupt_omitted_count: 0, errors: [readErrorCode], items: [] };
+  }
+  try {
+    const response = await reader(request, env);
+    if (!response || !response.ok) {
+      return { status: "read_failed", observed_at: null, cap: null, truncated: false, corrupt_omitted_count: 0, errors: [readErrorCode], items: [] };
+    }
+    const body = await response.json();
+    const observedAt = normalizeIsoOrNull(body?.computed_at) || normalizeIsoOrNull(body?.generated_at);
+    const errors = Array.isArray(body?.errors) ? body.errors.filter(e => typeof e === "string" && e) : [];
+    const cap = Number.isSafeInteger(body?.cap) && body.cap >= 0 ? body.cap : defaultCap;
+    const corruptOmitted = Number.isSafeInteger(body?.corrupt_omitted_count) && body.corrupt_omitted_count >= 0
+      ? body.corrupt_omitted_count
+      : 0;
+    const truncated = Boolean(body?.truncated === true || errors.some(e => /truncated|capped/.test(e)));
+    return {
+      status: sourceStatusFromPayload(true, body),
+      observed_at: observedAt,
+      cap,
+      truncated,
+      corrupt_omitted_count: corruptOmitted,
+      errors,
+      items: extractRows(body, observedAt),
+    };
+  } catch {
+    return { status: "read_failed", observed_at: null, cap: null, truncated: false, corrupt_omitted_count: 0, errors: [readErrorCode], items: [] };
+  }
+}
+
+/**
+ * Reads all 4 live/stored SA-4 12A owner-queue sources in-process for `/api/desk/overview`
+ * using injected existing read handlers plus stored credential-maintenance metadata.
+ */
+export async function readOwnerQueueSources12A(request, env, {
+  owner,
+  promotion,
+  recovery,
+  credential,
+  now = Date.now(),
+  accountsCredentialCalendarProjection,
+} = {}) {
+  const [ownerSrc, promoSrc, recoverySrc] = await Promise.all([
+    readQueueFamilyHttpSource(request, env, owner, {
+      family: "owner_decisions",
+      category: "owner_decision",
+      defaultCap: 100,
+      readErrorCode: "owner_decisions_read_failed",
+      extractRows: (body, observedAt) => (Array.isArray(body?.candidates) ? body.candidates : [])
+        .map(row => toQueueItem12A(row, "owner_decision", observedAt)),
+    }),
+    readQueueFamilyHttpSource(request, env, promotion, {
+      family: "promotion_applications",
+      category: "strategy_promotion",
+      defaultCap: 200,
+      readErrorCode: "promotion_applications_read_failed",
+      extractRows: (body, observedAt) => {
+        const merged = new Map((Array.isArray(body?.tickets) ? body.tickets : []).map(r => [r.ticket_id, r]));
+        for (const row of (Array.isArray(body?.applications) ? body.applications : [])) {
+          if (row.confirmation_execution_mode === "paper" || row.application?.broker_environment === "paper" || row.application_preparation?.preview_request) {
+            merged.set(row.ticket_id, row);
+          }
+        }
+        const items = [...merged.values()].map(row => toQueueItem12A(row, "strategy_promotion", observedAt));
+        for (const inv of (Array.isArray(body?.invalid_tickets) ? body.invalid_tickets : [])) {
+          const blockers = Array.isArray(inv?.decision_material?.blocker_codes) ? inv.decision_material.blocker_codes : ["research_promotion_review_material_invalid"];
+          items.push({
+            id: `strategy_promotion:${inv?.ticket_id || "invalid"}`,
+            platform: null,
+            account_alias: null,
+            target_id: null,
+            status: "pending",
+            decision_state: "pending",
+            actionable: false,
+            blocked: true,
+            expired: false,
+            blocker_reasons: blockers,
+            title: inv?.strategy_profile || inv?.ticket_id || "invalid_promotion_ticket",
+            detail: inv?.state || null,
+            observed_at: observedAt,
+            expires_at: null,
+            route: "/?page=decisions",
+          });
+        }
+        return items;
+      },
+    }),
+    readQueueFamilyHttpSource(request, env, recovery, {
+      family: "reconciliation_recovery",
+      category: "reconciliation_recovery",
+      defaultCap: 100,
+      readErrorCode: "reconciliation_recovery_read_failed",
+      extractRows: (body, observedAt) => (Array.isArray(body?.recoveries) ? body.recoveries : [])
+        .map(row => toQueueItem12A(row, "reconciliation_recovery", observedAt)),
+    }),
+  ]);
+
+  let credSrc;
+  if (!credential?.ok) {
+    credSrc = {
+      status: "read_failed",
+      observed_at: null,
+      cap: null,
+      truncated: false,
+      corrupt_omitted_count: 0,
+      errors: ["credential_maintenance_read_failed"],
+      items: [],
+      csa26_records: [],
+    };
+  } else {
+    const evalIso = new Date(now).toISOString().replace(/\.000Z$/, "Z");
+    const calendar = typeof accountsCredentialCalendarProjection === "function"
+      ? accountsCredentialCalendarProjection({ ibkrRecord: credential.raw || null, evaluatedAt: evalIso })
+      : null;
+    const rawObs = normalizeIsoOrNull(credential.raw?.observed_at)
+      || normalizeIsoOrNull(credential.raw?.updated_at)
+      || normalizeIsoOrNull(credential.raw?.last_rotated_at)
+      || evalIso;
+    credSrc = {
+      status: "ok",
+      observed_at: rawObs,
+      cap: null,
+      truncated: false,
+      corrupt_omitted_count: 0,
+      errors: [],
+      items: [],
+      csa26_records: Array.isArray(calendar?.records) ? calendar.records : [],
+    };
+  }
+
+  return {
+    owner_decisions: ownerSrc,
+    promotion_applications: promoSrc,
+    reconciliation_recovery: recoverySrc,
+    credential_maintenance: credSrc,
   };
 }

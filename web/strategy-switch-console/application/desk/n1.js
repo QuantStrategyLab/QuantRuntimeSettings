@@ -127,8 +127,8 @@ export function n1Response(name, payload, { now }) {
 export async function n1Route(request, env, deps, handler) {
   try {
     if (request.method !== "GET") throw new DeskError("not_found", 404);
-    await deps.auth(request, env);
-    return await handler(new URL(request.url));
+    const session = await deps.auth(request, env);
+    return await handler(new URL(request.url), session);
   } catch (error) {
     return deskErrorResponse(error);
   }

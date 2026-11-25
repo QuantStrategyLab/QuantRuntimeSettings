@@ -976,13 +976,15 @@ assert.equal(switchStrategiesTargetId("/api/desk/switch/targets"), null);
   };
   const runtime = {
     idFromName: name => name,
-    get: () => ({ async fetch(url, init = {}) {
+    get: name => ({ async fetch(url, init = {}) {
+      if (name === "console-kv-directory-v1") return Response.json({ ok: true, keys: [], list_complete: true });
       if (!init.body) return Response.json({ initialized: true, account_options: { firstrade: accts.map(a => a.option) }, revision: 3 });
       const command = JSON.parse(init.body);
       actions.push(command.action);
       if (command.action === "account_facts_list") return Response.json({ observations: accts.map(a => ({ platform: "firstrade", account_key: a.key, payload: a.current })) });
       if (command.action === "account_facts_history_read") return Response.json({ ok: true, days: historyDays(accts.find(a => a.key === command.account_key), ["1000", "1001"]) });
       if (command.action === "credential_maintenance_read") return Response.json({ id: "ibkr_flex", expires_at: null, phase: "unknown" });
+      if (command.action === "desk_readback_latest") return Response.json({ readbacks: {} });
       return Response.json({ error: "not_allowed_in_test" }, { status: 500 });
     } }),
   };
@@ -1020,10 +1022,10 @@ assert.equal(switchStrategiesTargetId("/api/desk/switch/targets"), null);
     globalThis.fetch = realFetch;
   }
   // The Desk totals follow the shared management cohort, read through the object's fixed read-only path.
-  assert.deepEqual([...new Set(actions)].sort(), ["account_facts_history_read", "account_facts_list", "account_management_read", "credential_maintenance_read"]);
+  assert.deepEqual([...new Set(actions)].sort(), ["account_facts_history_read", "account_facts_list", "account_management_read", "credential_maintenance_read", "desk_readback_latest"]);
   assert.equal(kvPuts, 0, "zero config-store writes");
   assert.equal(outbound, 0, "zero outbound provider/collector fetches");
-  assert.deepEqual([...__test.DESK_N1_READ_COMMANDS], ["account_facts_list", "account_facts_history_read", "credential_maintenance_read"]);
+  assert.deepEqual([...__test.DESK_N1_READ_COMMANDS], ["account_facts_list", "account_facts_history_read", "credential_maintenance_read", "desk_readback_latest"]);
 }
 
 // The frozen v1 contract stays byte-for-byte recoverable from its indented copy.

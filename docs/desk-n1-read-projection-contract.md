@@ -275,11 +275,12 @@ readbacks, credentials and alert-delivery routes intact.
 - The five handlers call no PUT/POST/write/dispatch/scheduler/readback-create or
   provider-collection function. The only Durable Object commands they can
   reach are the existing read-only `account_facts_list`,
-  `account_facts_history_read`, `credential_maintenance_read` (existing POST
-  RPC transport), and the physically read-only preamble path
-  `account_management_read` (`/internal/account-management-read`, dispatched
-  before `initializeStorage`); the Worker wrapper rejects any other command.
-  Tests inject fakes that throw on any write and assert zero such calls.
+  `account_facts_history_read`, `credential_maintenance_read`,
+  `desk_readback_latest` (existing POST RPC transport), and the physically
+  read-only preamble path `account_management_read` (`/internal/account-management-read`,
+  dispatched before `initializeStorage`); the Worker wrapper rejects any other
+  command. Tests inject fakes that throw on any write and assert zero such
+  calls.
 - Baseline delta ([ADR 0002](adr/0002-observation-and-identity-boundaries.md)):
   the boundary above is the Worker's command allowlist, not the full request
   lifecycle. Each of the five routes reaches the `RuntimeInstances` Durable

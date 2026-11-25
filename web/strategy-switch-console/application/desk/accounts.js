@@ -84,11 +84,15 @@ function brokerReadback9a(ownTargets, readbacks9a) {
   if (!readbacks9a || typeof readbacks9a !== "object") return undefined;
   const matched = ownTargets.map(t => readbacks9a[t.id]).filter(Boolean);
   if (!matched.length) return undefined;
-  const hasDrift = matched.some(r => r.overall === "drift"
+  const targetHasDrift = (r) => r.overall === "drift"
     || r.comparisons?.saved_vs_platform?.status === "drift"
     || r.comparisons?.platform_vs_observed?.status === "drift"
-    || r.comparisons?.saved_vs_observed?.status === "drift");
-  const allMatch = !hasDrift && matched.length === ownTargets.length && matched.every(r => r.overall === "match");
+    || r.comparisons?.saved_vs_observed?.status === "drift";
+  const targetAllMatch = (r) => r.comparisons?.saved_vs_platform?.status === "match"
+    && r.comparisons?.platform_vs_observed?.status === "match"
+    && r.comparisons?.saved_vs_observed?.status === "match";
+  const hasDrift = matched.some(targetHasDrift);
+  const allMatch = !hasDrift && matched.length === ownTargets.length && matched.every(targetAllMatch);
   const observedTimes = matched.map(r => r.observed_deployment?.observed_at || r.read_at).filter(Boolean)
     .sort((a, b) => Date.parse(a) - Date.parse(b));
   return {
@@ -99,7 +103,7 @@ function brokerReadback9a(ownTargets, readbacks9a) {
       observed_deployment: matched.some(r => r.observed_deployment?.data_status === "ready"),
     },
     compared_target_count: matched.length,
-    drift_target_count: matched.filter(r => r.overall === "drift").length,
+    drift_target_count: matched.filter(targetHasDrift).length,
     observed_at: observedTimes[0] ?? null,
     actions: {
       reapply_saved: { status: "not_enabled", allowed: false, reason_code: "not_enabled" },
@@ -169,7 +173,7 @@ export async function readFactsModel(env, deps, config, now) {
 export async function readCredential(env, deps) {
   const record = await readOnce(() => deps.command(env, { action: "credential_maintenance_read" }));
   if (!record.ok) return { ok: false };
-  try { return { ok: true, item: credentialItems(record.value)[0] }; }
+  try { return { ok: true, item: credentialItems(record.value)[0], raw: record.value }; }
   catch { return { ok: false }; }
 }
 
@@ -179,13 +183,18 @@ export async function readAccountsSources(env, deps, now) {
 }
 
 export async function deskAccountsResponse(request, env, deps) {
-  return n1Route(request, env, deps, async (url) => {
+  return n1Route(request, env, deps, async (url, session) => {
     if ([...url.searchParams.keys()].length) throw new DeskError("invalid_query", 400);
     const now = deps.now();
     const sources = await readAccountsSources(env, deps, now);
+    let readbacks9a = null;
+    if (sources.config.ok && typeof deps.readbacks9a === "function") {
+      const rb = await readOnce(() => deps.readbacks9a(request, env, session));
+      readbacks9a = rb.ok && rb.value && typeof rb.value === "object" ? rb.value : null;
+    }
     return n1Response("accounts", {
       time_basis: timeBasis("UTC", [["account_facts", "UTC"], ["account_options", "UTC"], ["credential_maintenance", "UTC"]]),
-      ...accountsProjection({ ...sources, now }),
+      ...accountsProjection({ ...sources, now, readbacks9a }),
     }, { now });
   });
 }

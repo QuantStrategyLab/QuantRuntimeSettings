@@ -238,7 +238,74 @@ async function runSaA16(validator) {
   assert.ok(acctOut.brokers.value[0].readback_9a, "SA-A16 accountsProjection wires readback_9a on broker row");
   assert.equal(acctOut.brokers.value[0].readback_9a.status, "drift", "SA-A16 readback_9a reflects layer drift");
   assert.equal(acctOut.brokers.value[0].readback_9a.actions.reapply_saved.status, "not_enabled");
-  console.log(`SA-A16 passed (${matrix.cases.length} readback cases + zero-write GET spy)`);
+
+  // Finding #2: broker_environment never triggers false execution_mode drift across paper/live/dry_run axes.
+  const baseSaved = matrix.cases[1].observed_saved;
+  const basePlatform = matrix.cases[1].platform;
+  const rbPaperLiveMatch = readbackMod.buildReadback({
+    target: { ...fullTarget, config: { ...baseSaved.config, broker_environment: "paper", default_execution_mode: "live" } },
+    observed: { ...baseSaved, config: { ...baseSaved.config, broker_environment: "paper", default_execution_mode: "live" } },
+    platform: { ...basePlatform.effective, broker_environment: "paper", execution_mode: "live" },
+    now: nowMs,
+    platformMeta: basePlatform,
+    deployment: { ...matrix.cases[0].deployment, execution_mode: "live" },
+  });
+  assert.equal(rbPaperLiveMatch.comparisons.platform_vs_observed.status, "match");
+  assert.equal(rbPaperLiveMatch.comparisons.saved_vs_observed.status, "match");
+  assert.ok(rbPaperLiveMatch.comparisons.saved_vs_observed.skipped_non_mutual_fields.includes("broker_environment"));
+  const rbExecModeDrift = readbackMod.buildReadback({
+    target: { ...fullTarget, config: { ...baseSaved.config, broker_environment: "live", default_execution_mode: "dry_run" } },
+    observed: { ...baseSaved, config: { ...baseSaved.config, broker_environment: "live", default_execution_mode: "dry_run" } },
+    platform: { ...basePlatform.effective, broker_environment: "live", execution_mode: "live" },
+    now: nowMs,
+    platformMeta: basePlatform,
+    deployment: { ...matrix.cases[0].deployment, execution_mode: "live" },
+  });
+  assert.equal(rbExecModeDrift.comparisons.platform_vs_observed.status, "match");
+  assert.equal(rbExecModeDrift.comparisons.saved_vs_observed.status, "drift");
+  assert.deepEqual(rbExecModeDrift.comparisons.saved_vs_observed.mismatched_fields, ["execution_mode"]);
+
+  // Finding #3: brokerReadback9a requires all 3 comparisons for "match" and counts observed drift targets.
+  const rbMissingDeployment = readbackMod.buildReadback({
+    target: fullTarget,
+    observed: matrix.cases[1].observed_saved,
+    platform: matrix.cases[1].platform.effective,
+    now: nowMs,
+    platformMeta: matrix.cases[1].platform,
+    deployment: matrix.cases[1].deployment,
+  });
+  assert.equal(rbMissingDeployment.overall, "match");
+  const acctMissingDeploy = accountsMod.accountsProjection({
+    config: { ok: true, value: { revision: 7, options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001" }] } } },
+    facts: { ok: false },
+    credential: { ok: false },
+    now: nowMs,
+    readbacks9a: { "ibkr/syn_tqqq": rbMissingDeployment },
+  });
+  assert.equal(acctMissingDeploy.brokers.value[0].readback_9a.status, "unknown", "missing deployment never reports match");
+  assert.equal(acctMissingDeploy.brokers.value[0].readback_9a.drift_target_count, 0);
+
+  const rbObservedOnlyDrift = readbackMod.buildReadback({
+    target: fullTarget,
+    observed: matrix.cases[1].observed_saved,
+    platform: matrix.cases[1].platform.effective,
+    now: nowMs,
+    platformMeta: matrix.cases[1].platform,
+    deployment: { ...matrix.cases[0].deployment, runtime_enabled: false },
+  });
+  assert.equal(rbObservedOnlyDrift.overall, "match");
+  assert.equal(rbObservedOnlyDrift.comparisons.platform_vs_observed.status, "drift");
+  const acctObsDrift = accountsMod.accountsProjection({
+    config: { ok: true, value: { revision: 7, options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001" }] } } },
+    facts: { ok: false },
+    credential: { ok: false },
+    now: nowMs,
+    readbacks9a: { "ibkr/syn_tqqq": rbObservedOnlyDrift },
+  });
+  assert.equal(acctObsDrift.brokers.value[0].readback_9a.status, "drift");
+  assert.equal(acctObsDrift.brokers.value[0].readback_9a.drift_target_count, 1);
+
+  console.log(`SA-4 passed (${matrix.cases.length} readback cases + zero-write GET spy)`);
 }
 
 async function runSaA17(validator) {
@@ -274,7 +341,93 @@ async function runSaA17(validator) {
       }
     }
   }
-  console.log(`SA-A17 passed (${matrix.cases.length} 12A queue scenarios)`);
+  // Finding #4: unobserved records from accountsCredentialCalendarProjection with populated source.observed_at never throw.
+  const calendarOut = accountsMod.accountsCredentialCalendarProjection({
+    ibkrRecord: { id: "ibkr_flex", expires_at: null, metadata_revision: 0 },
+    evaluatedAt: matrix.now,
+  });
+  const csa26Queue = inboxMod.projectUnifiedOwnerQueue12A({
+    sources: {
+      owner_decisions: matrix.cases[0].sources.owner_decisions,
+      promotion_applications: matrix.cases[0].sources.promotion_applications,
+      reconciliation_recovery: matrix.cases[0].sources.reconciliation_recovery,
+      credential_maintenance: {
+        status: "ok",
+        observed_at: "2030-01-08T14:59:00Z",
+        cap: null,
+        truncated: false,
+        corrupt_omitted_count: 0,
+        errors: [],
+        items: [],
+        csa26_records: calendarOut.records,
+      },
+    },
+    expectedFamilies: matrix.expected_families,
+    now: nowMs,
+  });
+  assert.equal(csa26Queue.queue_state, "non_empty");
+  assert.equal(csa26Queue.actionable_items.length, 3, "3 unobserved applicable credentials require investigation");
+  assert.ok(csa26Queue.actionable_items.every(item => item.observed_at === null), "unobserved credential items preserve null observed_at");
+  validator.assertValid("common.json#/$defs/OwnerQueue12A", csa26Queue, "SA-A17:unobserved-csa26");
+
+  // Finding #1: End-to-end HTTP handlers (deskRibbonResponse, deskOverviewResponse, deskAccountsResponse) wire SA-4 fields.
+  const fleetMatrix = loadJson(new URL("sa4_8a_fleet_matrix.json", FIXTURES_DIR));
+  const fleetCase = fleetMatrix.cases.find(c => c.id === "all-same");
+  const rbMatrix = loadJson(new URL("sa4_9a_three_layer_matrix.json", FIXTURES_DIR));
+  const rbFirst = readbackMod.buildReadback({
+    target: { ...rbMatrix.target, config: rbMatrix.cases[0].observed_saved.config, revision: rbMatrix.cases[0].observed_saved.instance_revision },
+    observed: rbMatrix.cases[0].observed_saved,
+    platform: rbMatrix.cases[0].platform.effective,
+    now: Date.parse(rbMatrix.now),
+    platformMeta: rbMatrix.cases[0].platform,
+    deployment: rbMatrix.cases[0].deployment,
+  });
+  const sharedHttpDeps = {
+    auth: async () => ({ allowed: true, login: "syn-reader" }),
+    now: () => Date.parse(fleetMatrix.now),
+    options: async () => ({
+      revision: 3,
+      options: {
+        ibkr: fleetCase.accounts.filter(a => a.platform === "ibkr").map(a => ({ ...a, target_name: a.key })),
+        longbridge: fleetCase.accounts.filter(a => a.platform === "longbridge").map(a => ({ ...a, target_name: a.key })),
+        schwab: fleetCase.accounts.filter(a => a.platform === "schwab").map(a => ({ ...a, target_name: a.key })),
+      },
+    }),
+    factsBindings: async () => ({ bindings: [] }),
+    factsStored: async () => new Map(),
+    command: async (_e, cmd) => {
+      if (cmd.action === "credential_maintenance_read") return { id: "ibkr_flex", expires_at: null, phase: "unknown" };
+      if (cmd.action === "account_facts_history_read") return { ok: true, days: [] };
+      throw new Error(`unexpected command ${cmd.action}`);
+    },
+    runtimeDay: async () => ({ accounts: [] }),
+    runtimeLifecycle: async () => fleetCase.snapshot,
+    ownerQueueSources: async () => matrix.cases[0].sources,
+    readbacks9a: async () => ({ [fleetCase.accounts[0].target_id]: rbFirst }),
+  };
+  const ribbonHttpRes = await ribbonMod.deskRibbonResponse(new Request("https://example.invalid/api/desk/ribbon"), {}, sharedHttpDeps);
+  assert.equal(ribbonHttpRes.status, 200);
+  const ribbonPayload = await ribbonHttpRes.json();
+  validator.assertValid("n1-ribbon.json", ribbonPayload, "SA4-HTTP:n1-ribbon");
+  assert.equal(ribbonPayload.fleet_mode_summary.status, "single_mode");
+  assert.equal(ribbonPayload.fleet_mode_summary.mode, "paper");
+
+  const overviewHttpRes = await overviewMod.deskOverviewResponse(new Request("https://example.invalid/api/desk/overview"), {}, sharedHttpDeps);
+  assert.equal(overviewHttpRes.status, 200);
+  const overviewPayload = await overviewHttpRes.json();
+  validator.assertValid("n1-overview.json", overviewPayload, "SA4-HTTP:n1-overview");
+  assert.equal(overviewPayload.fleet_mode_summary.status, "single_mode");
+  assert.equal(overviewPayload.owner_queue_12a.queue_state, "verified_empty");
+  assert.ok(overviewPayload.book.value.every(row => row.execution_mode === "paper" && row.runtime_enabled === true));
+
+  const accountsHttpRes = await accountsMod.deskAccountsResponse(new Request("https://example.invalid/api/desk/accounts"), {}, sharedHttpDeps);
+  assert.equal(accountsHttpRes.status, 200);
+  const accountsPayload = await accountsHttpRes.json();
+  validator.assertValid("n1-accounts.json", accountsPayload, "SA4-HTTP:n1-accounts");
+  const ibkrBroker = accountsPayload.brokers.value.find(b => b.platform === "ibkr");
+  assert.equal(ibkrBroker.readback_9a.status, "drift");
+
+  console.log(`SA-A17 passed (${matrix.cases.length} 12A queue scenarios + unobserved C-SA-26 + HTTP wiring)`);
 }
 
 async function runSaA18() {

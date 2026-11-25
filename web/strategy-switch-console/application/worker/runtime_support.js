@@ -212,6 +212,7 @@ import {
   syncResearchPromotionTicketResponse as syncResearchPromotionTicketResponseImpl,
   fetchResearchPromotionTicketResponse as fetchResearchPromotionTicketResponseImpl,
   listResearchPromotionTickets as listResearchPromotionTicketsImpl,
+  collectResearchPromotionTickets as collectResearchPromotionTicketsImpl,
   researchPromotionTicketsResponse as researchPromotionTicketsResponseImpl,
 } from "../research_promotion/http.js";
 import {
@@ -4383,6 +4384,14 @@ export async function fetchResearchPromotionTicketResponse(request, env) {
   });
 }
 
+export async function collectResearchPromotionTickets(env) {
+  return collectResearchPromotionTicketsImpl(env, {
+    readHumanDecisionAuthority,
+    overlayPromotionDecision,
+    humanDecisionAuthorityView,
+  });
+}
+
 export async function listResearchPromotionTickets(env) {
   return listResearchPromotionTicketsImpl(env, {
     readHumanDecisionAuthority,
@@ -4395,6 +4404,7 @@ export async function researchPromotionTicketsResponse(request, env) {
   return researchPromotionTicketsResponseImpl(request, env, {
     exactHumanDecisionResponse,
     listResearchPromotionTickets,
+    collectResearchPromotionTickets,
     researchPromotionReviewBinding,
     ResearchPromotionReviewMaterialError,
     RESEARCH_PROMOTION_REVIEW_INVALID,
@@ -6832,6 +6842,7 @@ function deskTargetReadbackDeps() {
     runtimeTargetMatchesAccount,
     cleanCurrentRatio,
     splitSelectorValues,
+    readLifecycleSnapshot: aggregateRuntimeTargetLifecycleSources,
   };
 }
 

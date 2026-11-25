@@ -2413,7 +2413,7 @@ export class RuntimeInstances {
       if (request.method !== "POST") throw new HttpError("method_not_allowed", 405);
       let command;
       try { command = await request.json(); } catch { throw new HttpError("invalid_runtime_instance_request", 400); }
-      if (["desk_readback_start", "desk_readback_get", "desk_readback_read"].includes(command?.action)) {
+      if (["desk_readback_start", "desk_readback_get", "desk_readback_read", "desk_readback_latest"].includes(command?.action)) {
         try { return json(await this.deskReadbacks.command(command)); }
         catch (error) { return deskErrorResponse(error); }
       }

@@ -188,6 +188,7 @@ export const INTERNAL_OPERATIONS = Object.freeze({
   "action:desk_readback_start": write(),
   "action:desk_readback_get": read(),
   "action:desk_readback_read": read(),
+  "action:desk_readback_latest": read(),
   "action:credential_maintenance_read": read(),
   "action:credential_maintenance_save": write(),
   "action:credential_maintenance_claim": write(),

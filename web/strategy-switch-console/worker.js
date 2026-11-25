@@ -1,10 +1,10 @@
 import { performanceBenchmarkResponse } from "./application/console_api/performance_benchmarks.js";
 import { binanceDetailCommand } from "./binance_detail_archive.js";
 import { createDeskAuth, DeskError, deskErrorResponse } from "./application/desk/http.js";
-import { DeskReadbackStore, deskReadbackResponse, buildReadback, readbackTargets } from "./application/desk/readback.js";
+import { DeskReadbackStore, deskReadbackResponse, deskReadbackSessionOwner, buildReadback, readbackTargets } from "./application/desk/readback.js";
 import { deskCredentialsResponse } from "./application/desk/credentials.js";
 import { deskSwitchTargetsResponse } from "./application/desk/switch_targets.js";
-import { deskAccountsResponse } from "./application/desk/accounts.js";
+import { deskAccountsResponse, accountsCredentialCalendarProjection } from "./application/desk/accounts.js";
 import { deskOverviewResponse } from "./application/desk/overview.js";
 import { deskPerformanceResponse } from "./application/desk/performance.js";
 import { deskRibbonResponse } from "./application/desk/ribbon.js";
@@ -22,7 +22,7 @@ import { performanceResponse } from "./application/console_api/performance_route
 import { consoleApiResponse } from "./application/console_api/routes.js";
 import { runControls } from "./application/console_api/run_controls.js";
 import { decorateQueue, decisionFields, actorAlias, pageQuery, shortId } from "./application/console_api/presentation.js";
-import { inbox } from "./application/console_api/inbox.js";
+import { inbox, readOwnerQueueSources12A } from "./application/console_api/inbox.js";
 import {
   DECISION_ACTIONS, DECISION_REVIEW_SCHEMA_VERSION, decisionCategoryPart, decisionCurrentEligibility,
   decisionExpiry, decisionExpiryState, decisionKind, decisionOperationId, decisionOperationReference,
@@ -780,7 +780,7 @@ export default {
 // N1 desk reads may call only these existing read-only RuntimeInstances commands
 // (they use the DO's POST transport). Writes, dispatch, scheduler, readback
 // creation and provider collection are not reachable through this wrapper.
-const DESK_N1_READ_COMMANDS = Object.freeze(["account_facts_list", "account_facts_history_read", "credential_maintenance_read"]);
+const DESK_N1_READ_COMMANDS = Object.freeze(["account_facts_list", "account_facts_history_read", "credential_maintenance_read", "desk_readback_latest"]);
 
 async function deskN1ReadCommand(env, command) {
   if (!DESK_N1_READ_COMMANDS.includes(command?.action)) throw new HttpError("desk_read_command_not_allowed", 500);
@@ -825,6 +825,20 @@ function deskN1Deps() {
     // One stored runtime-daily summary for a New York business date (16:00Z is inside it).
     // `options.schedule` is the ribbon's explicit opt-in; the same single read is made.
     runtimeDay: (req, e, accounts, date, options) => todaySummary(req, e, dailyDeps, accounts, Date.parse(`${date}T16:00:00Z`), options),
+    runtimeLifecycle: e => aggregateRuntimeTargetLifecycleSources(e),
+    ownerQueueSources: (req, e, { credential, now }) => readOwnerQueueSources12A(req, e, {
+      owner: ownerDecisionQueueResponse,
+      promotion: researchPromotionTicketsResponse,
+      recovery: reconciliationRecoveryResponse,
+      credential,
+      now,
+      accountsCredentialCalendarProjection,
+    }),
+    readbacks9a: async (req, e, session) => {
+      const owner = await deskReadbackSessionOwner(req, session);
+      const res = await deskN1ReadCommand(e, { action: "desk_readback_latest", owner, actor: session.login });
+      return res?.readbacks || {};
+    },
   };
 }
 

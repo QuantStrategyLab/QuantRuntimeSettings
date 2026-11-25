@@ -426,7 +426,12 @@ export async function deskRibbonResponse(request, env, deps) {
         tape: unknown("read_failed", coverage("unavailable", 0, null, ["read_failed"])),
       };
     } else {
-      body = await ribbonProjection(request, env, deps, { date, now, config: config.value });
+      let runtimeLifecycle;
+      if (typeof deps.runtimeLifecycle === "function") {
+        const lc = await readOnce(() => deps.runtimeLifecycle(env));
+        runtimeLifecycle = lc.ok ? lc.value : { targets: null, errors: ["runtime_source_read_failed"] };
+      }
+      body = await ribbonProjection(request, env, deps, { date, now, config: config.value, runtimeLifecycle });
     }
     return n1Response("ribbon", {
       time_basis: timeBasis("UTC", [["runtime_daily", RUNTIME_DAILY_TIMEZONE]]),
