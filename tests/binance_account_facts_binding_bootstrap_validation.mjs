@@ -78,18 +78,26 @@ function response(body, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
 }
 
+const BRANCH_POLICIES_BY_MODE = {
+  "runtime-production-only": [{ name: "runtime-production", type: "branch" }],
+  "runtime-production-and-main": [{ name: "main", type: "branch" }, { name: "runtime-production", type: "branch" }],
+  "main-only": [{ name: "main", type: "branch" }],
+  "unexpected-branch": [{ name: "runtime-production", type: "branch" }, { name: "feature-branch", type: "branch" }],
+  "tag-policy": [{ name: "runtime-production", type: "branch" }, { name: "main", type: "tag" }],
+  "not-runtime-production-only": [],
+};
+
 function makeFetch({ policy = "runtime-production-only", comparison = "ahead", untrustedRevision = null } = {}) {
   return async (url, options = {}) => {
     const parsed = new URL(url);
     const pathname = parsed.pathname;
     githubReads.push({ pathname, method: options.method || "GET" });
     if (pathname.endsWith("/environments/binance-runtime/deployment-branch-policies")) {
-      const branchPolicies = policy === "runtime-production-only"
-        ? [{ name: "runtime-production", type: "branch" }] : [];
+      const branchPolicies = BRANCH_POLICIES_BY_MODE[policy] ?? [];
       return response({ branch_policies: branchPolicies, total_count: branchPolicies.length });
     }
     if (pathname.endsWith("/environments/binance-runtime")) {
-      return response({ deployment_branch_policy: policy === "runtime-production-only"
+      return response({ deployment_branch_policy: policy !== "not-runtime-production-only"
         ? { protected_branches: false, custom_branch_policies: true }
         : { protected_branches: true, custom_branch_policies: false } });
     }
@@ -256,13 +264,25 @@ for (const [changedVariables, changedOptions, code, extraArgs] of [
 }
 
 writes.length = 0;
-await assert.rejects(runBootstrap({
-  env: { ...fixture, BINANCE_FACTS_BOOTSTRAP_APPLY: "true" },
-  fetchImpl: makeFetch({ policy: "not-runtime-production-only" }),
+const dualBranchPreview = await runBootstrap({
+  env: { ...fixture, BINANCE_FACTS_BOOTSTRAP_APPLY: "false" },
+  fetchImpl: makeFetch({ policy: "runtime-production-and-main" }),
   command: makeCommand(),
-  randomToken: () => "synthetic-new-one-purpose-sync-token-00000000000000000000",
-}), error => error.code === "binance_environment_policy_mismatch");
-assert.equal(writes.length, 0);
+  randomToken: () => { throw new Error("preview must not generate a token"); },
+});
+assert.deepEqual(dualBranchPreview, { status: "preview", match_count: 1, writes: 0 });
+assert.equal(writes.length, 1);
+
+for (const badPolicy of ["not-runtime-production-only", "main-only", "unexpected-branch", "tag-policy"]) {
+  writes.length = 0;
+  await assert.rejects(runBootstrap({
+    env: { ...fixture, BINANCE_FACTS_BOOTSTRAP_APPLY: "true" },
+    fetchImpl: makeFetch({ policy: badPolicy }),
+    command: makeCommand(),
+    randomToken: () => "synthetic-new-one-purpose-sync-token-00000000000000000000",
+  }), error => error.code === "binance_environment_policy_mismatch");
+  assert.equal(writes.length, 0);
+}
 
 writes.length = 0;
 await assert.rejects(runBootstrap({
