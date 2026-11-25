@@ -15,7 +15,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from http.client import HTTPException
 from pathlib import Path
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -476,6 +476,28 @@ def execute(headers, configuration, store, send, *, preview=False, now=utc_now,
                         monotonic=monotonic, platform_config=platform_config)
 
 
+def _classify_send_error(error: Exception) -> str:
+    """Return a closed non-sensitive failure code for telegram transport errors."""
+    if isinstance(error, HTTPError):
+        code = getattr(error, 'code', None)
+        if type(code) is int and 100 <= code <= 599:
+            return f'http_{code}'
+        return 'http_error'
+    if isinstance(error, URLError):
+        if isinstance(getattr(error, 'reason', None), TimeoutError):
+            return 'timeout'
+        return 'url_error'
+    if isinstance(error, TimeoutError):
+        return 'timeout'
+    if isinstance(error, json.JSONDecodeError):
+        return 'invalid_json'
+    if isinstance(error, ValueError):
+        return 'digest_ack_invalid' if str(error) == 'digest_ack_invalid' else 'value_error'
+    if isinstance(error, OSError):
+        return 'os_error'
+    return 'unexpected_error'
+
+
 def _maybe_send_deadline_alert(report_date, day, schedule_record, configuration, store, send, *, now=utc_now):
     """Send at most one short operator alert when 07:30 SGT deadline check sees no confirmed receipt."""
     zh = configuration.locale == 'zh'
@@ -506,8 +528,8 @@ def _maybe_send_deadline_alert(report_date, day, schedule_record, configuration,
         if type(message_id) is not int:
             raise ValueError('digest_ack_invalid')
         record.update(delivery='accepted', accepted_at=now().isoformat(), message_id=message_id)
-    except Exception:  # noqa: BLE001 -- Retain reservation so an uncertain send never retries automatically.
-        record.update(delivery='unknown')
+    except Exception as error:  # noqa: BLE001 -- Retain reservation so an uncertain send never retries automatically.
+        record.update(delivery='unknown', send_error_code=_classify_send_error(error))
     try:
         store.finish(key, generation, record)
     except StoreUnavailable:
@@ -577,6 +599,7 @@ def execute_slot(report_date, day, check, schedule_record, configuration, store,
                 or existing.get('business_day') != day):
             return 503, {**safe, 'delivery': 'reservation_invalid'}
         return 200, {**safe, 'delivery': 'duplicate' if existing.get('delivery') == 'accepted' else 'unknown'}
+    send_error_code = None
     try:
         message_id = send(text)
         if type(message_id) is not int:
@@ -584,13 +607,14 @@ def execute_slot(report_date, day, check, schedule_record, configuration, store,
         accepted_at = now()
         safe['late'] = late or accepted_at >= deadline_at
         record.update(delivery='accepted', accepted_at=accepted_at.isoformat(), message_id=message_id, late=safe['late'])
-    except Exception:  # noqa: BLE001 -- Every uncertain transport result must retain its reservation.
-        record.update(delivery='unknown')
+    except Exception as error:  # noqa: BLE001 -- Every uncertain transport result must retain its reservation.
+        send_error_code = _classify_send_error(error)
+        record.update(delivery='unknown', send_error_code=send_error_code)
     try:
         store.finish(key, generation, record)
     except StoreUnavailable:
-        return 200, {**safe, 'delivery': 'unknown'}
-    return 200, {**safe, 'delivery': record['delivery']}
+        return 200, {**safe, 'delivery': 'unknown', **({'send_error_code': send_error_code} if send_error_code else {})}
+    return 200, {**safe, 'delivery': record['delivery'], **({'send_error_code': send_error_code} if send_error_code else {})}
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):

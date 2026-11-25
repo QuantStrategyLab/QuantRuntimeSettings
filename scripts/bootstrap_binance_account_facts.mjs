@@ -10,7 +10,6 @@ const BINANCE_REPOSITORY = "QuantStrategyLab/BinancePlatform";
 const QRS_ENVIRONMENT = "runtime-strategy-switch";
 const BINANCE_ENVIRONMENT = "binance-runtime";
 const BINANCE_ACCOUNT_FACTS_READER_REVISION = "4ca436a8910eecd35335f2d04dc69cfb9be4a327";
-const APPROVED_APPLICATION_REVISION = "8cb56617115fa45028e34d788e71884b6a303d77";
 const SOURCE_BINDING_KIND = "binance_readonly_scope_revision";
 const SOURCE_SCOPE = "spot+flexible_earn";
 const OPTION_IDENTITY_FIELDS = ["service_name", "deployment_selector"];
@@ -48,9 +47,15 @@ export function buildBinanceFactsBinding({
   variables,
   accountOptions,
   readerRevision = BINANCE_ACCOUNT_FACTS_READER_REVISION,
+  approvedApplicationRevision,
 }) {
   if (typeof readerRevision !== "string" || !/^[a-f0-9]{40}$/.test(readerRevision)) {
     fail("reader_revision_invalid");
+  }
+  const releaseSha = variables.BINANCE_RUNTIME_RELEASE_SHA || "";
+  const targetAppRevision = approvedApplicationRevision ?? releaseSha;
+  if (!/^[a-f0-9]{40}$/.test(targetAppRevision)) {
+    fail("runtime_application_revision_mismatch");
   }
   let target;
   let expected;
@@ -67,8 +72,7 @@ export function buildBinanceFactsBinding({
       || target.platform_id !== "binance") fail("runtime_target_invalid");
   if (!expected || typeof expected !== "object" || Array.isArray(expected)
       || !exactDigest(expected.account_scope_sha256)) fail("account_scope_digest_invalid");
-  if (!/^[a-f0-9]{40}$/.test(variables.BINANCE_RUNTIME_RELEASE_SHA || "")
-      || variables.BINANCE_RUNTIME_RELEASE_SHA !== APPROVED_APPLICATION_REVISION) {
+  if (!/^[a-f0-9]{40}$/.test(releaseSha) || releaseSha !== targetAppRevision) {
     fail("runtime_application_revision_mismatch");
   }
   if (!["true", "false"].includes(variables.RUNTIME_TARGET_ENABLED)) fail("runtime_enabled_invalid");
@@ -108,7 +112,7 @@ export function buildBinanceFactsBinding({
 
   const material = {
     account_scope_sha256: expected.account_scope_sha256,
-    approved_application_revision: APPROVED_APPLICATION_REVISION,
+    approved_application_revision: targetAppRevision,
     reader_public_revision: readerRevision,
     scope: SOURCE_SCOPE,
   };
@@ -123,7 +127,7 @@ export function buildBinanceFactsBinding({
     target_id: BINANCE_TARGET_ID,
     account_scope_sha256: expected.account_scope_sha256,
     reader_revision: readerRevision,
-    approved_application_revision: APPROVED_APPLICATION_REVISION,
+    approved_application_revision: targetAppRevision,
     source_binding: { kind: SOURCE_BINDING_KIND, id: sourceBindingId },
   };
 }
@@ -318,12 +322,71 @@ async function applySecret(repository, name, environment, value, { command, env 
   });
 }
 
+async function verifyExistingBinding({
+  binding,
+  variables,
+  accountOptions,
+  allowAccountScopeMismatch = false,
+  allowApplicationRevisionMismatch = false,
+  context,
+  mismatchCode,
+}) {
+  if (!allowAccountScopeMismatch && !allowApplicationRevisionMismatch) {
+    const expected = buildBinanceFactsBinding({
+      variables,
+      accountOptions,
+      readerRevision: binding.reader_revision,
+    });
+    if (!isDeepStrictEqual(binding, expected)) fail(mismatchCode);
+    return;
+  }
+  const approvedApplicationRevision = allowApplicationRevisionMismatch
+    ? binding.approved_application_revision
+    : variables.BINANCE_RUNTIME_RELEASE_SHA;
+  if (!/^[a-f0-9]{40}$/.test(approvedApplicationRevision || "")) {
+    fail(mismatchCode);
+  }
+  if (approvedApplicationRevision !== variables.BINANCE_RUNTIME_RELEASE_SHA) {
+    await assertReaderRevisionIsTrustedAncestor(context, approvedApplicationRevision);
+  }
+  let scopedVariables = {
+    ...variables,
+    BINANCE_RUNTIME_RELEASE_SHA: approvedApplicationRevision,
+  };
+  if (allowAccountScopeMismatch) {
+    if (!exactDigest(binding.account_scope_sha256)) {
+      fail(mismatchCode);
+    }
+    const expectedDigests = parseJson(
+      variables.BINANCE_RECONCILIATION_EXPECTED_DIGESTS_JSON,
+      "expected_digests_missing",
+    );
+    scopedVariables = {
+      ...scopedVariables,
+      BINANCE_RECONCILIATION_EXPECTED_DIGESTS_JSON: JSON.stringify({
+        ...expectedDigests,
+        account_scope_sha256: binding.account_scope_sha256,
+      }),
+    };
+  }
+  const expected = buildBinanceFactsBinding({
+    variables: scopedVariables,
+    accountOptions,
+    readerRevision: binding.reader_revision,
+    approvedApplicationRevision,
+  });
+  if (!isDeepStrictEqual(binding, expected)) fail(mismatchCode);
+}
+
 async function runReaderRotation({ env, fetchImpl, command }) {
   if (env.GITHUB_REPOSITORY !== QRS_REPOSITORY || env.GITHUB_REF !== "refs/heads/main") {
     fail("main_branch_required");
   }
   if (env.BINANCE_FACTS_BOOTSTRAP_APPLY !== "true"
       && env.BINANCE_FACTS_BOOTSTRAP_APPLY !== "false") fail("apply_mode_invalid");
+  const rotateScopeMode = env.BINANCE_FACTS_BOOTSTRAP_ROTATE_ACCOUNT_SCOPE ?? "false";
+  if (rotateScopeMode !== "true" && rotateScopeMode !== "false") fail("account_scope_rotation_mode_invalid");
+  const rotateScope = rotateScopeMode === "true";
   const oldBindingJson = requiredString(
     env.BINANCE_ACCOUNT_FACTS_BINDING_JSON, "current_binding_missing",
   );
@@ -365,16 +428,23 @@ async function runReaderRotation({ env, fetchImpl, command }) {
   if (currentReaderRevision !== oldReaderRevision) {
     fail("reader_revision_conflict");
   }
+  if (!/^[a-f0-9]{40}$/.test(variables.BINANCE_RUNTIME_RELEASE_SHA || "")) {
+    fail("runtime_application_revision_mismatch");
+  }
+  await assertReaderRevisionIsTrustedAncestor(context, variables.BINANCE_RUNTIME_RELEASE_SHA);
   const accountOptions = parseJson(command("npx", ["--yes", "wrangler@4.106.0", "kv", "key", "get", "account_options",
     "--namespace-id", namespaceId, "--remote"], {
     cwd: "web/strategy-switch-console", env, timeout: COMMAND_TIMEOUT_MS,
   }), "account_options_invalid");
-  const oldExpected = buildBinanceFactsBinding({
+  await verifyExistingBinding({
+    binding: oldBinding,
     variables,
     accountOptions,
-    readerRevision: oldReaderRevision,
+    allowAccountScopeMismatch: rotateScope,
+    allowApplicationRevisionMismatch: rotateScope,
+    context,
+    mismatchCode: "current_binding_conflict",
   });
-  if (!isDeepStrictEqual(oldBinding, oldExpected)) fail("current_binding_conflict");
   let historyBindings;
   try {
     historyBindings = env.BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON
@@ -391,13 +461,17 @@ async function runReaderRotation({ env, fetchImpl, command }) {
         || typeof historyBinding.reader_revision !== "string"
         || !/^[a-f0-9]{40}$/.test(historyBinding.reader_revision)) fail("history_binding_invalid");
     await assertReaderRevisionIsTrustedAncestor(context, historyBinding.reader_revision);
-    const expectedHistoryBinding = buildBinanceFactsBinding({
-      variables, accountOptions, readerRevision: historyBinding.reader_revision,
+    await verifyExistingBinding({
+      binding: historyBinding,
+      variables,
+      accountOptions,
+      allowAccountScopeMismatch: rotateScope,
+      allowApplicationRevisionMismatch: true,
+      context,
+      mismatchCode: "history_binding_invalid",
     });
     const isCurrentBinding = isDeepStrictEqual(historyBinding, oldBinding);
-    if (!isDeepStrictEqual(historyBinding, expectedHistoryBinding)
-        || ((historyBinding.reader_revision === oldReaderRevision
-          || historyBinding.source_binding?.id === oldBinding.source_binding.id) && !isCurrentBinding)
+    if ((historyBinding.source_binding?.id === oldBinding.source_binding.id && !isCurrentBinding)
         || seenHistory.has(historyBinding.source_binding?.id)) fail("history_binding_invalid");
     seenHistory.add(historyBinding.source_binding.id);
   }
@@ -411,14 +485,30 @@ async function runReaderRotation({ env, fetchImpl, command }) {
   if (historyBindings.some((item) => item.source_binding.id === nextBinding.source_binding.id)) {
     fail("history_binding_conflict");
   }
-  const historyChanged = !oldHistoryEntry;
-  if (historyChanged) historyBindings = [...historyBindings, oldBinding];
+  const scopeChanged = nextBinding.account_scope_sha256 !== oldBinding.account_scope_sha256;
+  const hadPreviousHistory = historySecretMetadata !== null && historyBindings.length > 0;
+  let historyChanged;
+  if (scopeChanged) {
+    historyBindings = [];
+    historyChanged = hadPreviousHistory;
+  } else {
+    historyChanged = !oldHistoryEntry;
+    if (historyChanged) historyBindings = [...historyBindings, oldBinding];
+  }
   if (historyBindings.length > HISTORY_BINDINGS_MAX) fail("history_binding_limit_exceeded");
-  const expectedNextBinding = {
-    ...oldBinding,
-    reader_revision: nextReaderRevision,
-    source_binding: { ...oldBinding.source_binding, id: nextBinding.source_binding.id },
-  };
+  const expectedNextBinding = rotateScope
+    ? {
+        ...oldBinding,
+        account_scope_sha256: nextBinding.account_scope_sha256,
+        approved_application_revision: variables.BINANCE_RUNTIME_RELEASE_SHA,
+        reader_revision: nextReaderRevision,
+        source_binding: { ...oldBinding.source_binding, id: nextBinding.source_binding.id },
+      }
+    : {
+        ...oldBinding,
+        reader_revision: nextReaderRevision,
+        source_binding: { ...oldBinding.source_binding, id: nextBinding.source_binding.id },
+      };
   if (!isDeepStrictEqual(nextBinding, expectedNextBinding)) fail("binding_rotation_scope_changed");
 
   if (env.BINANCE_FACTS_BOOTSTRAP_APPLY !== "true") {
@@ -430,7 +520,8 @@ async function runReaderRotation({ env, fetchImpl, command }) {
   const historyJson = JSON.stringify(historyBindings);
   let historySecretWriteCount = 0;
   let metadataReadbackCount = 0;
-  if (historyChanged || historySecretMetadata === null) {
+  const writeHistorySecret = scopeChanged ? historyChanged : (historyChanged || historySecretMetadata === null);
+  if (writeHistorySecret) {
     await applySecret(QRS_REPOSITORY, HISTORY_SECRET_NAME, QRS_ENVIRONMENT, historyJson, { command, env });
     historySecretWriteCount = 1;
     const historyReadback = await readOptionalSecretMetadata(QRS_REPOSITORY, QRS_ENVIRONMENT, HISTORY_SECRET_NAME, context);
@@ -525,6 +616,10 @@ export async function runBootstrap({
     cwd: "web/strategy-switch-console", env, timeout: COMMAND_TIMEOUT_MS,
   });
   const accountOptions = parseJson(accountOptionsText, "account_options_invalid");
+  if (!/^[a-f0-9]{40}$/.test(variables.BINANCE_RUNTIME_RELEASE_SHA || "")) {
+    fail("runtime_application_revision_mismatch");
+  }
+  await assertReaderRevisionIsTrustedAncestor(context, variables.BINANCE_RUNTIME_RELEASE_SHA);
   const binding = buildBinanceFactsBinding({ variables, accountOptions });
   if (env.BINANCE_FACTS_BOOTSTRAP_APPLY !== "true") return { status: "preview", match_count: 1, writes: 0 };
 

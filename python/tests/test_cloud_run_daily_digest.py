@@ -957,6 +957,34 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertEqual(len(self.sent), 1)
         self.assertIn('⚠️ 昨日账户日报未按时确认', self.sent[0])
 
+    def test_unknown_delivery_and_deadline_alert_record_closed_send_error_code(self):
+        import urllib.error
+        from dataclasses import replace
+
+        def fail_http(*_args, **_kwargs):
+            raise urllib.error.HTTPError(
+                'https://api.telegram.org/botSECRET_TOKEN/sendMessage',
+                403,
+                'Forbidden: bot was kicked from supergroup chat SECRET_CHAT',
+                {},
+                io.BytesIO(b'{"description":"Forbidden: secret"}'),
+            )
+
+        status, first = self.run_request(configuration=self.enable(), sender=fail_http)
+        self.assertEqual((status, first['delivery'], first['send_error_code']), (200, 'unknown', 'http_403'))
+        delivery_record = self.store.records['synthetic/2026-10-16.json']
+        self.assertEqual(delivery_record['send_error_code'], 'http_403')
+        self.assertNotIn('SECRET_TOKEN', json.dumps(delivery_record))
+        self.assertNotIn('Forbidden', json.dumps(delivery_record))
+
+        self.now = NOW + timedelta(minutes=30)
+        headers = {**HEADERS, 'X-CloudScheduler-ScheduleTime': self.now.isoformat()}
+        cfg = replace(self.enable(), deadline_alert_enabled=True)
+        _, check = self.run_request(headers=headers, configuration=cfg, sender=lambda _t: 'bad-id')
+        self.assertEqual(check['delivery'], 'receipt_unverified')
+        alert_record = self.store.records['synthetic/deadline-alerts/2026-10-16.json']
+        self.assertEqual((alert_record['delivery'], alert_record['send_error_code']), ('unknown', 'digest_ack_invalid'))
+
 
 class ControlPlaneAlertTests(unittest.TestCase):
     def test_control_plane_alert_redacts_secrets_and_dedupes_within_cooldown(self):
