@@ -87,7 +87,8 @@
         "additionalProperties": false
       },
       "maxItems": 100
-    }
+    },
+    "fleet_mode_summary": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/FleetModeSummary"}
   },
   "required": [
     "ok",

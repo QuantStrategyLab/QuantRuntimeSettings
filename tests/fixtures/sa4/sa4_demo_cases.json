@@ -1,0 +1,57 @@
+{
+  "schema_version": "qsl.sa4_demo_cases.v1",
+  "epoch": "SUPPLY-A-SA4-DESIGN-2026-11-21-v1",
+  "cases": [
+    {
+      "id": "SA4-D1",
+      "title": "9A Pure no-write GET spy & disabled mutations",
+      "target_id": "ibkr/syn_tqqq",
+      "assert_zero_writes": { "kvWrites": 0, "doSqlWrites": 0, "doAlarmWrites": 0 },
+      "assert_actions_not_enabled": ["reapply_saved", "adopt_platform"]
+    },
+    {
+      "id": "SA4-D2",
+      "title": "9A Three-layer separation without comparing non-mutual fields",
+      "fixture": "sa4_9a_three_layer_matrix.json",
+      "case_id": "drifted-draft-and-non-mutual"
+    },
+    {
+      "id": "SA4-D3",
+      "title": "8A Per-target execution_mode & fleet summary transitions",
+      "fixture": "sa4_8a_fleet_matrix.json",
+      "case_ids": ["all-same", "mixed", "1-stale", "1-failed", "0-targets"]
+    },
+    {
+      "id": "SA4-D4",
+      "title": "12A 4-family queue & completeness boundary with multi-platform C-SA-26",
+      "fixture": "sa4_12a_queue_matrix.json",
+      "case_ids": [
+        "clean-4-family-verified-empty",
+        "cap-plus-1-truncated",
+        "truncated-empty-never-verified",
+        "corrupt-ticket-omitted-never-verified",
+        "failed-source-empty",
+        "blocked-expired-and-multi-platform-csa26"
+      ]
+    },
+    {
+      "id": "SA4-D5",
+      "title": "NA Next-run denominator regression",
+      "fixture": "sa4_na_regression_matrix.json",
+      "case_ids": [
+        "unknown-null-schedule",
+        "zero-candidates-empty-summary",
+        "failed-read-summary",
+        "historical-date-ribbon",
+        "partial-one-future-candidate",
+        "dst-spring-forward-known"
+      ]
+    },
+    {
+      "id": "SA4-D6",
+      "title": "SA-A19 B6 retirement & boundary gate",
+      "retired_exception": "B6",
+      "pure_read_action": "action:desk_readback_read"
+    }
+  ]
+}

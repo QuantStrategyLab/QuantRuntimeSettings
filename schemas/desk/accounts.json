@@ -86,7 +86,8 @@
                 }
               }
             ]
-          }
+          },
+          "readback_9a": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Readback9ASummary"}
         },
         "required": [
           "platform",

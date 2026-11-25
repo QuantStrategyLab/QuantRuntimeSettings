@@ -1,0 +1,181 @@
+{
+  "schema_version": "qsl.sa4_12a_queue_matrix.v1",
+  "now": "2030-01-08T15:00:00Z",
+  "cap": 3,
+  "expected_families": [
+    "owner_decisions",
+    "promotion_applications",
+    "reconciliation_recovery",
+    "credential_maintenance"
+  ],
+  "cases": [
+    {
+      "id": "clean-4-family-verified-empty",
+      "sources": {
+        "owner_decisions": { "status": "ok", "observed_at": "2030-01-08T14:58:00Z", "cap": 3, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] },
+        "promotion_applications": { "status": "ok", "observed_at": "2030-01-08T14:57:00Z", "cap": 3, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] },
+        "reconciliation_recovery": { "status": "ok", "observed_at": "2030-01-08T14:56:00Z", "cap": 3, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] },
+        "credential_maintenance": { "status": "ok", "observed_at": "2030-01-08T14:59:00Z", "cap": null, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] }
+      },
+      "expected": {
+        "queue_state": "verified_empty",
+        "actionable_count": 0,
+        "blocked_or_expired_count": 0,
+        "total_unresolved": 0,
+        "truncated": false,
+        "corrupt_omitted_total": 0
+      }
+    },
+    {
+      "id": "cap-minus-1",
+      "sources": {
+        "owner_decisions": {
+          "status": "ok", "observed_at": "2030-01-08T14:58:00Z", "cap": 3, "truncated": false, "corrupt_omitted_count": 0, "errors": [],
+          "items": [
+            { "id": "own-1", "platform": "ibkr", "account_alias": "syn_a", "status": "pending", "decision_state": "pending", "actionable": true, "blocked": false, "expired": false, "blocker_reasons": [], "title": "Approve syn_a rebalance", "detail": "synthetic", "observed_at": "2030-01-08T14:58:00Z", "expires_at": "2030-01-09T14:58:00Z", "route": "/?page=decisions#own-1" },
+            { "id": "own-2", "platform": "schwab", "account_alias": "syn_b", "status": "pending", "decision_state": "pending", "actionable": true, "blocked": false, "expired": false, "blocker_reasons": [], "title": "Approve syn_b allocation", "detail": "synthetic", "observed_at": "2030-01-08T14:58:00Z", "expires_at": "2030-01-09T14:58:00Z", "route": "/?page=decisions#own-2" }
+          ]
+        },
+        "promotion_applications": { "status": "ok", "observed_at": "2030-01-08T14:57:00Z", "cap": 3, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] },
+        "reconciliation_recovery": { "status": "ok", "observed_at": "2030-01-08T14:56:00Z", "cap": 3, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] },
+        "credential_maintenance": { "status": "ok", "observed_at": "2030-01-08T14:59:00Z", "cap": null, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] }
+      },
+      "expected": {
+        "queue_state": "non_empty",
+        "actionable_count": 2,
+        "blocked_or_expired_count": 0,
+        "total_unresolved": 2,
+        "truncated": false
+      }
+    },
+    {
+      "id": "cap-exact",
+      "sources": {
+        "owner_decisions": {
+          "status": "ok", "observed_at": "2030-01-08T14:58:00Z", "cap": 3, "truncated": false, "corrupt_omitted_count": 0, "errors": [],
+          "items": [
+            { "id": "own-1", "platform": "ibkr", "account_alias": "syn_a", "status": "pending", "decision_state": "pending", "actionable": true, "blocked": false, "expired": false, "blocker_reasons": [], "title": "Item 1", "detail": "synthetic", "observed_at": "2030-01-08T14:58:00Z", "expires_at": null, "route": "/?page=decisions#own-1" },
+            { "id": "own-2", "platform": "ibkr", "account_alias": "syn_a", "status": "pending", "decision_state": "pending", "actionable": true, "blocked": false, "expired": false, "blocker_reasons": [], "title": "Item 2", "detail": "synthetic", "observed_at": "2030-01-08T14:58:00Z", "expires_at": null, "route": "/?page=decisions#own-2" },
+            { "id": "own-3", "platform": "ibkr", "account_alias": "syn_a", "status": "pending", "decision_state": "pending", "actionable": true, "blocked": false, "expired": false, "blocker_reasons": [], "title": "Item 3", "detail": "synthetic", "observed_at": "2030-01-08T14:58:00Z", "expires_at": null, "route": "/?page=decisions#own-3" }
+          ]
+        },
+        "promotion_applications": { "status": "ok", "observed_at": "2030-01-08T14:57:00Z", "cap": 3, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] },
+        "reconciliation_recovery": { "status": "ok", "observed_at": "2030-01-08T14:56:00Z", "cap": 3, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] },
+        "credential_maintenance": { "status": "ok", "observed_at": "2030-01-08T14:59:00Z", "cap": null, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] }
+      },
+      "expected": {
+        "queue_state": "non_empty",
+        "actionable_count": 3,
+        "blocked_or_expired_count": 0,
+        "total_unresolved": 3,
+        "truncated": false
+      }
+    },
+    {
+      "id": "cap-plus-1-truncated",
+      "sources": {
+        "owner_decisions": {
+          "status": "ok", "observed_at": "2030-01-08T14:58:00Z", "cap": 3, "truncated": true, "corrupt_omitted_count": 0, "errors": ["owner_decision_queue_truncated"],
+          "items": [
+            { "id": "own-1", "platform": "ibkr", "account_alias": "syn_a", "status": "pending", "decision_state": "pending", "actionable": true, "blocked": false, "expired": false, "blocker_reasons": [], "title": "Item 1", "detail": "synthetic", "observed_at": "2030-01-08T14:58:00Z", "expires_at": null, "route": "/?page=decisions#own-1" }
+          ]
+        },
+        "promotion_applications": { "status": "ok", "observed_at": "2030-01-08T14:57:00Z", "cap": 3, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] },
+        "reconciliation_recovery": { "status": "ok", "observed_at": "2030-01-08T14:56:00Z", "cap": 3, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] },
+        "credential_maintenance": { "status": "ok", "observed_at": "2030-01-08T14:59:00Z", "cap": null, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] }
+      },
+      "expected": {
+        "queue_state": "non_empty",
+        "actionable_count": 1,
+        "blocked_or_expired_count": 0,
+        "total_unresolved": 1,
+        "truncated": true
+      }
+    },
+    {
+      "id": "truncated-empty-never-verified",
+      "sources": {
+        "owner_decisions": { "status": "ok", "observed_at": "2030-01-08T14:58:00Z", "cap": 3, "truncated": true, "corrupt_omitted_count": 0, "errors": ["owner_decision_queue_truncated"], "items": [] },
+        "promotion_applications": { "status": "ok", "observed_at": "2030-01-08T14:57:00Z", "cap": 3, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] },
+        "reconciliation_recovery": { "status": "ok", "observed_at": "2030-01-08T14:56:00Z", "cap": 3, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] },
+        "credential_maintenance": { "status": "ok", "observed_at": "2030-01-08T14:59:00Z", "cap": null, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] }
+      },
+      "expected": {
+        "queue_state": "partial_empty",
+        "actionable_count": 0,
+        "blocked_or_expired_count": 0,
+        "total_unresolved": 0,
+        "truncated": true
+      }
+    },
+    {
+      "id": "corrupt-ticket-omitted-never-verified",
+      "sources": {
+        "owner_decisions": { "status": "ok", "observed_at": "2030-01-08T14:58:00Z", "cap": 50, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] },
+        "promotion_applications": { "status": "ok", "observed_at": "2030-01-08T14:57:00Z", "cap": 50, "truncated": false, "corrupt_omitted_count": 2, "errors": ["research_promotion_corrupt_tickets_omitted"], "items": [] },
+        "reconciliation_recovery": { "status": "ok", "observed_at": "2030-01-08T14:56:00Z", "cap": 50, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] },
+        "credential_maintenance": { "status": "ok", "observed_at": "2030-01-08T14:59:00Z", "cap": null, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] }
+      },
+      "expected": {
+        "queue_state": "partial_empty",
+        "actionable_count": 0,
+        "blocked_or_expired_count": 0,
+        "total_unresolved": 0,
+        "truncated": false,
+        "corrupt_omitted_total": 2
+      }
+    },
+    {
+      "id": "failed-source-empty",
+      "sources": {
+        "owner_decisions": { "status": "ok", "observed_at": "2030-01-08T14:58:00Z", "cap": 50, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] },
+        "promotion_applications": { "status": "read_failed", "observed_at": null, "cap": null, "truncated": false, "corrupt_omitted_count": 0, "errors": ["promotion_read_failed"], "items": [] },
+        "reconciliation_recovery": { "status": "ok", "observed_at": "2030-01-08T14:56:00Z", "cap": 50, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] },
+        "credential_maintenance": { "status": "ok", "observed_at": "2030-01-08T14:59:00Z", "cap": null, "truncated": false, "corrupt_omitted_count": 0, "errors": [], "items": [] }
+      },
+      "expected": {
+        "queue_state": "read_failed",
+        "actionable_count": 0,
+        "blocked_or_expired_count": 0,
+        "total_unresolved": 0
+      }
+    },
+    {
+      "id": "blocked-expired-and-multi-platform-csa26",
+      "sources": {
+        "owner_decisions": {
+          "status": "ok", "observed_at": "2030-01-08T14:58:00Z", "cap": 50, "truncated": false, "corrupt_omitted_count": 0, "errors": [],
+          "items": [
+            { "id": "own-exp", "platform": "ibkr", "account_alias": "syn_a", "status": "expired", "decision_state": "pending", "actionable": false, "blocked": true, "expired": true, "blocker_reasons": ["material_expired"], "title": "Expired owner review", "detail": "synthetic", "observed_at": "2030-01-07T14:00:00Z", "expires_at": "2030-01-08T14:00:00Z", "route": "/?page=decisions#own-exp" }
+          ]
+        },
+        "promotion_applications": {
+          "status": "ok", "observed_at": "2030-01-08T14:57:00Z", "cap": 50, "truncated": false, "corrupt_omitted_count": 0, "errors": [],
+          "items": [
+            { "id": "promo-1", "platform": "schwab", "account_alias": "syn_b", "status": "pending", "decision_state": "pending", "actionable": true, "blocked": false, "expired": false, "blocker_reasons": [], "title": "Paper promotion syn_b", "detail": "synthetic", "observed_at": "2030-01-08T14:57:00Z", "expires_at": null, "route": "/?page=promotions#promo-1" }
+          ]
+        },
+        "reconciliation_recovery": {
+          "status": "ok", "observed_at": "2030-01-08T14:56:00Z", "cap": 50, "truncated": false, "corrupt_omitted_count": 0, "errors": [],
+          "items": [
+            { "id": "rec-1", "platform": "longbridge", "account_alias": "syn_c", "status": "pending", "decision_state": "pending", "actionable": false, "blocked": true, "expired": false, "blocker_reasons": ["stale_reconciliation"], "title": "Blocked recovery", "detail": "synthetic", "observed_at": "2030-01-08T14:00:00Z", "expires_at": null, "route": "/?page=recovery#rec-1" }
+          ]
+        },
+        "credential_maintenance": {
+          "status": "ok", "observed_at": "2030-01-08T14:59:00Z", "cap": null, "truncated": false, "corrupt_omitted_count": 0, "errors": [],
+          "csa26_records": [
+            { "platform": "binance", "credential_kind": "ed25519_key", "expires_at": "2030-01-12T00:00:00Z", "last_rotated_at": "2029-12-01T00:00:00Z" },
+            { "platform": "schwab", "credential_kind": "oauth_refresh", "expires_at": "2030-01-07T00:00:00Z", "last_rotated_at": "2029-11-01T00:00:00Z" }
+          ]
+        }
+      },
+      "expected": {
+        "queue_state": "non_empty",
+        "actionable_count": 3,
+        "blocked_or_expired_count": 2,
+        "total_unresolved": 5,
+        "csa26_platforms_included": ["binance", "schwab"]
+      }
+    }
+  ]
+}

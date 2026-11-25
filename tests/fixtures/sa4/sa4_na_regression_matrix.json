@@ -1,0 +1,78 @@
+{
+  "schema_version": "qsl.sa4_na_regression_matrix.v1",
+  "accounts": [
+    { "platform": "firstrade", "key": "syn-0", "target_id": "firstrade/syn0" },
+    { "platform": "firstrade", "key": "syn-1", "target_id": "firstrade/syn1" }
+  ],
+  "cases": [
+    {
+      "id": "unknown-null-schedule",
+      "businessDate": "2030-01-08",
+      "now": "2030-01-08T15:00:00Z",
+      "summary": {
+        "accounts": [
+          { "platform": "firstrade", "account_alias": "syn-0", "status": "ok", "completeness": "complete", "as_of": "2030-01-08T14:30:00Z", "read_error_codes": [], "runs": [], "schedule": { "state": "not_due", "business_date": "2030-01-08", "timezone": "America/New_York", "next_due_at": null } },
+          { "platform": "firstrade", "account_alias": "syn-1", "status": "ok", "completeness": "complete", "as_of": "2030-01-08T14:30:00Z", "read_error_codes": [], "runs": [], "schedule": { "state": "not_due", "business_date": "2030-01-08", "timezone": "America/New_York", "next_due_at": null } }
+        ]
+      },
+      "expected": { "status": "unknown", "coverage_total": null, "coverage_included": 0, "coverage_state": "unavailable" }
+    },
+    {
+      "id": "zero-candidates-empty-summary",
+      "businessDate": "2030-01-08",
+      "now": "2030-01-08T15:00:00Z",
+      "summary": { "accounts": [] },
+      "expected": { "status": "unknown", "coverage_total": null, "coverage_included": 0, "coverage_state": "unavailable" }
+    },
+    {
+      "id": "failed-read-summary",
+      "businessDate": "2030-01-08",
+      "now": "2030-01-08T15:00:00Z",
+      "summary": null,
+      "expected": { "status": "unknown", "reason": "read_failed", "coverage_total": null, "coverage_included": 0, "coverage_state": "unavailable" }
+    },
+    {
+      "id": "historical-date-ribbon",
+      "businessDate": "2030-01-06",
+      "now": "2030-01-08T15:00:00Z",
+      "summaryDate": "2030-01-08",
+      "expected": { "status": "unknown", "coverage_total": null, "coverage_included": 0, "coverage_state": "unavailable" }
+    },
+    {
+      "id": "all-expired-candidates",
+      "businessDate": "2030-01-08",
+      "now": "2030-01-08T15:00:00Z",
+      "summary": {
+        "accounts": [
+          { "platform": "firstrade", "account_alias": "syn-0", "status": "ok", "completeness": "complete", "as_of": "2030-01-08T14:30:00Z", "read_error_codes": [], "runs": [], "schedule": { "state": "not_due", "business_date": "2030-01-08", "timezone": "America/New_York", "next_due_at": "2030-01-08T14:59:59Z" } },
+          { "platform": "firstrade", "account_alias": "syn-1", "status": "ok", "completeness": "complete", "as_of": "2030-01-08T14:30:00Z", "read_error_codes": [], "runs": [], "schedule": { "state": "not_due", "business_date": "2030-01-08", "timezone": "America/New_York", "next_due_at": "2030-01-08T15:00:00Z" } }
+        ]
+      },
+      "expected": { "status": "unknown", "coverage_total": null, "coverage_included": 0, "coverage_state": "unavailable" }
+    },
+    {
+      "id": "partial-one-future-candidate",
+      "businessDate": "2030-01-08",
+      "now": "2030-01-08T15:00:00Z",
+      "summary": {
+        "accounts": [
+          { "platform": "firstrade", "account_alias": "syn-0", "status": "ok", "completeness": "complete", "as_of": "2030-01-08T14:30:00Z", "read_error_codes": [], "runs": [], "schedule": { "state": "not_due", "business_date": "2030-01-08", "timezone": "America/New_York", "next_due_at": "2030-01-08T20:00:00Z" } },
+          { "platform": "firstrade", "account_alias": "syn-1", "status": "ok", "completeness": "complete", "as_of": "2030-01-08T14:30:00Z", "read_error_codes": [], "runs": [], "schedule": { "state": "not_due", "business_date": "2030-01-08", "timezone": "America/New_York", "next_due_at": null } }
+        ]
+      },
+      "expected": { "status": "partial", "coverage_total": 2, "coverage_included": 1, "coverage_state": "partial", "due_at": "2030-01-08T20:00:00Z" }
+    },
+    {
+      "id": "dst-spring-forward-known",
+      "businessDate": "2030-03-11",
+      "now": "2030-03-11T15:00:00Z",
+      "summary": {
+        "accounts": [
+          { "platform": "firstrade", "account_alias": "syn-0", "status": "ok", "completeness": "complete", "as_of": "2030-03-11T14:30:00Z", "read_error_codes": [], "runs": [], "schedule": { "state": "not_due", "business_date": "2030-03-11", "timezone": "America/New_York", "next_due_at": "2030-03-11T15:55:00-04:00" } },
+          { "platform": "firstrade", "account_alias": "syn-1", "status": "ok", "completeness": "complete", "as_of": "2030-03-11T14:30:00Z", "read_error_codes": [], "runs": [], "schedule": { "state": "not_due", "business_date": "2030-03-11", "timezone": "America/New_York", "next_due_at": "2030-03-11T20:10:00Z" } }
+        ]
+      },
+      "expected": { "status": "known", "coverage_total": 2, "coverage_included": 2, "coverage_state": "complete", "due_at": "2030-03-11T19:55:00Z" }
+    }
+  ]
+}
