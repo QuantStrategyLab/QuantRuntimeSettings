@@ -721,6 +721,30 @@ assert.equal(followUpPayload.reader_revision, followUpReader);
 assert.equal(followUpHistory.length, 2);
 await assertBinanceFactsHistoryBindings(followUpHistory, followUpPayload);
 
+const rolledBackPayload = buildBinanceFactsBinding({
+  variables,
+  accountOptions: { binance: [accountOption] },
+  readerRevision: reader,
+});
+await assertBinanceFactsHistoryBindings([sameUidPriorAppBinding, sameUidPayload], rolledBackPayload);
+existingVariables.set("BINANCE_ACCOUNT_FACTS_READER_REVISION", reader);
+assert.deepEqual(await runBootstrap({
+  env: {
+    ...rotationFixture,
+    BINANCE_FACTS_BOOTSTRAP_APPLY: "false",
+    BINANCE_FACTS_NEXT_READER_REVISION: followUpReader,
+    BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify(rolledBackPayload),
+    BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: JSON.stringify([sameUidPriorAppBinding, sameUidPayload]),
+  },
+  fetchImpl: makeFetch(),
+  command: makeCommand(),
+}), {
+  status: "rotation_preview",
+  match_count: 1,
+  writes: 0,
+  history_binding_count: 3,
+});
+
 writes.length = 0;
 existingVariables.set("BINANCE_ACCOUNT_FACTS_READER_REVISION", reader);
 await assert.rejects(runBootstrap({

@@ -471,8 +471,7 @@ async function runReaderRotation({ env, fetchImpl, command }) {
       mismatchCode: "history_binding_invalid",
     });
     const isCurrentBinding = isDeepStrictEqual(historyBinding, oldBinding);
-    if (((historyBinding.reader_revision === oldReaderRevision
-          || historyBinding.source_binding?.id === oldBinding.source_binding.id) && !isCurrentBinding)
+    if ((historyBinding.source_binding?.id === oldBinding.source_binding.id && !isCurrentBinding)
         || seenHistory.has(historyBinding.source_binding?.id)) fail("history_binding_invalid");
     seenHistory.add(historyBinding.source_binding.id);
   }
