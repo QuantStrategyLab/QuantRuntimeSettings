@@ -319,8 +319,13 @@ The receipt stores neither the message body nor the raw account data.
 The runtime logs only fixed status fields: report date, business day, coverage,
 delivery and lateness. Never print message bodies, private paths, account IDs,
 headers, tokens or exception details. `accepted` means Telegram accepted the
-request, not that a person has read it. An HTTP 200 can also acknowledge a
-duplicate or an uncertain outcome that must not be retried. Monitor the
+request, not that a person has read it. HTTP 200 means Telegram accepted the
+report (`accepted`) or an earlier attempt already did (`duplicate`). An
+uncertain send, a failed receipt write, an earlier unconfirmed attempt and an
+unconfirmed 07:30 check return HTTP 502 so the scheduler shows a failure. A 502
+is not permission to clear the reservation or resend: the reservation still
+blocks a second message, and recovery follows the uncertain-delivery rules
+above. Monitor the
 structured `delivery` field, source coverage, deadline and missing scheduled
 execution separately, using the existing operations alert channel.
 

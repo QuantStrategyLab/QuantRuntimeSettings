@@ -522,10 +522,27 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertFalse(self.store.records)
 
     def test_same_slot_and_concurrent_invocations_send_once(self):
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            results = list(pool.map(lambda _: self.run_request(configuration=self.enable()), range(8)))
+        configured = self.enable()
+        in_flight, release = threading.Event(), threading.Event()
+
+        def held_send(text):
+            in_flight.set()
+            self.assertTrue(release.wait(5))
+            return self.send(text)
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            first = pool.submit(self.run_request, configuration=configured, sender=held_send)
+            self.assertTrue(in_flight.wait(5))
+            with ThreadPoolExecutor(max_workers=7) as overlap:
+                overlapping = list(overlap.map(lambda _: self.run_request(configuration=configured), range(7)))
+            release.set()
+            first_status, first_result = first.result(5)
+        # An overlapping call cannot see the outcome yet, so it fails visibly without resending.
+        self.assertTrue(all((status, result['delivery']) == (502, 'unknown') for status, result in overlapping))
+        self.assertEqual((first_status, first_result['delivery']), (200, 'accepted'))
+        status, after = self.run_request(configuration=configured)
+        self.assertEqual((status, after['delivery']), (200, 'duplicate'))
         self.assertEqual(len(self.sent), 1)
-        self.assertTrue(all(status == 200 for status, _ in results))
         self.assertEqual(len(self.store.records), 1)
         self.assertEqual(next(iter(self.store.records.values()))['delivery'], 'accepted')
 

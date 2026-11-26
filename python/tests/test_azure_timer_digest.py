@@ -93,7 +93,7 @@ class ScheduleTests(unittest.TestCase):
         store.reserve.return_value = (False, {**receipt, 'delivery': 'receipt_unverified'})
         code, result = execute_scheduled(slot, configuration, store, send, now=lambda: NOW)
         self.assertEqual((code, result['delivery'], result['deadline_receipt']),
-                         (200, 'receipt_unverified', 'already_recorded'))
+                         (502, 'receipt_unverified', 'already_recorded'))
         store.finish.assert_not_called()
         send.assert_not_called()
 

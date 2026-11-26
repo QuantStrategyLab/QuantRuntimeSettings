@@ -84,6 +84,8 @@ def _execute_validated(scheduled, configuration, store, send, *, now, platform_c
                 or existing.get('delivery') not in ('confirmed', 'receipt_unverified')):
                 raise core.StoreUnavailable()
             result = {**result, 'delivery': existing['delivery']}
+            # The first recorded check is authoritative for both the result and its status.
+            status = 200 if existing['delivery'] == 'confirmed' else 502
     except core.StoreUnavailable:
         return 503, {**result, 'deadline_receipt': 'unverified'}
     return status, {**result, 'deadline_receipt': 'recorded' if created else 'already_recorded'}
