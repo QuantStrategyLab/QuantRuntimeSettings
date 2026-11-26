@@ -971,7 +971,8 @@ class CloudRunDigestTests(unittest.TestCase):
             )
 
         status, first = self.run_request(configuration=self.enable(), sender=fail_http)
-        self.assertEqual((status, first['delivery'], first['send_error_code']), (200, 'unknown', 'http_403'))
+        # An unconfirmed send fails visibly instead of exiting cleanly.
+        self.assertEqual((status, first['delivery'], first['send_error_code']), (502, 'unknown', 'http_403'))
         delivery_record = self.store.records['synthetic/2026-10-16.json']
         self.assertEqual(delivery_record['send_error_code'], 'http_403')
         self.assertNotIn('SECRET_TOKEN', json.dumps(delivery_record))
@@ -980,10 +981,27 @@ class CloudRunDigestTests(unittest.TestCase):
         self.now = NOW + timedelta(minutes=30)
         headers = {**HEADERS, 'X-CloudScheduler-ScheduleTime': self.now.isoformat()}
         cfg = replace(self.enable(), deadline_alert_enabled=True)
-        _, check = self.run_request(headers=headers, configuration=cfg, sender=lambda _t: 'bad-id')
-        self.assertEqual(check['delivery'], 'receipt_unverified')
+        check_status, check = self.run_request(headers=headers, configuration=cfg, sender=lambda _t: 'bad-id')
+        self.assertEqual((check_status, check['delivery']), (502, 'receipt_unverified'))
         alert_record = self.store.records['synthetic/deadline-alerts/2026-10-16.json']
         self.assertEqual((alert_record['delivery'], alert_record['send_error_code']), ('unknown', 'digest_ack_invalid'))
+
+
+    def test_retry_after_unconfirmed_send_stays_failed_and_does_not_resend(self):
+        def fail(_text):
+            raise OSError('telegram unreachable')
+        status, first = self.run_request(configuration=self.enable(), sender=fail)
+        self.assertEqual((status, first['delivery']), (502, 'unknown'))
+        sent = []
+        status, retry = self.run_request(configuration=self.enable(), sender=lambda text: sent.append(text) or 1)
+        self.assertEqual((status, retry['delivery']), (502, 'unknown'), 'an unconfirmed report keeps failing')
+        self.assertEqual(sent, [], 'the reservation still prevents a duplicate send')
+
+    def test_confirmed_send_and_duplicate_stay_successful(self):
+        status, first = self.run_request(configuration=self.enable(), sender=lambda _t: 7)
+        self.assertEqual((status, first['delivery']), (200, 'accepted'))
+        status, again = self.run_request(configuration=self.enable(), sender=lambda _t: 8)
+        self.assertEqual((status, again['delivery']), (200, 'duplicate'))
 
 
 class ControlPlaneAlertTests(unittest.TestCase):
