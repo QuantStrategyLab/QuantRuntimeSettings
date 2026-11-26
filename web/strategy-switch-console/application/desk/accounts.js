@@ -119,10 +119,36 @@ function withCurrentDeploymentEvidence(readback, now) {
   };
 }
 
+// A stored readback describes the configuration it was taken from. Reuse it only
+// while that configuration is still current: same revision and same identity.
+function readbackMatchesCurrentTarget(readback, target) {
+  if (!Number.isSafeInteger(target.revision) || readback?.saved_revision !== target.revision) return false;
+  const config = target.config || {};
+  const environment = ["live", "paper"].includes(config.broker_environment) ? config.broker_environment : null;
+  const suffix = config.account_selector ? String(config.account_selector).slice(-4) : null;
+  return readback.identity?.broker_environment === environment && readback.identity?.account_suffix === suffix;
+}
+
 function brokerReadback9a(ownTargets, readbacks9a, now) {
   if (!readbacks9a || typeof readbacks9a !== "object") return undefined;
-  const matched = ownTargets.map(t => readbacks9a[t.id]).filter(Boolean)
-    .map(readback => withCurrentDeploymentEvidence(readback, now));
+  const stored = ownTargets.map(t => [t, readbacks9a[t.id]]).filter(([, readback]) => Boolean(readback));
+  if (!stored.length) return undefined;
+  const matched = stored.filter(([t, readback]) => readbackMatchesCurrentTarget(readback, t))
+    .map(([, readback]) => withCurrentDeploymentEvidence(readback, now));
+  if (!matched.length) {
+    // Every stored snapshot predates the current configuration: no evidence.
+    return {
+      status: "unknown",
+      layers_available: { saved_settings: false, platform_configuration: false, observed_deployment: false },
+      compared_target_count: 0,
+      drift_target_count: 0,
+      observed_at: null,
+      actions: {
+        reapply_saved: { status: "not_enabled", allowed: false, reason_code: "not_enabled" },
+        adopt_platform: { status: "not_enabled", allowed: false, reason_code: "not_enabled" },
+      },
+    };
+  }
   if (!matched.length) return undefined;
   const targetHasDrift = (r) => r.overall === "drift"
     || r.comparisons?.saved_vs_platform?.status === "drift"

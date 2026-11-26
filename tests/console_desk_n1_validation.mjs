@@ -519,7 +519,7 @@ assert.deepEqual(entryCounts(catalogEntries(golden("switch-strategies", "empty")
   const rb = buildReadback({ target: rbTarget, observed: rbCase.observed_saved, platform: rbCase.platform.effective,
     now: Date.parse(rbMatrix.now), platformMeta: rbCase.platform, deployment: rbCase.deployment });
   const projected = accountsProjection({
-    config: { ok: true, value: { revision: 7, options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001" }] } } },
+    config: { ok: true, value: { revision: 7, options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001", broker_environment: "paper" }] } } },
     facts: { ok: false }, credential: { ok: false }, now: Date.parse(rbMatrix.now), readbacks9a: { "ibkr/syn_tqqq": rb },
   });
   const readback9a = projected.brokers.value[0].readback_9a;

@@ -249,7 +249,7 @@ async function runSaA16(validator) {
       ok: true,
       value: {
         revision: 7,
-        options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001" }] },
+        options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001", broker_environment: "paper" }] },
       },
     },
     facts: { ok: false },
@@ -274,7 +274,7 @@ async function runSaA16(validator) {
   });
   assert.ok(rbUnreadable.saved_settings && rbUnreadable.platform_configuration, "layer envelopes still exist");
   const acctUnreadable = accountsMod.accountsProjection({
-    config: { ok: true, value: { revision: 7, options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001" }] } } },
+    config: { ok: true, value: { revision: 7, options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001", broker_environment: "paper" }] } } },
     facts: { ok: false },
     credential: { ok: false },
     now: nowMs,
@@ -293,7 +293,7 @@ async function runSaA16(validator) {
     },
   };
   const acctExecOnly = accountsMod.accountsProjection({
-    config: { ok: true, value: { revision: 7, options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001" }] } } },
+    config: { ok: true, value: { revision: 7, options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001", broker_environment: "paper" }] } } },
     facts: { ok: false },
     credential: { ok: false },
     now: nowMs,
@@ -348,7 +348,8 @@ async function runSaA16(validator) {
     deployment: { ...matrix.cases[0].deployment, execution_mode: "paper" },
   });
   assert.equal(rbObservedDriftFresh.comparisons.platform_vs_observed.status, "drift");
-  const ttlConfig = { ok: true, value: { revision: 7, options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001" }] } } };
+  // Same configuration revision as the snapshots under test (case 1 of the matrix).
+  const ttlConfig = { ok: true, value: { revision: baseSaved.instance_revision, options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001", broker_environment: "paper" }] } } };
   const rollupAt = (at, readback) => accountsMod.accountsProjection({
     config: ttlConfig, facts: { ok: false }, credential: { ok: false }, now: at,
     readbacks9a: { "ibkr/syn_tqqq": readback },
@@ -388,7 +389,7 @@ async function runSaA16(validator) {
   });
   assert.equal(rbMissingDeployment.overall, "match");
   const acctMissingDeploy = accountsMod.accountsProjection({
-    config: { ok: true, value: { revision: 7, options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001" }] } } },
+    config: { ok: true, value: { revision: matrix.cases[1].observed_saved.instance_revision, options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001", broker_environment: "paper" }] } } },
     facts: { ok: false },
     credential: { ok: false },
     now: nowMs,
@@ -408,7 +409,7 @@ async function runSaA16(validator) {
   assert.equal(rbObservedOnlyDrift.overall, "match");
   assert.equal(rbObservedOnlyDrift.comparisons.platform_vs_observed.status, "drift");
   const acctObsDrift = accountsMod.accountsProjection({
-    config: { ok: true, value: { revision: 7, options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001" }] } } },
+    config: { ok: true, value: { revision: matrix.cases[1].observed_saved.instance_revision, options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001", broker_environment: "paper" }] } } },
     facts: { ok: false },
     credential: { ok: false },
     now: nowMs,
@@ -416,6 +417,26 @@ async function runSaA16(validator) {
   });
   assert.equal(acctObsDrift.brokers.value[0].readback_9a.status, "drift");
   assert.equal(acctObsDrift.brokers.value[0].readback_9a.drift_target_count, 1);
+
+  // P2 regression: a stored readback from an older configuration is not reused.
+  const currentConfig = (revision, overrides = {}) => ({ ok: true, value: { revision, options: { ibkr: [{
+    key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001", broker_environment: "paper", ...overrides }] } } });
+  const rollupFor = (config, readback) => accountsMod.accountsProjection({
+    config, facts: { ok: false }, credential: { ok: false }, now: nowMs, readbacks9a: { "ibkr/syn_tqqq": readback },
+  }).brokers.value[0].readback_9a;
+  const rev = rbObservedOnlyDrift.saved_revision;
+  assert.equal(rollupFor(currentConfig(rev), rbObservedOnlyDrift).status, "drift", "current snapshot is used");
+  for (const [label, config] of [
+    ["newer revision", currentConfig(rev + 1)],
+    ["paper switched to live", currentConfig(rev, { broker_environment: "live" })],
+    ["different account", currentConfig(rev, { account_selector: "DU0000099" })],
+  ]) {
+    const stale = rollupFor(config, rbObservedOnlyDrift);
+    assert.equal(stale.status, "unknown", `${label}: outdated snapshot is not reused`);
+    assert.equal(stale.compared_target_count, 0, `${label}: no target compared`);
+    assert.deepEqual(stale.layers_available, { saved_settings: false, platform_configuration: false, observed_deployment: false }, `${label}: no layer evidence`);
+    validator.assertValid("common.json#/$defs/Readback9ASummary", stale, `SA-A16:${label}`);
+  }
 
   console.log(`SA-4 passed (${matrix.cases.length} readback cases + zero-write GET spy)`);
 }
@@ -497,10 +518,12 @@ async function runSaA17(validator) {
   const sharedHttpDeps = {
     auth: async () => ({ allowed: true, login: "syn-reader" }),
     now: () => Date.parse(fleetMatrix.now),
+    // The stored readback must describe this account's current configuration.
     options: async () => ({
-      revision: 3,
+      revision: rbFirst.saved_revision,
       options: {
-        ibkr: fleetCase.accounts.filter(a => a.platform === "ibkr").map(a => ({ ...a, target_name: a.key })),
+        ibkr: fleetCase.accounts.filter(a => a.platform === "ibkr").map(a => ({
+          ...a, target_name: a.key, account_selector: "DU0000001", broker_environment: "paper" })),
         longbridge: fleetCase.accounts.filter(a => a.platform === "longbridge").map(a => ({ ...a, target_name: a.key })),
         schwab: fleetCase.accounts.filter(a => a.platform === "schwab").map(a => ({ ...a, target_name: a.key })),
       },
