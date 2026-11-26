@@ -317,6 +317,27 @@ async function runSaA16(validator) {
   assert.equal(rbPaperLiveMatch.comparisons.saved_vs_observed.status, "match");
   assert.ok(rbPaperLiveMatch.comparisons.saved_vs_observed.skipped_non_mutual_fields.includes("broker_environment"));
 
+  // P2 regression: saved vs platform compares explicit execution modes even without deployment evidence.
+  const execModeReadback = (savedMode, platformMode) => readbackMod.buildReadback({
+    target: { ...fullTarget, config: { ...baseSaved.config, broker_environment: "paper", default_execution_mode: savedMode } },
+    observed: { ...baseSaved, config: { ...baseSaved.config, broker_environment: "paper", default_execution_mode: savedMode } },
+    platform: { ...basePlatform.effective, broker_environment: "paper", execution_mode: platformMode },
+    now: nowMs,
+    platformMeta: basePlatform,
+    deployment: null,
+  });
+  const rbExecDrift = execModeReadback("dry_run", "live");
+  assert.equal(rbExecDrift.comparisons.saved_vs_platform.status, "drift", "dry_run vs live is saved/platform drift");
+  assert.ok(rbExecDrift.comparisons.saved_vs_platform.mismatched_fields.includes("execution_mode"));
+  assert.equal(rbExecDrift.overall, "drift", "overall reflects execution-mode drift");
+  const rbExecSame = execModeReadback("live", "live");
+  assert.ok(rbExecSame.comparisons.saved_vs_platform.compared_fields.includes("execution_mode"));
+  assert.ok(!rbExecSame.comparisons.saved_vs_platform.mismatched_fields.includes("execution_mode"));
+  const rbExecOneSided = execModeReadback("live", undefined);
+  assert.ok(rbExecOneSided.comparisons.saved_vs_platform.skipped_non_mutual_fields.includes("execution_mode"), "one-sided mode is not compared");
+  assert.notEqual(rbExecOneSided.comparisons.saved_vs_platform.status, "match", "one-sided mode cannot report match");
+  validator.assertValid("readback.json", await deskResponse("readback", rbExecDrift).json(), "SA-A16:exec-mode-drift");
+
   // P2 regression: stored readbacks re-check deployment evidence TTL at read time.
   const rbObservedDriftFresh = readbackMod.buildReadback({
     target: { ...fullTarget, config: { ...baseSaved.config, broker_environment: "paper", default_execution_mode: "live" } },

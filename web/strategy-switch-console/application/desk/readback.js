@@ -215,6 +215,17 @@ export function buildReadback({ target, observed, platform = {}, platformReason 
   const savedVsPlatformCompared = fields.filter(f => f.state !== "unknown").map(f => f.key);
   const savedVsPlatformMismatched = fields.filter(f => f.state === "drift").map(f => f.key);
   const savedVsPlatformSkipped = fields.filter(f => f.state === "unknown").map(f => f.key);
+  // execution_mode is not a READBACK_KEY; compare it directly when either layer
+  // states it explicitly, so a dry_run/live drift surfaces without deployment data.
+  const executionModeKeys = MUTUAL_OBSERVED_AXES.find(axis => axis.key === "execution_mode").rawKeys;
+  const savedMode = draft?.status === "identity_conflict" || !observed ? null : pickExplicitExecutionMode(saved, executionModeKeys);
+  const platformMode = pickExplicitExecutionMode(platform, executionModeKeys);
+  if (savedMode !== null && platformMode !== null) {
+    savedVsPlatformCompared.push("execution_mode");
+    if (savedMode !== platformMode) savedVsPlatformMismatched.push("execution_mode");
+  } else if (savedMode !== null || platformMode !== null) {
+    savedVsPlatformSkipped.push("execution_mode");
+  }
   const savedVsPlatformStatus = savedVsPlatformMismatched.length
     ? "drift"
     : savedVsPlatformSkipped.length === 0 && savedVsPlatformCompared.length > 0
@@ -237,7 +248,7 @@ export function buildReadback({ target, observed, platform = {}, platformReason 
   };
   return { target_id: target.id, readback_id: `rb_${crypto.randomUUID()}`, read_at: time,
     saved_revision: revision,
-    overall: summary.drift ? "drift" : summary.unknown ? "unknown" : "match", summary, fields,
+    overall: summary.drift || savedVsPlatformStatus === "drift" ? "drift" : summary.unknown || savedVsPlatformStatus === "unknown" ? "unknown" : "match", summary, fields,
     identity: { account_suffix: config.account_selector ? String(config.account_selector).slice(-4) : null,
       broker_environment: ["live", "paper"].includes(config.broker_environment) ? config.broker_environment : null,
       service: config.service_name || null, runtime_status_target_id: config.runtime_status_target_id || null },
