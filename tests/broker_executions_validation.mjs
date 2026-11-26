@@ -25,6 +25,17 @@ for (const patch of [{ quantity: "0" }, { price: "-1" }, { trade_date: "2026-10-
   { commission: "-0.1234567890123456789" }, { taxes: "1e-9" }, { quantity: "0.123456789" }]) {
   assert.throws(() => normalizeExecutions({ ...payload, records: [{ ...record, ...patch }] }, { binding }));
 }
+// US 23/5: an IBKR overnight fill from 20:00 ET carries the next day's trade date.
+for (const [localTime, tradeDate] of [["2026-10-22T20:00:00", "2026-10-23"], ["2026-10-22T23:59:59", "2026-10-23"],
+  ["2026-09-30T21:15:00", "2026-10-01"], ["2026-10-23T02:30:00", "2026-10-23"]]) {
+  const overnight = { ...payload, records: [{ ...record, local_time: localTime, trade_date: tradeDate }] };
+  assert.equal(normalizeExecutions(overnight, { binding }).records[0].local_time, localTime, `${localTime} -> ${tradeDate} accepted`);
+}
+for (const [localTime, tradeDate] of [["2026-10-22T19:59:59", "2026-10-23"], ["2026-10-21T22:00:00", "2026-10-23"],
+  ["2026-10-23T21:00:00", "2026-10-22"], ["2026-10-22T20:00:00", "2026-10-22T"]]) {
+  assert.throws(() => normalizeExecutions({ ...payload, records: [{ ...record, local_time: localTime, trade_date: tradeDate }] }, { binding }),
+    undefined, `${localTime} -> ${tradeDate} rejected`);
+}
 assert.throws(() => normalizeExecutions({ ...payload, account_selector: "U100002" }, { binding }), /execution_identity_mismatch/);
 assert.throws(() => normalizeExecutions({ ...payload, coverage: "complete" }, { binding }));
 assert.throws(() => normalizeExecutions({ ...payload, records: [record, record] }, { binding }));

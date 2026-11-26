@@ -1,6 +1,19 @@
 // Broker executions are private observed facts, not orders or a complete P/L ledger.
 import { dateMs } from "../../performance_math.js";
 
+// US 23/5: IBKR dates fills from 20:00 ET to midnight on the following day, so an
+// overnight execution's local wall time falls on the evening before its trade date.
+// Accept only that shape besides the same-day case; anything else stays invalid.
+const TRADE_DATE_BOUNDARY = "20:00:00";
+function localTimeMatchesTradeDate(localTime, tradeDate) {
+  const localDay = localTime.slice(0, 10);
+  if (localDay === tradeDate) return true;
+  const next = new Date(`${localDay}T00:00:00Z`);
+  if (!Number.isFinite(next.getTime())) return false;
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next.toISOString().slice(0, 10) === tradeDate && localTime.slice(11) >= TRADE_DATE_BOUNDARY;
+}
+
 export const EXECUTIONS_SCHEMA = "broker_executions.v1";
 const HASH = /^[a-f0-9]{64}$/;
 const DECIMAL = /^-?(?:0|[1-9]\d{0,11})(?:\.\d{1,8})?$/;
@@ -57,7 +70,7 @@ export function normalizeExecutions(raw, { binding, now = Date.now(), enforceFre
     seen.add(row.execution_ref);
     if (row.local_time !== null && (typeof row.local_time !== "string"
         || !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d$/.test(row.local_time)
-        || row.local_time.slice(0, 10) !== row.trade_date)) throw executionError();
+        || !localTimeMatchesTradeDate(row.local_time, row.trade_date))) throw executionError();
     if (row.time_zone !== null) {
       if (typeof row.time_zone !== "string" || row.time_zone.length > 64) throw executionError();
       try { new Intl.DateTimeFormat("en", { timeZone: row.time_zone }); } catch { throw executionError(); }
