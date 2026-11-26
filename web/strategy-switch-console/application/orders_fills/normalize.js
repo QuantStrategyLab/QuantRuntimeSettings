@@ -8,6 +8,7 @@
  * - Provides pure additive adaptLegacyBrokerExecutionPayload(...) preserving broker_executions.v1.
  */
 
+import { localTimeMatchesTradeDate } from "../account_facts/trade_date_boundary.js";
 import { isRawAccountIdentifier, isUnsafePrivateLocator } from "../naming_canonical/helpers.js";
 import {
   absDecimal,
@@ -557,7 +558,7 @@ function validateLegacyTradeDate(tradeDate) {
   return { year, month, day };
 }
 
-function parseLegacyLocalTime(localTime, tradeDate) {
+function parseLegacyLocalTime(localTime, tradeDate, timeZone = null) {
   if (typeof localTime !== "string") {
     throw new OrdersFillsError("invalid_legacy_execution_local_time", 400);
   }
@@ -565,7 +566,9 @@ function parseLegacyLocalTime(localTime, tradeDate) {
   if (!match) {
     throw new OrdersFillsError("invalid_legacy_execution_local_time", 400);
   }
-  if (match[1] !== undefined && match[1] !== tradeDate) {
+  // A local date may precede the trade date only for a US 23/5 overnight fill.
+  if (match[1] !== undefined && match[1] !== tradeDate
+      && !localTimeMatchesTradeDate(match[1], `${match[2]}:${match[3]}:${match[4]}`, tradeDate, timeZone)) {
     throw new OrdersFillsError("invalid_legacy_execution_local_time", 400);
   }
   const hour = Number(match[2]);
@@ -575,7 +578,7 @@ function parseLegacyLocalTime(localTime, tradeDate) {
   if (hour > 23 || minute > 59 || second > 59 || ms > 999) {
     throw new OrdersFillsError("invalid_legacy_execution_local_time", 400);
   }
-  return { hour, minute, second, ms };
+  return { hour, minute, second, ms, localDate: match[1] !== undefined && match[1] !== tradeDate ? match[1] : null };
 }
 
 function buildLegacyZoneFormatter(timeZone) {
@@ -692,7 +695,7 @@ export function adaptLegacyBrokerExecutionPayload(legacyPayload, context = {}) {
     const positiveQty = formatQtyExact(absDecimal(qtyDec));
     const dateParts = validateLegacyTradeDate(row.trade_date);
     const localTimeParts = row.local_time !== undefined && row.local_time !== null
-      ? parseLegacyLocalTime(row.local_time, row.trade_date)
+      ? parseLegacyLocalTime(row.local_time, row.trade_date, row.time_zone ?? null)
       : null;
     const zoneFormatter = row.time_zone !== undefined && row.time_zone !== null
       ? buildLegacyZoneFormatter(row.time_zone)
@@ -704,7 +707,9 @@ export function adaptLegacyBrokerExecutionPayload(legacyPayload, context = {}) {
         ? null
         : parseStrictUtcString(row.executed_at, "legacy_executed_at");
     } else if (localTimeParts !== null && zoneFormatter !== null) {
-      executedAt = convertLocalTimeWithZoneToUtc(dateParts, localTimeParts, zoneFormatter);
+      // An overnight fill executes on its local calendar date, not its trade date.
+      const executionDateParts = localTimeParts.localDate ? validateLegacyTradeDate(localTimeParts.localDate) : dateParts;
+      executedAt = convertLocalTimeWithZoneToUtc(executionDateParts, localTimeParts, zoneFormatter);
     }
     return {
       broker: identity.broker,

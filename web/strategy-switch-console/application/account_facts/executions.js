@@ -1,6 +1,8 @@
 // Broker executions are private observed facts, not orders or a complete P/L ledger.
 import { dateMs } from "../../performance_math.js";
 
+import { localTimeMatchesTradeDate } from "./trade_date_boundary.js";
+
 export const EXECUTIONS_SCHEMA = "broker_executions.v1";
 const HASH = /^[a-f0-9]{64}$/;
 const DECIMAL = /^-?(?:0|[1-9]\d{0,11})(?:\.\d{1,8})?$/;
@@ -57,7 +59,7 @@ export function normalizeExecutions(raw, { binding, now = Date.now(), enforceFre
     seen.add(row.execution_ref);
     if (row.local_time !== null && (typeof row.local_time !== "string"
         || !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d$/.test(row.local_time)
-        || row.local_time.slice(0, 10) !== row.trade_date)) throw executionError();
+        || !localTimeMatchesTradeDate(row.local_time.slice(0, 10), row.local_time.slice(11), row.trade_date, row.time_zone))) throw executionError();
     if (row.time_zone !== null) {
       if (typeof row.time_zone !== "string" || row.time_zone.length > 64) throw executionError();
       try { new Intl.DateTimeFormat("en", { timeZone: row.time_zone }); } catch { throw executionError(); }

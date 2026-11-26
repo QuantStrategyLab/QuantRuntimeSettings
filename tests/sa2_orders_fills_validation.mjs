@@ -438,6 +438,25 @@ assert.ok(ORDER_LIFECYCLE_STATES.includes("ORDER_UNKNOWN"));
   assert.equal(adaptedEval.executions[0].fee_usd, null);
   assert.equal(adaptedEval.summary.k_pend_usd, null);
   assert.equal(PRIVATE_LOCATOR_RE.test(JSON.stringify(adaptedEval)), false);
+
+  // US 23/5: an IBKR overnight fill (20:00 ET on the evening before its trade date) is
+  // projected, and its UTC execution time uses the local calendar date.
+  {
+    const baseRow = legacyWithSelector.records[0];
+    const ctx = { broker: "ibkr", environment: "live", account: "ibkr:live:a1", evidence_ref: "sa2:a12:overnight" };
+    const withRow = changes => ({ ...legacyWithSelector, records: [{ ...baseRow, ...changes }] });
+    const overnight = adaptLegacyBrokerExecutionPayload(
+      withRow({ trade_date: "2026-10-23", local_time: "2026-10-22T20:30:00", time_zone: "America/New_York" }), ctx);
+    assert.equal(overnight.domains.executions.records[0].executed_at, "2026-10-23T00:30:00.000Z", "executed_at uses the local date");
+    for (const changes of [
+      { trade_date: "2026-10-23", local_time: "2026-10-22T19:59:59", time_zone: "America/New_York" },
+      { trade_date: "2026-10-23", local_time: "2026-10-22T20:30:00", time_zone: "America/Los_Angeles" },
+      { trade_date: "2026-10-23", local_time: "2026-10-21T21:00:00", time_zone: "America/New_York" },
+    ]) {
+      assert.throws(() => adaptLegacyBrokerExecutionPayload(withRow(changes), ctx), /invalid_legacy_execution_local_time/,
+        `${changes.local_time} ${changes.time_zone} -> ${changes.trade_date} rejected`);
+    }
+  }
   assert.equal(JSON.stringify(adaptedEval).includes("U" + "100001"), false);
 }
 
