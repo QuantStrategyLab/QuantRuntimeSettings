@@ -14,6 +14,8 @@ import { DataTable, type Column } from "../../components/DataTable";
 import { Tabs } from "../../components/Tabs";
 import { BarList, type BarListItem } from "../../charts/BarList";
 import { renderableStatus } from "./shared";
+import { executionClock } from "./executionClock";
+
 
 export interface PerformanceTabsProps {
   scope: string;
@@ -298,7 +300,7 @@ function TradesTab({ scope, platform, range, epoch }: PerformanceTabsProps) {
       cell: row => <>
         {/* STK and the execution hash stay as debug attributes only, never as visible columns. */}
         <span className="num" data-asset-category={row.asset_category} data-execution-ref={row.execution_ref}>{row.trade_date}</span>
-        {row.local_time && <small className="trade-time">{row.local_time.slice(11)}{row.time_zone ? ` · ${row.time_zone}` : ""}</small>}
+        {row.local_time && <small className="trade-time">{executionClock(row.local_time, row.trade_date)}{row.time_zone ? ` · ${row.time_zone}` : ""}</small>}
       </>,
       sortValue: row => row.trade_date,
     },
@@ -357,7 +359,7 @@ function TradesTab({ scope, platform, range, epoch }: PerformanceTabsProps) {
                   <span className="trade-card-symbol">{row.symbol}</span>
                   <span className="trade-side">{sideOf(row)}</span>
                   {row.local_time && (
-                    <span className="trade-card-time">{row.local_time.slice(11)}{row.time_zone ? ` · ${row.time_zone}` : ""}</span>
+                    <span className="trade-card-time">{executionClock(row.local_time, row.trade_date)}{row.time_zone ? ` · ${row.time_zone}` : ""}</span>
                   )}
                 </div>
                 <div className="trade-card-account">{names.account(row.account_alias, row.platform)}</div>
