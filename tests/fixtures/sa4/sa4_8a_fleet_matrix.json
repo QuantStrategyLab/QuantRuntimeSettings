@@ -1,0 +1,304 @@
+{
+  "schema_version": "qsl.sa4_8a_fleet_matrix.v1",
+  "now": "2030-01-08T15:00:00Z",
+  "ttl_seconds": 3600,
+  "cases": [
+    {
+      "id": "all-same",
+      "accounts": [
+        { "platform": "ibkr", "key": "syn_a", "target_id": "ibkr/syn_a", "runtime_status_target_id": "rt.syn.a" },
+        { "platform": "schwab", "key": "syn_b", "target_id": "schwab/syn_b", "runtime_status_target_id": "rt.syn.b" }
+      ],
+      "snapshot": {
+        "errors": [],
+        "targets": [
+          {
+            "observed_at": "2030-01-08T14:55:00Z",
+            "evidence_valid_for_seconds": 3600,
+            "freshness": { "data_status": "ready" },
+            "deployment_freshness": { "data_status": "ready" },
+            "target": {
+              "target_id": "rt.syn.a",
+              "target": { "platform": "ibkr", "configured_state": "enabled", "execution_mode": "paper" },
+              "deployment": { "observed_at": "2030-01-08T14:50:00Z", "runtime_enabled": true, "scheduler_state": "enabled", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
+            }
+          },
+          {
+            "observed_at": "2030-01-08T14:58:00Z",
+            "evidence_valid_for_seconds": 3600,
+            "freshness": { "data_status": "ready" },
+            "deployment_freshness": { "data_status": "ready" },
+            "target": {
+              "target_id": "rt.syn.b",
+              "target": { "platform": "schwab", "configured_state": "enabled", "execution_mode": "paper" },
+              "deployment": { "observed_at": "2030-01-08T14:54:00Z", "runtime_enabled": true, "scheduler_state": "enabled", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
+            }
+          }
+        ]
+      },
+      "expected": {
+        "status": "single_mode",
+        "mode": "paper",
+        "observed_at": "2030-01-08T14:50:00Z",
+        "cohort_count": 2,
+        "observed_count": 2,
+        "modes": { "dry_run": 0, "paper": 2, "live": 0 },
+        "missing_count": 0,
+        "stale_count": 0,
+        "failed_count": 0,
+        "conflict_count": 0
+      }
+    },
+    {
+      "id": "mixed",
+      "accounts": [
+        { "platform": "ibkr", "key": "syn_a", "target_id": "ibkr/syn_a", "runtime_status_target_id": "rt.syn.a" },
+        { "platform": "longbridge", "key": "syn_c", "target_id": "longbridge/syn_c", "runtime_status_target_id": "rt.syn.c" }
+      ],
+      "snapshot": {
+        "errors": [],
+        "targets": [
+          {
+            "observed_at": "2030-01-08T14:55:00Z",
+            "evidence_valid_for_seconds": 3600,
+            "freshness": { "data_status": "ready" },
+            "deployment_freshness": { "data_status": "ready" },
+            "target": {
+              "target_id": "rt.syn.a",
+              "target": { "platform": "ibkr", "configured_state": "enabled", "execution_mode": "paper" },
+              "deployment": { "observed_at": "2030-01-08T14:40:00Z", "runtime_enabled": true, "scheduler_state": "enabled", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
+            }
+          },
+          {
+            "observed_at": "2030-01-08T14:58:00Z",
+            "evidence_valid_for_seconds": 3600,
+            "freshness": { "data_status": "ready" },
+            "deployment_freshness": { "data_status": "ready" },
+            "target": {
+              "target_id": "rt.syn.c",
+              "target": { "platform": "longbridge", "configured_state": "enabled", "execution_mode": "dry_run" },
+              "deployment": { "observed_at": "2030-01-08T14:48:00Z", "runtime_enabled": false, "scheduler_state": "paused", "strategy_profile": "qsl_core_v1", "execution_mode": "dry_run" }
+            }
+          }
+        ]
+      },
+      "expected": {
+        "status": "mixed",
+        "mode": null,
+        "observed_at": "2030-01-08T14:40:00Z",
+        "cohort_count": 2,
+        "observed_count": 2,
+        "modes": { "dry_run": 1, "paper": 1, "live": 0 },
+        "missing_count": 0,
+        "stale_count": 0,
+        "failed_count": 0,
+        "conflict_count": 0
+      }
+    },
+    {
+      "id": "1-stale",
+      "accounts": [
+        { "platform": "ibkr", "key": "syn_a", "target_id": "ibkr/syn_a", "runtime_status_target_id": "rt.syn.a" },
+        { "platform": "schwab", "key": "syn_b", "target_id": "schwab/syn_b", "runtime_status_target_id": "rt.syn.b" }
+      ],
+      "snapshot": {
+        "errors": [],
+        "targets": [
+          {
+            "observed_at": "2030-01-08T14:55:00Z",
+            "evidence_valid_for_seconds": 3600,
+            "freshness": { "data_status": "ready" },
+            "deployment_freshness": { "data_status": "ready" },
+            "target": {
+              "target_id": "rt.syn.a",
+              "target": { "platform": "ibkr", "configured_state": "enabled", "execution_mode": "paper" },
+              "deployment": { "observed_at": "2030-01-08T14:52:00Z", "runtime_enabled": true, "scheduler_state": "enabled", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
+            }
+          },
+          {
+            "observed_at": "2030-01-08T14:55:00Z",
+            "evidence_valid_for_seconds": 3600,
+            "freshness": { "data_status": "ready" },
+            "deployment_freshness": { "data_status": "stale" },
+            "target": {
+              "target_id": "rt.syn.b",
+              "target": { "platform": "schwab", "configured_state": "enabled", "execution_mode": "paper" },
+              "deployment": { "observed_at": "2030-01-08T12:00:00Z", "runtime_enabled": true, "scheduler_state": "enabled", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
+            }
+          }
+        ]
+      },
+      "expected": {
+        "status": "incomplete",
+        "mode": null,
+        "observed_at": "2030-01-08T14:52:00Z",
+        "cohort_count": 2,
+        "observed_count": 1,
+        "modes": { "dry_run": 0, "paper": 1, "live": 0 },
+        "missing_count": 0,
+        "stale_count": 1,
+        "failed_count": 0,
+        "conflict_count": 0
+      }
+    },
+    {
+      "id": "1-missing",
+      "accounts": [
+        { "platform": "ibkr", "key": "syn_a", "target_id": "ibkr/syn_a", "runtime_status_target_id": "rt.syn.a" },
+        { "platform": "firstrade", "key": "syn_d", "target_id": "firstrade/syn_d", "runtime_status_target_id": "rt.syn.d" }
+      ],
+      "snapshot": {
+        "errors": [],
+        "targets": [
+          {
+            "observed_at": "2030-01-08T14:55:00Z",
+            "evidence_valid_for_seconds": 3600,
+            "freshness": { "data_status": "ready" },
+            "deployment_freshness": { "data_status": "ready" },
+            "target": {
+              "target_id": "rt.syn.a",
+              "target": { "platform": "ibkr", "configured_state": "enabled", "execution_mode": "live" },
+              "deployment": { "observed_at": "2030-01-08T14:51:00Z", "runtime_enabled": true, "scheduler_state": "enabled", "strategy_profile": "qsl_core_v1", "execution_mode": "live" }
+            }
+          }
+        ]
+      },
+      "expected": {
+        "status": "incomplete",
+        "mode": null,
+        "observed_at": "2030-01-08T14:51:00Z",
+        "cohort_count": 2,
+        "observed_count": 1,
+        "modes": { "dry_run": 0, "paper": 0, "live": 1 },
+        "missing_count": 1,
+        "stale_count": 0,
+        "failed_count": 0,
+        "conflict_count": 0
+      }
+    },
+    {
+      "id": "1-failed",
+      "accounts": [
+        { "platform": "ibkr", "key": "syn_a", "target_id": "ibkr/syn_a", "runtime_status_target_id": "rt.syn.a" },
+        { "platform": "schwab", "key": "syn_b", "target_id": "schwab/syn_b", "runtime_status_target_id": "rt.syn.b" }
+      ],
+      "snapshot": {
+        "errors": ["runtime_target_lifecycle_source_read_failed:schwab"],
+        "targets": [
+          {
+            "observed_at": "2030-01-08T14:55:00Z",
+            "evidence_valid_for_seconds": 3600,
+            "freshness": { "data_status": "ready" },
+            "deployment_freshness": { "data_status": "ready" },
+            "target": {
+              "target_id": "rt.syn.a",
+              "target": { "platform": "ibkr", "configured_state": "enabled", "execution_mode": "paper" },
+              "deployment": { "observed_at": "2030-01-08T14:55:00Z", "runtime_enabled": true, "scheduler_state": "enabled", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
+            }
+          }
+        ]
+      },
+      "expected": {
+        "status": "incomplete",
+        "mode": null,
+        "observed_at": "2030-01-08T14:55:00Z",
+        "cohort_count": 2,
+        "observed_count": 1,
+        "modes": { "dry_run": 0, "paper": 1, "live": 0 },
+        "missing_count": 0,
+        "stale_count": 0,
+        "failed_count": 1,
+        "conflict_count": 0
+      }
+    },
+    {
+      "id": "0-targets",
+      "accounts": [],
+      "snapshot": {
+        "errors": [],
+        "targets": []
+      },
+      "expected": {
+        "status": "verified_empty",
+        "mode": null,
+        "observed_at": null,
+        "cohort_count": 0,
+        "observed_count": 0,
+        "modes": { "dry_run": 0, "paper": 0, "live": 0 },
+        "missing_count": 0,
+        "stale_count": 0,
+        "failed_count": 0,
+        "conflict_count": 0
+      }
+    },
+    {
+      "id": "duplicate-bound",
+      "accounts": [
+        { "platform": "ibkr", "key": "syn_a1", "target_id": "ibkr/syn_a1", "runtime_status_target_id": "rt.shared" },
+        { "platform": "ibkr", "key": "syn_a2", "target_id": "ibkr/syn_a2", "runtime_status_target_id": "rt.shared" }
+      ],
+      "snapshot": {
+        "errors": [],
+        "targets": [
+          {
+            "observed_at": "2030-01-08T14:55:00Z",
+            "evidence_valid_for_seconds": 3600,
+            "freshness": { "data_status": "ready" },
+            "deployment_freshness": { "data_status": "ready" },
+            "target": {
+              "target_id": "rt.shared",
+              "target": { "platform": "ibkr", "configured_state": "enabled", "execution_mode": "paper" },
+              "deployment": { "observed_at": "2030-01-08T14:55:00Z", "runtime_enabled": true, "scheduler_state": "enabled", "strategy_profile": "qsl_core_v1", "execution_mode": "paper" }
+            }
+          }
+        ]
+      },
+      "expected": {
+        "status": "incomplete",
+        "mode": null,
+        "observed_at": null,
+        "cohort_count": 2,
+        "observed_count": 0,
+        "modes": { "dry_run": 0, "paper": 0, "live": 0 },
+        "missing_count": 0,
+        "stale_count": 0,
+        "failed_count": 0,
+        "conflict_count": 2
+      }
+    },
+    {
+      "id": "missing-execution-mode",
+      "accounts": [
+        { "platform": "longbridge", "key": "demo", "target_id": "longbridge/demo", "runtime_status_target_id": "demo.target" }
+      ],
+      "snapshot": {
+        "errors": [],
+        "targets": [
+          {
+            "observed_at": "2030-01-08T14:55:00Z",
+            "evidence_valid_for_seconds": 3600,
+            "freshness": { "data_status": "ready" },
+            "deployment_freshness": { "data_status": "ready" },
+            "target": {
+              "target_id": "demo.target",
+              "target": { "platform": "longbridge" },
+              "deployment": { "observed_at": "2030-01-08T14:55:00Z", "runtime_enabled": false, "scheduler_state": "paused", "strategy_profile": "demo_strategy" }
+            }
+          }
+        ]
+      },
+      "expected": {
+        "status": "incomplete",
+        "mode": null,
+        "observed_at": null,
+        "cohort_count": 1,
+        "observed_count": 0,
+        "modes": { "dry_run": 0, "paper": 0, "live": 0 },
+        "missing_count": 1,
+        "stale_count": 0,
+        "failed_count": 0,
+        "conflict_count": 0
+      }
+    }
+  ]
+}

@@ -60,7 +60,11 @@
       },
       "required": ["reapply_saved", "adopt_platform"],
       "additionalProperties": false
-    }
+    },
+    "saved_settings": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/ReadbackSavedSettings9A"},
+    "platform_configuration": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/ReadbackPlatformConfiguration9A"},
+    "observed_deployment": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/ReadbackObservedDeployment9A"},
+    "comparisons": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/ReadbackComparisons9A"}
   },
   "required": [
     "ok",

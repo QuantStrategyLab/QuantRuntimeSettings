@@ -270,7 +270,11 @@
     },
     "DisabledAction": {
       "type": "object",
-      "properties": {"allowed": {"const": false}, "reason_code": {"const": "not_enabled"}},
+      "properties": {
+        "status": {"const": "not_enabled"},
+        "allowed": {"const": false},
+        "reason_code": {"const": "not_enabled"}
+      },
       "required": ["allowed", "reason_code"],
       "additionalProperties": false
     },
@@ -362,6 +366,336 @@
       "if": {"properties": {"phase": {"enum": ["30", "7", "1", "expired"]}}, "required": ["phase"]},
       "then": {"properties": {"requires_action": {"const": true}}},
       "else": {"properties": {"requires_action": {"const": false}}}
+    },
+    "NullableTime": {
+      "anyOf": [
+        {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+        {"type": "null"}
+      ]
+    },
+    "NullableMode": {
+      "anyOf": [
+        {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Mode"},
+        {"type": "null"}
+      ]
+    },
+    "NullableNonNegInt": {
+      "anyOf": [
+        {"type": "integer", "minimum": 0},
+        {"type": "null"}
+      ]
+    },
+    "FleetModeSummary": {
+      "type": "object",
+      "properties": {
+        "status": {"type": "string", "enum": ["single_mode", "mixed", "incomplete", "verified_empty"]},
+        "mode": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/NullableMode"},
+        "observed_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/NullableTime"},
+        "cohort_count": {"type": "integer", "minimum": 0},
+        "observed_count": {"type": "integer", "minimum": 0},
+        "modes": {
+          "type": "object",
+          "properties": {
+            "dry_run": {"type": "integer", "minimum": 0},
+            "paper": {"type": "integer", "minimum": 0},
+            "live": {"type": "integer", "minimum": 0}
+          },
+          "required": ["dry_run", "paper", "live"],
+          "additionalProperties": false
+        },
+        "missing_count": {"type": "integer", "minimum": 0},
+        "stale_count": {"type": "integer", "minimum": 0},
+        "failed_count": {"type": "integer", "minimum": 0},
+        "conflict_count": {"type": "integer", "minimum": 0},
+        "reasons": {"type": "array", "items": {"type": "string"}},
+        "cohort_basis": {"type": "string", "minLength": 1},
+        "semantics": {
+          "type": "object",
+          "properties": {
+            "monitoring_only": {"const": true},
+            "not_trading_or_books": {"const": true}
+          },
+          "required": ["monitoring_only", "not_trading_or_books"],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "status",
+        "mode",
+        "observed_at",
+        "cohort_count",
+        "observed_count",
+        "modes",
+        "missing_count",
+        "stale_count",
+        "failed_count",
+        "conflict_count",
+        "reasons",
+        "cohort_basis",
+        "semantics"
+      ],
+      "additionalProperties": false
+    },
+    "QueueSource12A": {
+      "type": "object",
+      "properties": {
+        "family": {
+          "type": "string",
+          "enum": ["owner_decisions", "promotion_applications", "reconciliation_recovery", "credential_maintenance"]
+        },
+        "status": {"type": "string", "enum": ["ok", "stale", "unavailable", "read_failed"]},
+        "observed_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/NullableTime"},
+        "count": {"type": "integer", "minimum": 0},
+        "truncated": {"type": "boolean"},
+        "cap": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/NullableNonNegInt"},
+        "corrupt_omitted_count": {"type": "integer", "minimum": 0},
+        "errors": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": [
+        "family",
+        "status",
+        "observed_at",
+        "count",
+        "truncated",
+        "cap",
+        "corrupt_omitted_count",
+        "errors"
+      ],
+      "additionalProperties": false
+    },
+    "QueueItem12A": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "family": {
+          "type": "string",
+          "enum": ["owner_decisions", "promotion_applications", "reconciliation_recovery", "credential_maintenance"]
+        },
+        "platform": {"type": ["string", "null"]},
+        "account_alias": {"type": ["string", "null"]},
+        "target_id": {
+          "anyOf": [
+            {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"},
+            {"type": "string", "minLength": 1},
+            {"type": "null"}
+          ]
+        },
+        "status": {"type": "string", "minLength": 1},
+        "decision_state": {"type": ["string", "null"]},
+        "actionable": {"type": "boolean"},
+        "blocked": {"type": "boolean"},
+        "expired": {"type": "boolean"},
+        "blocker_reasons": {"type": "array", "items": {"type": "string"}},
+        "title": {"type": "string"},
+        "detail": {"type": ["string", "null"]},
+        "observed_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/NullableTime"},
+        "expires_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/NullableTime"},
+        "route": {"type": ["string", "null"]}
+      },
+      "required": [
+        "id",
+        "family",
+        "platform",
+        "account_alias",
+        "target_id",
+        "status",
+        "decision_state",
+        "actionable",
+        "blocked",
+        "expired",
+        "blocker_reasons",
+        "title",
+        "detail",
+        "observed_at",
+        "expires_at",
+        "route"
+      ],
+      "additionalProperties": false
+    },
+    "OwnerQueue12A": {
+      "type": "object",
+      "properties": {
+        "queue_state": {
+          "type": "string",
+          "enum": ["non_empty", "verified_empty", "partial_empty", "read_failed"]
+        },
+        "expected_sources": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["owner_decisions", "promotion_applications", "reconciliation_recovery", "credential_maintenance"]
+          }
+        },
+        "sources": {
+          "type": "array",
+          "items": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/QueueSource12A"}
+        },
+        "actionable_items": {
+          "type": "array",
+          "items": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/QueueItem12A"}
+        },
+        "blocked_or_expired_items": {
+          "type": "array",
+          "items": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/QueueItem12A"}
+        },
+        "total_unresolved": {"type": "integer", "minimum": 0},
+        "truncated": {"type": "boolean"},
+        "corrupt_omitted_total": {"type": "integer", "minimum": 0},
+        "errors": {"type": "array", "items": {"type": "string"}},
+        "observed_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/NullableTime"}
+      },
+      "required": [
+        "queue_state",
+        "expected_sources",
+        "sources",
+        "actionable_items",
+        "blocked_or_expired_items",
+        "total_unresolved",
+        "truncated",
+        "corrupt_omitted_total",
+        "errors",
+        "observed_at"
+      ],
+      "additionalProperties": false
+    },
+    "ReadbackConfigValues": {
+      "type": "object",
+      "properties": {
+        "strategy_profile": {"type": ["string", "null"]},
+        "broker_environment": {"type": ["string", "null"]},
+        "income_layer_enabled": {"type": ["boolean", "null"]},
+        "option_overlay_enabled": {"type": ["boolean", "null"]},
+        "reserved_cash_floor": {"type": ["string", "number", "null"]},
+        "reserved_cash_ratio": {"type": ["string", "number", "null"]},
+        "dca_mode": {"type": ["string", "null"]},
+        "dca_base_investment_usd": {"type": ["string", "number", "null"]},
+        "enabled": {"type": ["boolean", "null"]},
+        "account_selector": {"type": ["string", "null"]},
+        "cash_currency": {"type": ["string", "null"]},
+        "runtime_status_target_id": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "ReadbackSavedSettings9A": {
+      "type": "object",
+      "properties": {
+        "instance_revision": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/NullableNonNegInt"},
+        "draft_revision": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/NullableNonNegInt"},
+        "draft_status": {"type": ["string", "null"]},
+        "values": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/ReadbackConfigValues"}
+      },
+      "required": ["instance_revision", "draft_revision", "draft_status", "values"],
+      "additionalProperties": false
+    },
+    "ReadbackPlatformConfiguration9A": {
+      "type": "object",
+      "properties": {
+        "source": {"type": "string", "minLength": 1},
+        "read_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/NullableTime"},
+        "source_as_of": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/NullableTime"},
+        "values": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/ReadbackConfigValues"}
+      },
+      "required": ["source", "read_at", "source_as_of", "values"],
+      "additionalProperties": false
+    },
+    "ReadbackObservedDeployment9A": {
+      "type": "object",
+      "properties": {
+        "data_status": {"type": "string", "enum": ["ready", "stale", "unavailable"]},
+        "reason": {"type": ["string", "null"]},
+        "observed_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/NullableTime"},
+        "ttl_seconds": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/NullableNonNegInt"},
+        "execution_mode": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/NullableMode"},
+        "runtime_enabled": {"type": ["boolean", "null"]},
+        "scheduler_state": {"type": "string"},
+        "strategy_profile": {"type": ["string", "null"]},
+        "semantics": {
+          "type": "object",
+          "properties": {
+            "monitoring_only": {"const": true},
+            "not_trading_or_books": {"const": true}
+          },
+          "required": ["monitoring_only", "not_trading_or_books"],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "data_status",
+        "reason",
+        "observed_at",
+        "ttl_seconds",
+        "execution_mode",
+        "runtime_enabled",
+        "scheduler_state",
+        "strategy_profile",
+        "semantics"
+      ],
+      "additionalProperties": false
+    },
+    "ReadbackLayerComparison9A": {
+      "type": "object",
+      "properties": {
+        "status": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Comparison"},
+        "compared_fields": {"type": "array", "items": {"type": "string"}},
+        "mismatched_fields": {"type": "array", "items": {"type": "string"}},
+        "skipped_non_mutual_fields": {"type": "array", "items": {"type": "string"}},
+        "reason": {"type": ["string", "null"]}
+      },
+      "required": [
+        "status",
+        "compared_fields",
+        "mismatched_fields",
+        "skipped_non_mutual_fields",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "ReadbackComparisons9A": {
+      "type": "object",
+      "properties": {
+        "saved_vs_platform": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/ReadbackLayerComparison9A"},
+        "platform_vs_observed": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/ReadbackLayerComparison9A"},
+        "saved_vs_observed": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/ReadbackLayerComparison9A"}
+      },
+      "required": ["saved_vs_platform", "platform_vs_observed", "saved_vs_observed"],
+      "additionalProperties": false
+    },
+    "Readback9ASummary": {
+      "type": "object",
+      "properties": {
+        "status": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Comparison"},
+        "layers_available": {
+          "type": "object",
+          "properties": {
+            "saved_settings": {"type": "boolean"},
+            "platform_configuration": {"type": "boolean"},
+            "observed_deployment": {"type": "boolean"}
+          },
+          "required": ["saved_settings", "platform_configuration", "observed_deployment"],
+          "additionalProperties": false
+        },
+        "compared_target_count": {"type": "integer", "minimum": 0},
+        "drift_target_count": {"type": "integer", "minimum": 0},
+        "observed_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/NullableTime"},
+        "actions": {
+          "type": "object",
+          "properties": {
+            "reapply_saved": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/DisabledAction"},
+            "adopt_platform": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/DisabledAction"}
+          },
+          "required": ["reapply_saved", "adopt_platform"],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "status",
+        "layers_available",
+        "compared_target_count",
+        "drift_target_count",
+        "observed_at",
+        "actions"
+      ],
+      "additionalProperties": false
     }
   }
 }

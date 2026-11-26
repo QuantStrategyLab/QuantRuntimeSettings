@@ -1,0 +1,205 @@
+{
+  "schema_version": "qsl.sa4_9a_three_layer_matrix.v1",
+  "now": "2030-01-08T15:00:00Z",
+  "target": {
+    "id": "ibkr/syn_tqqq",
+    "platform": "ibkr",
+    "key": "syn_tqqq",
+    "label": "SYN TQQQ"
+  },
+  "cases": [
+    {
+      "id": "drifted-draft-and-non-mutual",
+      "observed_saved": {
+        "instance_revision": 7,
+        "enabled": true,
+        "config": {
+          "target_name": "syn_tqqq",
+          "account_selector": "DU0000001",
+          "service_name": "syn-svc-ibkr",
+          "runtime_status_target_id": "rt.syn.tqqq",
+          "default_strategy_profile": "qsl_core_v1",
+          "broker_environment": "paper",
+          "income_layer_enabled": true,
+          "option_overlay_enabled": false,
+          "reserved_cash_floor": "1000",
+          "reserved_cash_ratio": "0.1",
+          "dca_mode": "daily",
+          "dca_base_investment_usd": "250",
+          "cash_currency": "USD"
+        },
+        "draft": {
+          "revision": 9,
+          "status": "current",
+          "overrides": {
+            "reserved_cash_ratio": "0.2"
+          }
+        }
+      },
+      "platform": {
+        "source": "github_runtime_configuration",
+        "read_at": "2030-01-08T14:59:00Z",
+        "source_as_of": null,
+        "effective": {
+          "strategy_profile": "qsl_core_v1",
+          "broker_environment": "paper",
+          "income_layer_enabled": true,
+          "option_overlay_enabled": false,
+          "reserved_cash_floor": "1000",
+          "reserved_cash_ratio": "0.1",
+          "dca_mode": "daily",
+          "dca_base_investment_usd": "250",
+          "enabled": true,
+          "account_selector": "DU0000001",
+          "cash_currency": "USD",
+          "runtime_status_target_id": "rt.syn.tqqq"
+        }
+      },
+      "deployment": {
+        "data_status": "ready",
+        "reason": null,
+        "observed_at": "2030-01-08T14:55:00Z",
+        "ttl_seconds": 3600,
+        "execution_mode": "paper",
+        "runtime_enabled": true,
+        "scheduler_state": "enabled",
+        "strategy_profile": "qsl_core_v1"
+      },
+      "expected": {
+        "saved_revision": 7,
+        "saved_instance_revision": 7,
+        "saved_draft_revision": 9,
+        "saved_vs_platform": "drift",
+        "saved_vs_platform_mismatches": ["reserved_cash_ratio"],
+        "platform_vs_observed": "match",
+        "platform_vs_observed_compared": ["strategy_profile", "enabled"],
+        "skipped_non_mutual_in_observed_include": ["reserved_cash_floor", "dca_mode", "broker_environment"],
+        "actions_status": "not_enabled"
+      }
+    },
+    {
+      "id": "missing-deployment-never-match",
+      "observed_saved": {
+        "instance_revision": 4,
+        "enabled": true,
+        "config": {
+          "target_name": "syn_tqqq",
+          "account_selector": "DU0000001",
+          "service_name": "syn-svc-ibkr",
+          "runtime_status_target_id": "rt.syn.tqqq",
+          "default_strategy_profile": "qsl_core_v1",
+          "broker_environment": "paper",
+          "income_layer_enabled": false,
+          "option_overlay_enabled": false,
+          "reserved_cash_floor": "0",
+          "reserved_cash_ratio": "0",
+          "dca_mode": "daily",
+          "dca_base_investment_usd": "100",
+          "cash_currency": "USD"
+        },
+        "draft": { "revision": null, "status": "empty" }
+      },
+      "platform": {
+        "source": "github_runtime_configuration",
+        "read_at": "2030-01-08T14:59:00Z",
+        "source_as_of": null,
+        "effective": {
+          "strategy_profile": "qsl_core_v1",
+          "broker_environment": "paper",
+          "income_layer_enabled": false,
+          "option_overlay_enabled": false,
+          "reserved_cash_floor": "0",
+          "reserved_cash_ratio": "0",
+          "dca_mode": "daily",
+          "dca_base_investment_usd": "100",
+          "enabled": true,
+          "account_selector": "DU0000001",
+          "cash_currency": "USD",
+          "runtime_status_target_id": "rt.syn.tqqq"
+        }
+      },
+      "deployment": {
+        "data_status": "unavailable",
+        "reason": "runtime_observation_missing",
+        "observed_at": null,
+        "ttl_seconds": null,
+        "execution_mode": null,
+        "runtime_enabled": null,
+        "scheduler_state": "unknown",
+        "strategy_profile": null
+      },
+      "expected": {
+        "saved_revision": 4,
+        "saved_instance_revision": 4,
+        "saved_draft_revision": null,
+        "saved_vs_platform": "match",
+        "platform_vs_observed": "unknown",
+        "saved_vs_observed": "unknown",
+        "observed_reason": "runtime_observation_missing",
+        "actions_status": "not_enabled"
+      }
+    },
+    {
+      "id": "stale-deployment-never-match",
+      "observed_saved": {
+        "instance_revision": 5,
+        "enabled": true,
+        "config": {
+          "target_name": "syn_tqqq",
+          "account_selector": "DU0000001",
+          "service_name": "syn-svc-ibkr",
+          "runtime_status_target_id": "rt.syn.tqqq",
+          "default_strategy_profile": "qsl_core_v1",
+          "broker_environment": "paper",
+          "income_layer_enabled": false,
+          "option_overlay_enabled": false,
+          "reserved_cash_floor": "0",
+          "reserved_cash_ratio": "0",
+          "dca_mode": "daily",
+          "dca_base_investment_usd": "100",
+          "cash_currency": "USD"
+        },
+        "draft": { "revision": 5, "status": "empty" }
+      },
+      "platform": {
+        "source": "github_runtime_configuration",
+        "read_at": "2030-01-08T14:59:00Z",
+        "source_as_of": null,
+        "effective": {
+          "strategy_profile": "qsl_core_v1",
+          "broker_environment": "paper",
+          "income_layer_enabled": false,
+          "option_overlay_enabled": false,
+          "reserved_cash_floor": "0",
+          "reserved_cash_ratio": "0",
+          "dca_mode": "daily",
+          "dca_base_investment_usd": "100",
+          "enabled": true,
+          "account_selector": "DU0000001",
+          "cash_currency": "USD",
+          "runtime_status_target_id": "rt.syn.tqqq"
+        }
+      },
+      "deployment": {
+        "data_status": "stale",
+        "reason": "runtime_readback_stale",
+        "observed_at": "2030-01-08T11:00:00Z",
+        "ttl_seconds": 3600,
+        "execution_mode": null,
+        "runtime_enabled": null,
+        "scheduler_state": "unknown",
+        "strategy_profile": null
+      },
+      "expected": {
+        "saved_revision": 5,
+        "saved_instance_revision": 5,
+        "saved_draft_revision": 5,
+        "saved_vs_platform": "match",
+        "platform_vs_observed": "unknown",
+        "saved_vs_observed": "unknown",
+        "observed_reason": "runtime_readback_stale",
+        "actions_status": "not_enabled"
+      }
+    }
+  ]
+}

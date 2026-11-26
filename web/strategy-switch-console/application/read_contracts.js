@@ -52,7 +52,7 @@ export const PUBLIC_ROUTES = Object.freeze([
   { id: "/api/desk/accounts", match: 'url.pathname === "/api/desk/accounts"', handler: "deskAccountsResponse", effects: { GET: "B0" }, scope: N1 },
   { id: "/api/desk/performance", match: 'url.pathname === "/api/desk/performance"', handler: "deskPerformanceResponse", effects: { GET: "B0" }, scope: N1 },
   { id: "/api/desk/switch/targets/:id/strategies", match: '/^\\/api\\/desk\\/switch\\/targets\\/[^/]+\\/strategies$/.test(url.pathname)', handler: "deskSwitchStrategiesResponse", effects: { GET: "B0" }, scope: N1 },
-  { id: "/api/desk/readbacks", match: 'url.pathname.startsWith("/api/desk/targets/") || url.pathname === "/api/desk/readbacks" || url.pathname.startsWith("/api/desk/readbacks/")', handler: "deskReadbackResponse", effects: { GET: ["B6", "B1", "B0"], POST: "command" }, scope: "undeclared" },
+  { id: "/api/desk/readbacks", match: 'url.pathname.startsWith("/api/desk/targets/") || url.pathname === "/api/desk/readbacks" || url.pathname.startsWith("/api/desk/readbacks/")', handler: "deskReadbackResponse", effects: { GET: "B0", POST: "command" }, scope: "undeclared" },
   { id: "/api/session", match: 'url.pathname === "/api/session"', handler: "sessionPayload", effects: { "*": "observation" }, scope: "session" },
   { id: "OVERVIEW_FX_PROXY_PATH", match: "url.pathname === OVERVIEW_FX_PROXY_PATH", handler: "overviewFxResponse", effects: { GET: "observation" }, scope: "undeclared" },
   { id: "/api/market-benchmark/performance", match: 'url.pathname === "/api/market-benchmark/performance"', handler: "performanceBenchmarkResponse", effects: { GET: "B0", HEAD: "B0" }, scope: "undeclared" },
@@ -187,7 +187,8 @@ export const INTERNAL_OPERATIONS = Object.freeze({
   // Literal action lists in RuntimeInstances.fetch.
   "action:desk_readback_start": write(),
   "action:desk_readback_get": read(),
-  "action:desk_readback_fresh": read(["B6", "B1", "B0"]),
+  "action:desk_readback_read": read(),
+  "action:desk_readback_latest": read(),
   "action:credential_maintenance_read": read(),
   "action:credential_maintenance_save": write(),
   "action:credential_maintenance_claim": write(),

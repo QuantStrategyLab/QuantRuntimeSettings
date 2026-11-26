@@ -498,6 +498,85 @@ assert.equal(catalogRevisionText(okCatalog.catalog_revision, tEn), okCatalog.cat
 assert.equal(catalogRevisionText(golden("switch-strategies", "partial").catalog_revision, tEn), tEn("read.unknown"), "no revision for an incomplete catalog");
 assert.deepEqual(entryCounts(catalogEntries(golden("switch-strategies", "empty").strategies.value)), { all: 0, eligible: 0, paper: 0, blocked: 0 });
 
+// SA-4: the live ribbon, overview and accounts projections add optional 8A/9A/12A fields.
+// The TS guards must accept exactly what the schemas accept, built from the real producers.
+{
+  const { projectFleetExecutionMode } = await import("../web/strategy-switch-console/application/desk/overview.js");
+  const { accountsProjection } = await import("../web/strategy-switch-console/application/desk/accounts.js");
+  const { buildReadback } = await import("../web/strategy-switch-console/application/desk/readback.js");
+  const { projectUnifiedOwnerQueue12A } = await import("../web/strategy-switch-console/application/console_api/inbox.js");
+  const sa4 = name => JSON.parse(readFileSync(new URL(`./fixtures/sa4/${name}`, import.meta.url), "utf8"));
+  const fleetMatrix = sa4("sa4_8a_fleet_matrix.json");
+  const fleetNow = Date.parse(fleetMatrix.now);
+  const fleets = fleetMatrix.cases.map(c => projectFleetExecutionMode({ accounts: c.accounts, snapshot: c.snapshot, now: fleetNow }));
+  const queueMatrix = sa4("sa4_12a_queue_matrix.json");
+  const queues = queueMatrix.cases.map(c => projectUnifiedOwnerQueue12A({
+    sources: c.sources, expectedFamilies: queueMatrix.expected_families, now: Date.parse(queueMatrix.now),
+  }));
+  const rbMatrix = sa4("sa4_9a_three_layer_matrix.json");
+  const rbCase = rbMatrix.cases[0];
+  const rbTarget = { ...rbMatrix.target, config: rbCase.observed_saved.config, revision: rbCase.observed_saved.instance_revision };
+  const rb = buildReadback({ target: rbTarget, observed: rbCase.observed_saved, platform: rbCase.platform.effective,
+    now: Date.parse(rbMatrix.now), platformMeta: rbCase.platform, deployment: rbCase.deployment });
+  const projected = accountsProjection({
+    config: { ok: true, value: { revision: 7, options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001", broker_environment: "paper" }] } } },
+    facts: { ok: false }, credential: { ok: false }, now: Date.parse(rbMatrix.now), readbacks9a: { "ibkr/syn_tqqq": rb },
+  });
+  const readback9a = projected.brokers.value[0].readback_9a;
+  assert.ok(readback9a, "producer emits readback_9a");
+
+  const agree = (name, payload, label) => {
+    assert.equal(GUARDS[name](payload), schemaOk(name, payload), `${label}: guard and schema disagree`);
+    return GUARDS[name](payload);
+  };
+  for (const scenario of SCENARIOS) {
+    for (const [i, fleet] of fleets.entries()) {
+      const ribbon = clone(golden("ribbon", scenario)); ribbon.fleet_mode_summary = fleet;
+      assert.ok(agree("ribbon", ribbon, `ribbon.${scenario}+fleet[${i}]`), `ribbon.${scenario} accepts fleet_mode_summary[${i}]`);
+    }
+    for (const [i, queue] of queues.entries()) {
+      const overview = clone(golden("overview", scenario));
+      overview.fleet_mode_summary = fleets[i % fleets.length];
+      overview.owner_queue_12a = queue;
+      if (overview.book.status !== "unknown") {
+        for (const row of overview.book.value) {
+          Object.assign(row, { execution_mode: "paper", runtime_enabled: true, scheduler_state: "enabled",
+            deployment_observed_at: "2030-01-08T14:50:00Z", ttl_seconds: 3600 });
+        }
+      }
+      assert.ok(agree("overview", overview, `overview.${scenario}+12a[${i}]`), `overview.${scenario} accepts SA-4 fields [${i}]`);
+    }
+    const accounts = clone(golden("accounts", scenario));
+    if (accounts.brokers.status !== "unknown" && accounts.brokers.value.length) {
+      accounts.brokers.value[0].readback_9a = readback9a;
+      assert.ok(agree("accounts", accounts, `accounts.${scenario}+9a`), `accounts.${scenario} accepts readback_9a`);
+    }
+  }
+
+  // The new objects stay closed and typed: the guard rejects what the schema rejects.
+  const withRibbon = fleet => { const v = clone(golden("ribbon", "ok")); v.fleet_mode_summary = fleet; return v; };
+  const withOverview = patch => { const v = clone(golden("overview", "ok")); patch(v); return v; };
+  const withAccounts = patch => { const v = clone(golden("accounts", "ok")); patch(v.brokers.value[0]); return v; };
+  const rejected = [
+    ["ribbon", withRibbon({ ...fleets[0], extra: 1 }), "extra fleet key"],
+    ["ribbon", withRibbon({ ...fleets[0], mode: "margin" }), "unknown fleet mode"],
+    ["ribbon", withRibbon({ ...fleets[0], semantics: { monitoring_only: false, not_trading_or_books: true } }), "fleet semantics not monitoring-only"],
+    ["ribbon", withRibbon({ ...fleets[0], modes: { dry_run: 0, paper: -1, live: 0 } }), "negative mode count"],
+    ["overview", withOverview(v => { v.owner_queue_12a = { ...queues[0], queue_state: "empty" }; }), "unknown queue state"],
+    ["overview", withOverview(v => { v.owner_queue_12a = { ...queues[0], sources: [{ ...queues[0].sources[0], extra: true }] }; }), "extra queue source key"],
+    ["overview", withOverview(v => { v.book.value[0].execution_mode = "margin"; }), "unknown book execution mode"],
+    ["overview", withOverview(v => { v.book.value[0].ttl_seconds = -1; }), "negative ttl"],
+    ["overview", withOverview(v => { v.book.value[0].runtime_flag = true; }), "unknown book field"],
+    ["accounts", withAccounts(b => { b.readback_9a = { ...readback9a, actions: { ...readback9a.actions, reapply_saved: { allowed: true, reason_code: "not_enabled" } } }; }), "enabled readback action"],
+    ["accounts", withAccounts(b => { b.readback_9a = { ...readback9a, status: "ok" }; }), "unknown readback status"],
+    ["accounts", withAccounts(b => { b.readback_9a = { ...readback9a, extra: 1 }; }), "extra readback key"],
+  ];
+  for (const [name, payload, label] of rejected) {
+    assert.equal(GUARDS[name](payload), false, `guard accepts ${label}`);
+    assert.equal(schemaOk(name, payload), false, `schema accepts ${label}`);
+  }
+}
+
 // Source checks for wiring that has no pure export.
 const src = path => readFileSync(new URL(`../web/strategy-switch-console/frontend/src/desk/${path}`, import.meta.url), "utf8");
 const app = src("DeskApp.tsx");

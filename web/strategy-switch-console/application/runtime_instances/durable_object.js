@@ -124,11 +124,12 @@ export class RuntimeInstances {
     this.managementRead = managementReadCapability(ctx.storage);
     this.deskReadbacks = new DeskReadbackStore(ctx.storage, async (id, actor) => {
       const state = this.read();
-      const target = readbackTargets({ options: runtimeInstanceAccountOptions(state.instances), revision: state.revision }).find(target => target.id === id);
+      const options = runtimeInstanceAccountOptions(state.instances);
+      const target = readbackTargets({ options, revision: state.revision }).find(target => target.id === id);
       if (!target) throw new DeskError("not_found", 404);
       let observed = null;
-      try { observed = this.readAccountSettings({ platform: target.platform, key: target.key, legacy: await readRiskProfileLegacy(env) }); } catch { /* Degrade saved independently. */ }
-      return deskTargetReadback(env, target, actor, observed);
+      try { observed = this.readAccountSettings({ platform: target.platform, key: target.key, read_only: true }); } catch { /* Degrade saved independently. */ }
+      return deskTargetReadback(env, target, actor, observed, options);
     });
   }
 
@@ -1811,7 +1812,18 @@ export class RuntimeInstances {
 
   readAccountSettings(command) {
     const { state, item, identity } = this.existingAccountInstance(command.platform, command.key);
-    const risk = this.readRiskProfileAuthority(command.legacy);
+    let risk;
+    if (command.read_only === true) {
+      let row = null;
+      try { row = this.sql.exec("SELECT revision, imported, bindings_json FROM risk_profile_authority WHERE id = 1").toArray()[0] || null; } catch { row = null; }
+      risk = {
+        revision: row ? Number(row.revision) : 0,
+        bindings: row ? this.storedRiskBindings(row) : [],
+        account_options: runtimeInstanceAccountOptions(state.instances),
+      };
+    } else {
+      risk = this.readRiskProfileAuthority(command.legacy);
+    }
     const scopeId = riskProfileScopeId(item.platform, identity.target_name);
     const binding = risk.bindings.find((entry) => entry.scope_id === scopeId) || null;
     return {
@@ -2402,7 +2414,7 @@ export class RuntimeInstances {
       if (request.method !== "POST") throw new HttpError("method_not_allowed", 405);
       let command;
       try { command = await request.json(); } catch { throw new HttpError("invalid_runtime_instance_request", 400); }
-      if (["desk_readback_start", "desk_readback_get", "desk_readback_fresh"].includes(command?.action)) {
+      if (["desk_readback_start", "desk_readback_get", "desk_readback_read", "desk_readback_latest"].includes(command?.action)) {
         try { return json(await this.deskReadbacks.command(command)); }
         catch (error) { return deskErrorResponse(error); }
       }

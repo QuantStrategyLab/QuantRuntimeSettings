@@ -80,13 +80,114 @@ export function brokerFreshness(targets, facts, now) {
   return freshness(times, { now, ttlSeconds: FACTS_STALE_SECONDS, staleKnown });
 }
 
-export function accountsProjection({ config, facts, credential, now }) {
+function layerHasReadableField(readback, side) {
+  if (Array.isArray(readback?.fields) && readback.fields.some(field => field?.[side]?.status === "known")) return true;
+  // execution_mode is compared against the observed layer outside `fields`.
+  const comparison = side === "saved" ? readback?.comparisons?.saved_vs_observed : readback?.comparisons?.platform_vs_observed;
+  return Array.isArray(comparison?.compared_fields) && comparison.compared_fields.length > 0;
+}
+
+// Stored readbacks live for up to 24 h, longer than their deployment evidence.
+// Re-check that evidence at read time: expired or undatable observations are
+// stale, and the comparisons built on them are no longer trusted.
+function withCurrentDeploymentEvidence(readback, now) {
+  const observed = readback?.observed_deployment;
+  if (observed?.data_status !== "ready") return readback;
+  const nowMs = typeof now === "number" ? now : Date.parse(now);
+  const observedMs = Date.parse(observed.observed_at ?? "");
+  const ttl = observed.ttl_seconds;
+  const current = Number.isFinite(nowMs) && Number.isFinite(observedMs) && Number.isSafeInteger(ttl) && ttl >= 0
+    && nowMs <= observedMs + ttl * 1000;
+  if (current) return readback;
+  const reason = "runtime_observation_expired";
+  const expire = (comparison) => comparison && ({
+    ...comparison,
+    status: "unknown",
+    compared_fields: [],
+    mismatched_fields: [],
+    skipped_non_mutual_fields: [...new Set([...(comparison.skipped_non_mutual_fields || []), ...(comparison.compared_fields || [])])],
+    reason,
+  });
+  return {
+    ...readback,
+    observed_deployment: { ...observed, data_status: "stale", reason },
+    comparisons: {
+      ...readback.comparisons,
+      platform_vs_observed: expire(readback.comparisons?.platform_vs_observed),
+      saved_vs_observed: expire(readback.comparisons?.saved_vs_observed),
+    },
+  };
+}
+
+// A stored readback describes the configuration it was taken from. Reuse it only
+// while that configuration is still current: same revision and same identity.
+function readbackMatchesCurrentTarget(readback, target) {
+  if (!Number.isSafeInteger(target.revision) || readback?.saved_revision !== target.revision) return false;
+  const config = target.config || {};
+  const environment = ["live", "paper"].includes(config.broker_environment) ? config.broker_environment : null;
+  const suffix = config.account_selector ? String(config.account_selector).slice(-4) : null;
+  return readback.identity?.broker_environment === environment && readback.identity?.account_suffix === suffix;
+}
+
+function brokerReadback9a(ownTargets, readbacks9a, now) {
+  if (!readbacks9a || typeof readbacks9a !== "object") return undefined;
+  const stored = ownTargets.map(t => [t, readbacks9a[t.id]]).filter(([, readback]) => Boolean(readback));
+  if (!stored.length) return undefined;
+  const matched = stored.filter(([t, readback]) => readbackMatchesCurrentTarget(readback, t))
+    .map(([, readback]) => withCurrentDeploymentEvidence(readback, now));
+  if (!matched.length) {
+    // Every stored snapshot predates the current configuration: no evidence.
+    return {
+      status: "unknown",
+      layers_available: { saved_settings: false, platform_configuration: false, observed_deployment: false },
+      compared_target_count: 0,
+      drift_target_count: 0,
+      observed_at: null,
+      actions: {
+        reapply_saved: { status: "not_enabled", allowed: false, reason_code: "not_enabled" },
+        adopt_platform: { status: "not_enabled", allowed: false, reason_code: "not_enabled" },
+      },
+    };
+  }
+  if (!matched.length) return undefined;
+  const targetHasDrift = (r) => r.overall === "drift"
+    || r.comparisons?.saved_vs_platform?.status === "drift"
+    || r.comparisons?.platform_vs_observed?.status === "drift"
+    || r.comparisons?.saved_vs_observed?.status === "drift";
+  const targetAllMatch = (r) => r.comparisons?.saved_vs_platform?.status === "match"
+    && r.comparisons?.platform_vs_observed?.status === "match"
+    && r.comparisons?.saved_vs_observed?.status === "match";
+  const hasDrift = matched.some(targetHasDrift);
+  const allMatch = !hasDrift && matched.length === ownTargets.length && matched.every(targetAllMatch);
+  const observedTimes = matched.map(r => r.observed_deployment?.observed_at || r.read_at).filter(Boolean)
+    .sort((a, b) => Date.parse(a) - Date.parse(b));
+  return {
+    status: hasDrift ? "drift" : allMatch ? "match" : "unknown",
+    // A layer envelope is always present, even when its source was unreadable;
+    // only a field value actually read from that layer counts as evidence.
+    layers_available: {
+      saved_settings: matched.some(r => layerHasReadableField(r, "saved")),
+      platform_configuration: matched.some(r => layerHasReadableField(r, "platform")),
+      observed_deployment: matched.some(r => r.observed_deployment?.data_status === "ready"),
+    },
+    compared_target_count: matched.length,
+    drift_target_count: matched.filter(targetHasDrift).length,
+    observed_at: observedTimes[0] ?? null,
+    actions: {
+      reapply_saved: { status: "not_enabled", allowed: false, reason_code: "not_enabled" },
+      adopt_platform: { status: "not_enabled", allowed: false, reason_code: "not_enabled" },
+    },
+  };
+}
+
+export function accountsProjection({ config, facts, credential, now, readbacks9a = null }) {
   if (!config.ok) return { brokers: unknown("read_failed", coverage("unavailable", 0, null, ["read_failed"])) };
   const targets = readbackTargets(config.value);
   const platforms = [...new Set(targets.map(target => target.platform))].sort();
   const brokers = platforms.map(platform => {
     const own = targets.filter(target => target.platform === platform);
     const label = platformLabel(platform);
+    const readback9a = brokerReadback9a(own, readbacks9a, now);
     return {
       platform,
       label,
@@ -103,6 +204,7 @@ export function accountsProjection({ config, facts, credential, now }) {
       },
       credential: credentialFor(platform, credential),
       last_order: notSupported(),
+      ...(readback9a !== undefined ? { readback_9a: readback9a } : {}),
     };
   });
   // The broker list itself is a configuration snapshot read now, not a runtime observation.
@@ -139,7 +241,7 @@ export async function readFactsModel(env, deps, config, now) {
 export async function readCredential(env, deps) {
   const record = await readOnce(() => deps.command(env, { action: "credential_maintenance_read" }));
   if (!record.ok) return { ok: false };
-  try { return { ok: true, item: credentialItems(record.value)[0] }; }
+  try { return { ok: true, item: credentialItems(record.value)[0], raw: record.value }; }
   catch { return { ok: false }; }
 }
 
@@ -149,13 +251,18 @@ export async function readAccountsSources(env, deps, now) {
 }
 
 export async function deskAccountsResponse(request, env, deps) {
-  return n1Route(request, env, deps, async (url) => {
+  return n1Route(request, env, deps, async (url, session) => {
     if ([...url.searchParams.keys()].length) throw new DeskError("invalid_query", 400);
     const now = deps.now();
     const sources = await readAccountsSources(env, deps, now);
+    let readbacks9a = null;
+    if (sources.config.ok && typeof deps.readbacks9a === "function") {
+      const rb = await readOnce(() => deps.readbacks9a(request, env, session));
+      readbacks9a = rb.ok && rb.value && typeof rb.value === "object" ? rb.value : null;
+    }
     return n1Response("accounts", {
       time_basis: timeBasis("UTC", [["account_facts", "UTC"], ["account_options", "UTC"], ["credential_maintenance", "UTC"]]),
-      ...accountsProjection({ ...sources, now }),
+      ...accountsProjection({ ...sources, now, readbacks9a }),
     }, { now });
   });
 }

@@ -59,6 +59,23 @@ export interface N1TapeEntry {
   source_timezone: string;
 }
 
+/** SA-4 8A fleet execution-mode summary: monitoring only, not trading or books. */
+export interface N1FleetModeSummary {
+  status: "single_mode" | "mixed" | "incomplete" | "verified_empty";
+  mode: Mode | null;
+  observed_at: IsoTime | null;
+  cohort_count: number;
+  observed_count: number;
+  modes: { dry_run: number; paper: number; live: number };
+  missing_count: number;
+  stale_count: number;
+  failed_count: number;
+  conflict_count: number;
+  reasons: string[];
+  cohort_basis: string;
+  semantics: { monitoring_only: true; not_trading_or_books: true };
+}
+
 export interface N1Ribbon extends N1Envelope<"qsl.desk.ribbon.v2"> {
   /** A UTC day: a Desk display slice, not a source business day. */
   date: IsoDate;
@@ -70,6 +87,7 @@ export interface N1Ribbon extends N1Envelope<"qsl.desk.ribbon.v2"> {
   sessions: MarketSession[];
   next_run: N1Read<{ target_id: TargetId; kind: string; due_at: IsoTime } | null>;
   tape: N1Read<N1TapeEntry[]>;
+  fleet_mode_summary?: N1FleetModeSummary;
 }
 
 // ---------------------------------------------------------------- overview
@@ -78,6 +96,12 @@ export interface N1BookRow extends Omit<BookRow, "config" | "last_run"> {
   config: { state: BookRow["config"]["state"]; drift_count: N1Read<number>; checked_at: IsoTime | null };
   /** Known null: the stored daily record was fully read and holds no finished run. */
   last_run: N1Read<BookRow["last_run"]>;
+  /** SA-4 8A runtime observation of this book's deployment; absent when not projected. */
+  execution_mode?: Mode | null;
+  runtime_enabled?: boolean | null;
+  scheduler_state?: string | null;
+  deployment_observed_at?: IsoTime | null;
+  ttl_seconds?: number | null;
 }
 
 export interface N1RunsToday {
@@ -111,6 +135,34 @@ export interface N1Overview extends N1Envelope<"qsl.desk.overview.v2"> {
   book: N1Read<N1BookRow[]>;
   equity_curve: N1Read<N1EquityCurve>;
   needs_you: N1Read<NeedsYouItem[]>;
+  fleet_mode_summary?: N1FleetModeSummary;
+  owner_queue_12a?: N1OwnerQueue12A;
+}
+
+export type N1QueueFamily = "owner_decisions" | "promotion_applications" | "reconciliation_recovery" | "credential_maintenance";
+
+/** SA-4 12A unified owner queue. */
+export interface N1OwnerQueue12A {
+  queue_state: "non_empty" | "verified_empty" | "partial_empty" | "read_failed";
+  expected_sources: N1QueueFamily[];
+  sources: {
+    family: N1QueueFamily; status: "ok" | "stale" | "unavailable" | "read_failed"; observed_at: IsoTime | null;
+    count: number; truncated: boolean; cap: number | null; corrupt_omitted_count: number; errors: string[];
+  }[];
+  actionable_items: N1QueueItem12A[];
+  blocked_or_expired_items: N1QueueItem12A[];
+  total_unresolved: number;
+  truncated: boolean;
+  corrupt_omitted_total: number;
+  errors: string[];
+  observed_at: IsoTime | null;
+}
+
+export interface N1QueueItem12A {
+  id: string; family: N1QueueFamily; platform: string | null; account_alias: string | null; target_id: string | null;
+  status: string; decision_state: string | null; actionable: boolean; blocked: boolean; expired: boolean;
+  blocker_reasons: string[]; title: string; detail: string | null; observed_at: IsoTime | null; expires_at: IsoTime | null;
+  route: string | null;
 }
 
 // ---------------------------------------------------------------- accounts
@@ -126,6 +178,19 @@ export interface N1BrokerHealth {
   config: { state: "synced" | "drift" | "unknown"; drift_count: N1Read<number>; checked_at: IsoTime | null };
   credential: CredentialSummary;
   last_order: N1Read<{ at: IsoTime; count: number }>;
+  readback_9a?: N1Readback9ASummary;
+}
+
+type N1DisabledAction = { status?: "not_enabled"; allowed: false; reason_code: "not_enabled" };
+
+/** SA-4 9A broker readback rollup; both actions stay disabled. */
+export interface N1Readback9ASummary {
+  status: "match" | "drift" | "unknown";
+  layers_available: { saved_settings: boolean; platform_configuration: boolean; observed_deployment: boolean };
+  compared_target_count: number;
+  drift_target_count: number;
+  observed_at: IsoTime | null;
+  actions: { reapply_saved: N1DisabledAction; adopt_platform: N1DisabledAction };
 }
 
 export interface N1Accounts extends N1Envelope<"qsl.desk.accounts.v2"> {

@@ -101,6 +101,71 @@ const envelope = (version: string) => ({
 });
 const MODE = oneOf("dry_run", "paper", "live");
 const OUTCOME = nullable(oneOf("filled", "orders_submitted", "no_op", "drift", "error", "skipped"));
+const isBool = (value: unknown): boolean => typeof value === "boolean";
+const isNonEmptyString = (value: unknown): boolean => isString(value) && value.length > 0;
+
+// ---------------------------------------------------------------- SA-4 operational reads (optional fields)
+
+/** 8A fleet execution-mode summary (common.json FleetModeSummary). Monitoring only. */
+const isFleetModeSummary = (value: unknown) => closed(value, {
+  status: oneOf("single_mode", "mixed", "incomplete", "verified_empty"),
+  mode: nullable(MODE),
+  observed_at: nullable(isIso),
+  cohort_count: isCount,
+  observed_count: isCount,
+  modes: v => closed(v, { dry_run: isCount, paper: isCount, live: isCount }),
+  missing_count: isCount,
+  stale_count: isCount,
+  failed_count: isCount,
+  conflict_count: isCount,
+  reasons: arrayOf(isString),
+  cohort_basis: isNonEmptyString,
+  semantics: v => closed(v, { monitoring_only: x => x === true, not_trading_or_books: x => x === true }),
+});
+const QUEUE_FAMILY = oneOf("owner_decisions", "promotion_applications", "reconciliation_recovery", "credential_maintenance");
+const isQueueSource12A = (value: unknown) => closed(value, {
+  family: QUEUE_FAMILY, status: oneOf("ok", "stale", "unavailable", "read_failed"), observed_at: nullable(isIso),
+  count: isCount, truncated: isBool, cap: nullable(isCount), corrupt_omitted_count: isCount, errors: arrayOf(isString),
+});
+const isQueueItem12A = (value: unknown) => closed(value, {
+  id: isNonEmptyString, family: QUEUE_FAMILY, platform: nullable(isString), account_alias: nullable(isString),
+  target_id: nullable(isNonEmptyString), status: isNonEmptyString, decision_state: nullable(isString),
+  actionable: isBool, blocked: isBool, expired: isBool, blocker_reasons: arrayOf(isString), title: isString,
+  detail: nullable(isString), observed_at: nullable(isIso), expires_at: nullable(isIso), route: nullable(isString),
+});
+/** 12A unified owner queue (common.json OwnerQueue12A). */
+const isOwnerQueue12A = (value: unknown) => closed(value, {
+  queue_state: oneOf("non_empty", "verified_empty", "partial_empty", "read_failed"),
+  expected_sources: arrayOf(QUEUE_FAMILY),
+  sources: arrayOf(isQueueSource12A),
+  actionable_items: arrayOf(isQueueItem12A),
+  blocked_or_expired_items: arrayOf(isQueueItem12A),
+  total_unresolved: isCount,
+  truncated: isBool,
+  corrupt_omitted_total: isCount,
+  errors: arrayOf(isString),
+  observed_at: nullable(isIso),
+});
+const isDisabledAction = (value: unknown) => closed(value, {
+  allowed: v => v === false, reason_code: v => v === "not_enabled",
+}, { status: v => v === "not_enabled" });
+/** 9A broker readback rollup (common.json Readback9ASummary). Actions stay disabled. */
+const isReadback9ASummary = (value: unknown) => closed(value, {
+  status: oneOf("match", "drift", "unknown"),
+  layers_available: v => closed(v, { saved_settings: isBool, platform_configuration: isBool, observed_deployment: isBool }),
+  compared_target_count: isCount,
+  drift_target_count: isCount,
+  observed_at: nullable(isIso),
+  actions: v => closed(v, { reapply_saved: isDisabledAction, adopt_platform: isDisabledAction }),
+});
+/** 8A per-book runtime observation fields (n1-overview book row). */
+const BOOK_RUNTIME_FIELDS: Record<string, Check> = {
+  execution_mode: nullable(MODE),
+  runtime_enabled: nullable(isBool),
+  scheduler_state: nullable(isString),
+  deployment_observed_at: nullable(isIso),
+  ttl_seconds: nullable(isCount),
+};
 
 // ---------------------------------------------------------------- ribbon
 
@@ -125,7 +190,7 @@ export function isN1Ribbon(value: unknown): value is N1Ribbon {
     sessions: arrayOf(isSession),
     next_run: read(nullable(v => closed(v, { target_id: isTargetId, kind: isString, due_at: isIso }))),
     tape: read(v => Array.isArray(v) && v.length <= 100 && v.every(isTape)),
-  });
+  }, { fleet_mode_summary: isFleetModeSummary });
 }
 
 // ---------------------------------------------------------------- overview
@@ -148,7 +213,7 @@ const isBookRow = (value: unknown) => closed(value, {
   config: v => closed(v, { state: oneOf("synced", "drift", "unknown"), drift_count: read(isCount), checked_at: nullable(isIso) }),
   last_run: read(nullable(v => closed(v, { at: isIso, outcome: OUTCOME }))),
   return_basis: oneOf("native_ibkr_twr", "nav_change_unadjusted", "unavailable"),
-});
+}, BOOK_RUNTIME_FIELDS);
 const isNeed = (value: unknown) => closed(value, {
   id: isString, kind: oneOf("config_drift", "credential_expiring", "decision_pending", "drawdown_near_limit", "run_missed", "data_stale", "other"),
   severity: oneOf("critical", "warning", "info"), target_id: nullable(isTargetId), title: isString, detail: isString,
@@ -190,7 +255,7 @@ export function isN1Overview(value: unknown): value is N1Overview {
       return_basis: oneOf("native_ibkr_twr", "nav_change_unadjusted", "mixed", "unavailable"),
     })),
     needs_you: read(v => Array.isArray(v) && v.length <= 5 && v.every(isNeed)),
-  });
+  }, { fleet_mode_summary: isFleetModeSummary, owner_queue_12a: isOwnerQueue12A });
 }
 
 // ---------------------------------------------------------------- accounts
@@ -212,7 +277,7 @@ const isBroker = (value: unknown) => closed(value, {
   config: v => closed(v, { state: oneOf("synced", "drift", "unknown"), drift_count: read(isCount), checked_at: nullable(isIso) }),
   credential: isCredential,
   last_order: read(v => closed(v, { at: isIso, count: isCount })),
-});
+}, { readback_9a: isReadback9ASummary });
 
 export function isN1Accounts(value: unknown): value is N1Accounts {
   return closed(value, { ...envelope("qsl.desk.accounts.v2"), brokers: read(arrayOf(isBroker)) });

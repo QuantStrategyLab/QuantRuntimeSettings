@@ -100,7 +100,8 @@ try {
 
 const bindings = { SESSION_SECRET: "synthetic-session-only", ALLOWED_GITHUB_LOGINS: "synthetic-admin,synthetic-reader",
   STRATEGY_SWITCH_ADMIN_LOGINS: "synthetic-admin", RUNTIME_SETTINGS_DISPATCH_TOKEN: "synthetic-upstream-only",
-  STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ longbridge: [config, { ...config, key: "failed", target_name: "failed", account_selector: "FAKE0002", deployment_selector: "failed", account_scope: "FAKE0002", service_name: "synthetic-failed" }] }) };
+  EXECUTION_EVIDENCE_SYNC_TOKEN: "synthetic-lifecycle-sync",
+  STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ longbridge: [config, { ...config, key: "failed", target_name: "failed", account_selector: "FAKE0002", deployment_selector: "failed", account_scope: "FAKE0002", service_name: "synthetic-failed", runtime_status_target_id: "longbridge.failed" }] }) };
 let cookie, otherCookie, renewedCookie;
 Date.now = () => now;
 try {
@@ -125,8 +126,9 @@ const mf = new Miniflare({ modules: true, compatibilityDate: "2026-06-08", modul
       { name: "LONGBRIDGE_RESERVED_CASH_RATIO", value: "0.0800" }, { name: "TOKEN", value: "synthetic-poison" }] });
   },
 });
-async function call(path, { body, auth = cookie, origin = "https://synthetic.example", raw } = {}) {
-  const response = await mf.dispatchFetch(`https://synthetic.example${path}`, { method: body !== undefined || raw !== undefined ? "POST" : "GET", headers: { Cookie: auth, Origin: origin, "Content-Type": "application/json" }, ...(body !== undefined ? { body: JSON.stringify(body) } : raw !== undefined ? { body: raw } : {}) });
+async function call(path, { body, auth = cookie, origin = "https://synthetic.example", raw, bearer } = {}) {
+  const headers = { ...(bearer ? { Authorization: `Bearer ${bearer}` } : { Cookie: auth, Origin: origin }), "Content-Type": "application/json" };
+  const response = await mf.dispatchFetch(`https://synthetic.example${path}`, { method: body !== undefined || raw !== undefined ? "POST" : "GET", headers, ...(body !== undefined ? { body: JSON.stringify(body) } : raw !== undefined ? { body: raw } : {}) });
   const data = await response.json();
   if (!path.startsWith("/test/")) assert.equal(response.headers.get("cache-control"), "no-store");
   return { status: response.status, body: data };
@@ -135,25 +137,30 @@ try {
   assert.equal((await call("/api/admin/runtime-instances", { body: { action: "initialize", expected_revision: 0, confirm: "IMPORT_EXISTING_CONFIG" } })).status, 200);
   assert.equal((await call("/api/desk/targets/longbridge/demo/readback", { auth: "" })).status, 401);
   for (const id of ["longbridge/missing", "invisible/demo"]) assert.equal((await call(`/api/desk/targets/${id}/readback`)).status, 404);
+  const countBeforeFirstGet = (await call("/test/count")).body.count;
   const first = await call("/api/desk/targets/longbridge%2Fdemo/readback");
   assert.equal(first.status, 200); conforms("readback", first.body);
+  assert.equal((await call("/test/count")).body.count, countBeforeFirstGet, "SA-4 9A GET performs zero DO storage writes");
+  assert.equal((await call("/test/count")).body.admissions, 0, "SA-4 9A GET performs zero DO admission writes");
+  assert.ok(first.body.saved_settings && first.body.platform_configuration && first.body.observed_deployment && first.body.comparisons, "SA-4 9A three-layer payload present");
   assert.equal(first.body.fields.find(row => row.key === "strategy_profile").state, "match");
   assert.equal(first.body.fields.find(row => row.key === "account_selector").platform.status, "known");
   assert.equal(first.body.fields.find(row => row.key === "account_selector").state, "match");
   assert.equal(first.body.fields.find(row => row.key === "enabled").platform.value, "false");
   assert.equal(first.body.identity.account_suffix, "0001");
+  assert.equal(first.body.actions.reapply_saved.status, "not_enabled");
   assert.equal(first.body.actions.reapply_saved.allowed, false);
+  assert.equal(first.body.actions.adopt_platform.status, "not_enabled");
   assert.equal(first.body.actions.adopt_platform.allowed, false);
   assert.ok(!JSON.stringify(first.body).includes("synthetic-poison"));
-  assert.equal((await call(`/api/desk/readbacks/${first.body.readback_id}`)).body.readback_id, first.body.readback_id);
-  assert.equal((await call(`/api/desk/readbacks/${first.body.readback_id}`, { auth: otherCookie })).status, 404);
+  assert.equal((await call(`/api/desk/readbacks/${first.body.readback_id}`)).status, 404, "pure GET readback does not persist snapshot into DO storage");
   for (failure of [true, "timeout"]) {
-    await call("/test/advance");
     const degraded = await call("/api/desk/targets/longbridge/demo/readback");
     assert.equal(degraded.status, 200); conforms("readback", degraded.body);
     assert.ok(degraded.body.fields.every(row => row.platform.status === "unknown" && row.platform.reason === "read_failed"));
     assert.ok(!JSON.stringify(degraded).includes("private details"));
   }
+  assert.equal((await call("/test/count")).body.count, countBeforeFirstGet, "degraded GETs perform zero DO storage writes");
   failure = false;
   for (const body of [{ target_ids: [] }, { target_ids: Array(21).fill("longbridge/demo") }, { target_ids: null }, { target_ids: ["longbridge/demo", "longbridge/demo"] }, { target_ids: [1] }, { extra: true }]) assert.equal((await call("/api/desk/readbacks", { body: { ...body, idempotency_key: "invalid" } })).status, 400);
   assert.equal((await call("/api/desk/readbacks", { raw: "{" })).status, 400);
@@ -161,42 +168,28 @@ try {
   assert.equal((await call("/api/desk/readbacks", { body: { idempotency_key: "bad key" } })).status, 400);
   assert.equal((await call("/api/desk/readbacks", { body: { target_ids: ["hidden/demo"], idempotency_key: "hidden" } })).status, 404);
   assert.equal((await call("/api/desk/readbacks", { body: { idempotency_key: "cross" }, origin: "https://other.invalid" })).status, 403);
-  // A non-admin cannot bypass an active refresh by GET or by renewing a session.
+  // Active POST refresh blocks concurrent POST across sessions while pure GET remains non-blocking and zero-write.
   const readerJob = await call("/api/desk/readbacks", { body: { idempotency_key: "reader-job", target_ids: ["longbridge/demo"] }, auth: otherCookie });
   assert.equal(readerJob.status, 202);
   const readsBeforeBurst = upstreamReads;
   const recordsBeforeBurst = (await call("/test/count")).body.count;
-  const burst = await Promise.all(Array.from({ length: 12 }, (_, i) => call("/api/desk/targets/longbridge/demo/readback", { auth: i % 2 ? otherCookie : renewedCookie })));
-  assert.ok(burst.every(result => result.status === 429 && result.body.reason_code === "readback_in_progress"));
-  assert.equal(upstreamReads, readsBeforeBurst, "blocked GETs must not read upstream");
-  assert.equal((await call("/test/count")).body.count, recordsBeforeBurst, "blocked GETs must not create snapshots");
+  const blockedPost = await call("/api/desk/readbacks", { body: { idempotency_key: "concurrent-post" }, auth: renewedCookie });
+  assert.equal(blockedPost.status, 429);
+  assert.equal(blockedPost.body.reason_code, "readback_in_progress");
+  const pureGetDuringJob = await call("/api/desk/targets/longbridge/demo/readback", { auth: renewedCookie });
+  assert.equal(pureGetDuringJob.status, 200, "pure GET readback succeeds without DO admission writes even while POST job is running");
+  assert.equal((await call("/test/count")).body.count, recordsBeforeBurst, "pure GET must not create DO snapshots");
   await call("/test/alarm");
-  assert.equal((await call(`/api/desk/readbacks/${readerJob.body.readback_id}`, { auth: otherCookie })).body.state, "done");
-  const cooldown = await call("/api/desk/targets/longbridge/demo/readback", { auth: renewedCookie });
-  assert.equal(cooldown.status, 429);
-  assert.equal(cooldown.body.reason_code, "readback_rate_limited");
-  assert.equal((await call("/api/desk/readbacks", { body: { idempotency_key: "reader-cooldown" }, auth: renewedCookie })).status, 429);
+  const jobDone = await call(`/api/desk/readbacks/${readerJob.body.readback_id}`, { auth: otherCookie });
+  assert.equal(jobDone.body.state, "done");
+  const persistedSnapshotId = jobDone.body.results[0].readback_id;
+  assert.equal((await call(`/api/desk/readbacks/${persistedSnapshotId}`, { auth: otherCookie })).body.readback_id, persistedSnapshotId);
+  assert.equal((await call(`/api/desk/readbacks/${persistedSnapshotId}`, { auth: cookie })).status, 404, "saved job snapshot stays owner-isolated");
+  const postCooldown = await call("/api/desk/readbacks", { body: { idempotency_key: "reader-cooldown" }, auth: renewedCookie });
+  assert.equal(postCooldown.status, 429);
+  assert.equal(postCooldown.body.reason_code, "readback_rate_limited");
+  assert.equal(upstreamReads, readsBeforeBurst + 2, "only POST job alarm + pure GET hit upstream");
   await call("/test/advance");
-  const idleReads = upstreamReads;
-  const idleRecords = (await call("/test/count")).body.count;
-  let releaseRead, markStarted;
-  heldRead = { wait: new Promise(resolve => { releaseRead = resolve; }), started: () => markStarted() };
-  const startedRead = new Promise(resolve => { markStarted = resolve; });
-  const pendingBurst = Promise.all(Array.from({ length: 12 }, (_, i) => call("/api/desk/targets/longbridge/demo/readback", { auth: i % 2 ? otherCookie : renewedCookie })));
-  await startedRead;
-  try {
-    const busyPost = await call("/api/desk/readbacks", { body: { idempotency_key: "get-active" }, auth: renewedCookie });
-    assert.equal(busyPost.status, 429);
-    assert.equal(busyPost.body.reason_code, "readback_in_progress", "an active GET also blocks POST across sessions");
-    assert.equal((await call(`/api/desk/readbacks/${readerJob.body.readback_id}`, { auth: otherCookie })).status, 200, "polling remains cheap and available during fresh I/O");
-  } finally { releaseRead(); }
-  const idleBurst = await pendingBurst;
-  heldRead = null;
-  assert.equal(idleBurst.filter(result => result.status === 200).length, 1);
-  assert.equal(idleBurst.filter(result => result.status === 429).length, 11);
-  assert.equal(upstreamReads, idleReads + 1);
-  assert.equal((await call("/test/count")).body.count, idleRecords + 1);
-  assert.equal((await call("/api/desk/readbacks", { body: { idempotency_key: "reader-cooldown" }, auth: otherCookie })).status, 429, "GET and POST share the principal's budget");
   const before = upstreamReads;
   const body = { idempotency_key: "synthetic-job" };
   const start = await call("/api/desk/readbacks", { body });
@@ -220,8 +213,7 @@ try {
   assert.equal(done.body.state, "partial");
   assert.deepEqual(done.body.results.map(row => row.state), ["done", "failed"]);
   assert.equal(done.body.results[1].error, "read_failed");
-  assert.equal((await call("/api/desk/targets/longbridge/failed/readback")).status, 429);
-  await call("/test/advance");
+  assert.equal((await call("/api/desk/targets/longbridge/failed/readback")).status, 200);
   assert.equal((await call("/api/desk/targets/longbridge/failed/readback")).body.overall, "unknown");
   await call("/test/advance");
   const attempts = await Promise.all(["next", "concurrent"].map(idempotency_key => call("/api/desk/readbacks", { body: { idempotency_key, target_ids: ["longbridge/failed"] } })));
@@ -241,13 +233,72 @@ try {
   await call("/test/alarm");
   const successful = await call(`/api/desk/readbacks/${success.body.readback_id}`);
   assert.equal(successful.body.state, "done"); conforms("readback-job", successful.body);
+  const finalSavedId = successful.body.results[0].readback_id;
+  // Seed runtime target lifecycle evidence and verify real HTTP readback + /api/desk/accounts readback_9a wiring.
+  const lifecycleTs = new Date(now - 60_000).toISOString();
+  const lifecycleSeed = await call("/api/internal/sync-runtime-target-lifecycle-source", {
+    bearer: "synthetic-lifecycle-sync",
+    body: {
+      schema_version: "qsl_runtime_target_lifecycle_source_snapshot.v1",
+      source_id: "longbridge.synthetic",
+      generated_at: lifecycleTs,
+      computed_at: lifecycleTs,
+      data_status: "ready",
+      errors: [],
+      targets: [{
+        target_id: "longbridge.demo",
+        target: { platform: "longbridge", configured_state: "enabled", execution_mode: "live" },
+        monitoring: { runtime_guard: "pass", execution_heartbeat: "pass" },
+        disposition: { code: "continue_enabled_monitoring", reason_code: "none" },
+        no_order: true,
+        deployment: {
+          observed_at: lifecycleTs,
+          runtime_enabled: true,
+          scheduler_state: "enabled",
+          strategy_profile: "demo_profile",
+          execution_mode: "live",
+        },
+      }],
+    },
+  });
+  assert.equal(lifecycleSeed.status, 200, "lifecycle source sync succeeds in Miniflare");
+  assert.equal((await call("/api/admin/kv-directory", { body: {} })).status, 200, "kv-directory index maintained");
+  const countBeforeDeploymentReadback = (await call("/test/count")).body.count;
+  const deployedReadback = await call("/api/desk/targets/longbridge%2Fdemo/readback");
+  assert.equal(deployedReadback.status, 200);
+  conforms("readback", deployedReadback.body);
+  assert.equal((await call("/test/count")).body.count, countBeforeDeploymentReadback, "GET with lifecycle deployment performs zero DO writes");
+  assert.equal(deployedReadback.body.observed_deployment.data_status, "ready", `unexpected observed_deployment: ${JSON.stringify(deployedReadback.body.observed_deployment)}`);
+  assert.equal(deployedReadback.body.observed_deployment.execution_mode, "live");
+  assert.equal(deployedReadback.body.comparisons.platform_vs_observed.status, "drift");
+  assert.deepEqual(deployedReadback.body.comparisons.platform_vs_observed.mismatched_fields, ["enabled"]);
+  assert.equal(deployedReadback.body.comparisons.saved_vs_observed.status, "match", "paper broker_environment + live default_execution_mode matches observed live without false drift");
+  assert.ok(deployedReadback.body.comparisons.saved_vs_observed.skipped_non_mutual_fields.includes("broker_environment"));
+  // Refresh stored readback job with lifecycle evidence present so /api/desk/accounts reflects observed deployment & drift.
+  await call("/test/advance");
+  const refreshWithDeploy = await call("/api/desk/readbacks", { body: { idempotency_key: "with-deploy", target_ids: ["longbridge/demo"] } });
+  assert.equal(refreshWithDeploy.status, 202);
+  await call("/test/alarm");
+  const upstreamBeforeAccounts = upstreamReads;
+  const accountsAfterJob = await call("/api/desk/accounts");
+  assert.equal(accountsAfterJob.status, 200);
+  assert.equal(upstreamReads, upstreamBeforeAccounts, "GET /api/desk/accounts makes zero outbound fetches");
+  assert.equal(accountsAfterJob.body.brokers.value[0].readback_9a.status, "drift", "accounts route surfaces stored 9A readback summary");
+  assert.equal(accountsAfterJob.body.brokers.value[0].readback_9a.layers_available.observed_deployment, true);
+  assert.equal(accountsAfterJob.body.brokers.value[0].readback_9a.drift_target_count, 1);
+  const otherAccounts = await call("/api/desk/accounts", { auth: otherCookie });
+  assert.equal(otherAccounts.status, 200);
+  assert.equal(otherAccounts.body.brokers.value[0].readback_9a.layers_available.observed_deployment, false, "other owner sees only its own older snapshot");
+  const freshAccounts = await call("/api/desk/accounts", { auth: renewedCookie });
+  assert.equal(freshAccounts.status, 200);
+  assert.equal(freshAccounts.body.brokers.value[0].readback_9a, undefined, "stored 9A readbacks remain owner-isolated");
   await call("/test/expire");
   assert.equal((await call("/test/count")).body.count, 0, "expired snapshots and jobs are physically removed");
   assert.equal((await call("/test/count")).body.admissions, 0, "expired admission records are physically removed");
   // Use the internal DO command after session expiry to verify physical TTL.
   const ns = await mf.getDurableObjectNamespace("STRATEGY_SWITCH_RUNTIME_INSTANCES");
   const storage = ns.get(ns.idFromName("runtime-instances"));
-  const expired = await storage.fetch("https://synthetic.example/", { method: "POST", body: JSON.stringify({ action: "desk_readback_get", owner: "synthetic", actor: "synthetic-admin", id: first.body.readback_id }) });
+  const expired = await storage.fetch("https://synthetic.example/", { method: "POST", body: JSON.stringify({ action: "desk_readback_get", owner: "synthetic", actor: "synthetic-admin", id: finalSavedId }) });
   assert.equal(expired.status, 404);
 } finally { await mf.dispose(); }
 console.log("desk_readback_validation: PASS (diff, whitelist, real auth/SQLite jobs, refresh, replay, failures, TTL)");

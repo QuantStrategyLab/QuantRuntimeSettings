@@ -411,6 +411,21 @@
                       "checked_at"
                     ],
                     "additionalProperties": false
+                  },
+                  "execution_mode": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/NullableMode"
+                  },
+                  "runtime_enabled": {
+                    "type": ["boolean", "null"]
+                  },
+                  "scheduler_state": {
+                    "type": ["string", "null"]
+                  },
+                  "deployment_observed_at": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/NullableTime"
+                  },
+                  "ttl_seconds": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/NullableNonNegInt"
                   }
                 },
                 "required": [
@@ -547,6 +562,12 @@
           }
         }
       }
+    },
+    "fleet_mode_summary": {
+      "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/FleetModeSummary"
+    },
+    "owner_queue_12a": {
+      "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/OwnerQueue12A"
     }
   },
   "required": [

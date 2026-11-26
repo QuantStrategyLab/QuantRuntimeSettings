@@ -15,7 +15,9 @@ import {
 import { DeskError } from "./http.js";
 import { performanceProjection, readPerformanceSources } from "./performance.js";
 import { readbackTargets } from "./readback.js";
-import { configuredAccounts, runRowReadIncomplete, tapeOutcome } from "./ribbon.js";
+import { runtimeReadbackProjection } from "../console_api/runtime_readback.js";
+import { projectUnifiedOwnerQueue12A } from "../console_api/inbox.js";
+import { configuredAccounts, projectFleetExecutionMode, runRowReadIncomplete, tapeOutcome } from "./ribbon.js";
 import {
   addDays, coverage, freshness, known, n1Response, n1Route, notSupported, partial, readOnce, stale, timeBasis, unknown, utcInstant, zonedDate,
 } from "./n1.js";
@@ -241,7 +243,9 @@ function equityCurve(performance) {
   return { ...equity, value };
 }
 
-export function overviewProjection({ config, facts, credential, summary, businessDate, performance, now, members = [], historyEnd = null }) {
+export { projectFleetExecutionMode };
+
+export function overviewProjection({ config, facts, credential, summary, businessDate, performance, now, members = [], historyEnd = null, runtimeLifecycle = undefined, ownerQueueSources = undefined }) {
   if (!config.ok) {
     const failed = unknown("read_failed", coverage("unavailable", 0, null, ["read_failed"]));
     return {
@@ -256,6 +260,7 @@ export function overviewProjection({ config, facts, credential, summary, busines
     };
   }
   const targets = readbackTargets(config.value);
+  const configured = configuredAccounts(config.value);
   const { reporting, totals } = overviewTotals({ targets, facts, now });
   const shownRows = facts.ok ? targets.map(target => factsRowFor(facts.model, target))
     .filter(row => (row?.data_status === "fresh" || row?.data_status === "stale") && row.binding_status === "bound" && !row.identity_mismatch) : [];
@@ -273,6 +278,14 @@ export function overviewProjection({ config, facts, credential, summary, busines
     const row = facts.ok ? factsRowFor(facts.model, target) : null;
     const nav = bookNav(row, facts, now);
     const member = historyEnd ? members.find(item => item.target_id === target.id) ?? null : null;
+    const rt = runtimeLifecycle !== undefined
+      ? runtimeReadbackProjection(
+          { platform: target.platform, key: target.key, runtime_status_target_id: target.config?.runtime_status_target_id || null },
+          configured,
+          runtimeLifecycle,
+          now,
+        )
+      : null;
     return {
       target_id: target.id,
       platform: target.platform,
@@ -289,9 +302,22 @@ export function overviewProjection({ config, facts, credential, summary, busines
       config: { state: "unknown", drift_count: unknown("not_supported", coverage("unavailable", 0, 1, ["not_supported"])), checked_at: null },
       last_run: lastRun(summary, summaryRowFor(summary, target), now),
       return_basis: "unavailable",
+      ...(rt !== null ? {
+        execution_mode: rt.execution_mode,
+        runtime_enabled: rt.runtime_enabled,
+        scheduler_state: rt.scheduler_state,
+        deployment_observed_at: rt.deployment_observed_at,
+        ttl_seconds: rt.ttl_seconds,
+      } : {}),
     };
   });
   const book = rows.length ? known(rows, now, coverage("complete", rows.length, rows.length)) : known([], now, coverage("verified_empty", 0, 0));
+  const fleetModeSummary = runtimeLifecycle !== undefined
+    ? projectFleetExecutionMode({ accounts: configured, snapshot: runtimeLifecycle, now })
+    : undefined;
+  const ownerQueue12a = ownerQueueSources !== undefined
+    ? projectUnifiedOwnerQueue12A({ sources: ownerQueueSources, now })
+    : undefined;
   return {
     snapshot_at: includedTimes.sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null,
     freshness: fresh,
@@ -306,6 +332,8 @@ export function overviewProjection({ config, facts, credential, summary, busines
     book,
     equity_curve: equityCurve(performance),
     needs_you: needsYou(credential, now),
+    ...(fleetModeSummary !== undefined ? { fleet_mode_summary: fleetModeSummary } : {}),
+    ...(ownerQueue12a !== undefined ? { owner_queue_12a: ownerQueue12a } : {}),
   };
 }
 
@@ -323,11 +351,27 @@ export async function deskOverviewResponse(request, env, deps) {
       summary = read.ok && read.value && Array.isArray(read.value.accounts) ? read.value : null;
     }
     const { performance, members, end } = await readPerformanceSources(env, deps, { range: OVERVIEW_RANGE, now, config, facts });
+    let runtimeLifecycle;
+    let ownerQueueSources;
+    if (config.ok) {
+      if (typeof deps.runtimeLifecycle === "function") {
+        const lc = await readOnce(() => deps.runtimeLifecycle(env));
+        runtimeLifecycle = lc.ok && lc.value && typeof lc.value === "object"
+          ? lc.value
+          : { targets: null, errors: ["runtime_source_read_failed"] };
+      }
+      if (typeof deps.ownerQueueSources === "function") {
+        const q = await readOnce(() => deps.ownerQueueSources(request, env, { credential, now }));
+        ownerQueueSources = q.ok && q.value && typeof q.value === "object"
+          ? q.value
+          : { owner_decisions: null, promotion_applications: null, reconciliation_recovery: null, credential_maintenance: null };
+      }
+    }
     return n1Response("overview", {
       time_basis: timeBasis("UTC", [
         ["account_facts", "UTC"], ["account_facts_history", "Asia/Shanghai"], ["runtime_daily", RUNTIME_DAILY_TIMEZONE],
       ]),
-      ...overviewProjection({ config, facts, credential, summary, businessDate, performance, now, members, historyEnd: end }),
+      ...overviewProjection({ config, facts, credential, summary, businessDate, performance, now, members, historyEnd: end, runtimeLifecycle, ownerQueueSources }),
     }, { now });
   });
 }
