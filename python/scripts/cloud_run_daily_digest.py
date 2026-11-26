@@ -554,14 +554,16 @@ def execute_slot(report_date, day, check, schedule_record, configuration, store,
         except StoreUnavailable:
             if getattr(configuration, 'deadline_alert_enabled', False) is True:
                 _maybe_send_deadline_alert(report_date, day, schedule_record, configuration, store, send, now=now)
-            return 200, {**safe, 'delivery': 'receipt_unverified', 'phase': 'deadline_check'}
+            return 502, {**safe, 'delivery': 'receipt_unverified', 'phase': 'deadline_check'}
         matches = isinstance(record, dict) and all(record.get(key) == value for key, value in (
             ('report_date', report_date.isoformat()), ('business_day', day),
             ('recipient_scope', configuration.recipient_scope)))
         confirmed = matches and record.get('delivery') == 'accepted' and record.get('late') is False
         if not confirmed and getattr(configuration, 'deadline_alert_enabled', False) is True:
             _maybe_send_deadline_alert(report_date, day, schedule_record, configuration, store, send, now=now)
-        return 200, {**safe, 'delivery': 'confirmed' if confirmed else 'receipt_unverified', 'phase': 'deadline_check'}
+        # The 07:30 check fails visibly when the report was not confirmed on time.
+        return (200 if confirmed else 502), {**safe, 'delivery': 'confirmed' if confirmed else 'receipt_unverified',
+                                             'phase': 'deadline_check'}
     stop = datetime.combine(report_date, time(7, 20), SGT)
     deadline_at = datetime.combine(report_date, time(7, 30), SGT)
     late = now() + timedelta(seconds=30) >= deadline_at
@@ -598,7 +600,10 @@ def execute_slot(report_date, day, check, schedule_record, configuration, store,
                 or existing.get('recipient_scope') != configuration.recipient_scope
                 or existing.get('business_day') != day):
             return 503, {**safe, 'delivery': 'reservation_invalid'}
-        return 200, {**safe, 'delivery': 'duplicate' if existing.get('delivery') == 'accepted' else 'unknown'}
+        if existing.get('delivery') == 'accepted':
+            return 200, {**safe, 'delivery': 'duplicate'}
+        # An earlier attempt for this report never confirmed delivery: fail visibly.
+        return 502, {**safe, 'delivery': 'unknown'}
     send_error_code = None
     try:
         message_id = send(text)
@@ -610,11 +615,15 @@ def execute_slot(report_date, day, check, schedule_record, configuration, store,
     except Exception as error:  # noqa: BLE001 -- Every uncertain transport result must retain its reservation.
         send_error_code = _classify_send_error(error)
         record.update(delivery='unknown', send_error_code=send_error_code)
+    error_fields = {'send_error_code': send_error_code} if send_error_code else {}
     try:
         store.finish(key, generation, record)
     except StoreUnavailable:
-        return 200, {**safe, 'delivery': 'unknown', **({'send_error_code': send_error_code} if send_error_code else {})}
-    return 200, {**safe, 'delivery': record['delivery'], **({'send_error_code': send_error_code} if send_error_code else {})}
+        return 502, {**safe, 'delivery': 'unknown', **error_fields}
+    # Only a confirmed Telegram acceptance is a success; an unconfirmed send must not
+    # exit cleanly, or a missing daily report looks healthy to every scheduler.
+    status = 200 if record['delivery'] == 'accepted' else 502
+    return status, {**safe, 'delivery': record['delivery'], **error_fields}
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
