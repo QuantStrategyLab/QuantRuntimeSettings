@@ -207,12 +207,39 @@ class RuntimeSettingsTest(unittest.TestCase):
 
         self.assertIn("id-token: write", workflow)
         self.assertIn("--runtime-artifact-evidence-registry", workflow)
+        self.assertIn("QSL_CONFIG_OVERLAY_JSON", workflow)
         self.assertIn("verify_runtime_artifact_evidence.py", workflow)
         self.assertIn("GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: ${{ secrets.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}", workflow)
         self.assertIn("no publishing, runtime change, or order submission", workflow)
         self.assertIn("Keep affected routes parked", workflow)
         self.assertNotIn("gcloud storage cp", workflow)
         self.assertNotIn("Manual Strategy Switch", workflow)
+
+    def test_runtime_artifact_evidence_registry_applies_overlay_json(self):
+        overlay = {
+            "strategies": {
+                "global_etf_rotation": {
+                    "runtime_artifacts": {
+                        "feature_snapshot": {
+                            "path": "gs://example-overlay/global/snapshot.json",
+                            "manifest_path": "gs://example-overlay/global/manifest.json",
+                        }
+                    }
+                }
+            }
+        }
+        with patch.dict(os.environ, {"QSL_CONFIG_OVERLAY_JSON": json.dumps(overlay)}, clear=False):
+            os.environ.pop("QSL_CONFIG_OVERLAY_PATH", None)
+            registry = build_config.build_runtime_artifact_evidence_registry(build_config.load_config())
+        by_profile = {row["profile"]: row for row in registry["entries"]}
+        self.assertEqual(
+            by_profile["global_etf_rotation"]["snapshot_path"],
+            "gs://example-overlay/global/snapshot.json",
+        )
+        self.assertEqual(
+            by_profile["global_etf_rotation"]["manifest_path"],
+            "gs://example-overlay/global/manifest.json",
+        )
 
     def test_manual_switch_platform_choices_cover_supported_platforms(self):
         workflow = (ROOT / ".github/workflows/manual-strategy-switch.yml").read_text(encoding="utf-8")
@@ -990,7 +1017,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                 self.assertEqual(
                     build_runtime_switch._auto_plugin_mounts(
                         profile,
-                        "gs://qsl-runtime-logs-shared",
+                        "gs://example-runtime-logs",
                     ),
                     [],
                 )
@@ -2708,7 +2735,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
     def test_build_switch_target_auto_configures_ibkr_snapshot_artifacts(self):
         cases = {
             "russell_top50_leader_rotation": (
-                "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/"
+                "gs://<bucket>/strategy-artifacts/us_equity/"
                 "russell_top50_leader_rotation_staging/"
                 "russell_top50_leader_rotation_feature_snapshot_latest.csv"
             ),
@@ -2809,7 +2836,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
 
         snapshot_path = (
-            "gs://qsl-runtime-logs-shared/strategy-artifacts/hk_equity/"
+            "gs://<bucket>/strategy-artifacts/hk_equity/"
             "hk_low_vol_dividend_quality_snapshot_staging/"
             "hk_low_vol_dividend_quality_snapshot_factor_snapshot_latest.csv"
         )

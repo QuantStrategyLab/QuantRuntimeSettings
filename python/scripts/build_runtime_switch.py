@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -30,7 +31,7 @@ from runtime_settings import (  # noqa: E402
 )
 
 
-DEFAULT_ARTIFACT_BUCKET_URI = "gs://qsl-runtime-logs-shared"
+DEFAULT_ARTIFACT_BUCKET_URI = os.environ.get("QSL_ARTIFACT_BUCKET_URI", "").strip()
 PLATFORM_CONFIG_PATH = ROOT / "platform-config.json"
 IBIT_ZSCORE_EXIT_STRATEGY_PROFILE = "ibit_smart_dca"
 PLATFORM_DRY_RUN_VARIABLES = {

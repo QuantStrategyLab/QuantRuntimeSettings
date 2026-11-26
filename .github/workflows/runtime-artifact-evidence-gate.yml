@@ -52,12 +52,24 @@ jobs:
           version: ">= 416.0.0"
 
       - name: Validate control-plane registry
+        env:
+          QSL_CONFIG_OVERLAY_JSON: ${{ secrets.QSL_CONFIG_OVERLAY_JSON || vars.QSL_CONFIG_OVERLAY_JSON }}
         run: |
           set -euo pipefail
+          [ -n "${QSL_CONFIG_OVERLAY_JSON:-}" ] || { echo "QSL_CONFIG_OVERLAY_JSON is required" >&2; exit 2; }
           mkdir -p data/output/runtime-artifact-evidence
           python3 python/scripts/build_config.py --check
           python3 python/scripts/build_config.py --runtime-artifact-evidence-registry \
             > data/output/runtime-artifact-evidence/registry.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          reg = json.loads(Path("data/output/runtime-artifact-evidence/registry.json").read_text(encoding="utf-8"))
+          for entry in reg.get("entries", []):
+              for key in ("snapshot_path", "manifest_path"):
+                  if str(entry.get(key, "")).startswith("gs://<"):
+                      raise SystemExit(f"Placeholder path remains in registry for {entry.get('profile')}.{key}")
+          PY
 
       - name: Verify remote objects, manifests, digests, and freshness
         id: verify
