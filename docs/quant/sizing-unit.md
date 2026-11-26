@@ -1,6 +1,6 @@
 # Phase 0 REBASE — Pilot Sizing Unit and Tier Starting Values
 
-**Status date:** 2026-11-15
+**Status date:** 2026-11-27 (amended from 2026-11-15 via `PREREG-R4`)
 **Phase:** 0 (`REBASE`) — documents only. Specifying the sizing unit and starting tier constants authorizes no code edits, data reads, deployments, paper orders, or live orders.
 **Related documents:** [rebase-register.md](rebase-register.md) | [decisions-rebase.md](decisions-rebase.md)
 
@@ -22,7 +22,7 @@ Standing boundaries are unchanged:
 - **Notional pilot bankroll:** **`B₀ = US$50,000`**, declared on **2026-11-15** by the coordinator under the owner's standing delegation (owner's words: *"you decide, following Fable's and your recommendation"*):
   - **Notional only:** No funds move, and no paper or live trading authority is granted.
   - **Scale rationale:** Set at the design's `$50,000` scale anchor so that all three tiers' starting positions are whole-share tradeable with non-dominant fixed trading costs.
-  - **Scope of use:** Used identically across all three tiers in target T1 (`SHADOW` stage N and `PILOT`). In target T2 (`PAPER`), *proposed* (`PART-C.md` §4.6) as the notional sub-ledger bankroll inside the Longbridge paper account (because venue-issued paper balances cannot be reset by the user). The live sleeve account must be named before `SUPPLY-B` is scheduled; this does not block T1.
+  - **Scope of use:** Used identically across all three tiers in target T1 (`SHADOW` stage N and `PILOT`), with `PREREG-R4` adding a side-by-side minimum-account viability check at **`US$1,500`** comparing whole shares vs fractional shares execution. In target T2 (`PAPER`), **IBKR** paper is selected (amended from Longbridge by `PREREG-R4` so `PAPER` and `LIVE-GATE` share the same broker venue). The live sleeve account must be named before `SUPPLY-B` is scheduled; this does not block T1.
 
 ---
 
