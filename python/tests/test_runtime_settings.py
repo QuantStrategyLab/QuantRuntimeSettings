@@ -990,7 +990,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                 self.assertEqual(
                     build_runtime_switch._auto_plugin_mounts(
                         profile,
-                        "gs://qsl-runtime-logs-shared",
+                        "gs://example-runtime-logs",
                     ),
                     [],
                 )
@@ -2708,7 +2708,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
     def test_build_switch_target_auto_configures_ibkr_snapshot_artifacts(self):
         cases = {
             "russell_top50_leader_rotation": (
-                "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/"
+                "gs://<bucket>/strategy-artifacts/us_equity/"
                 "russell_top50_leader_rotation_staging/"
                 "russell_top50_leader_rotation_feature_snapshot_latest.csv"
             ),
@@ -2809,7 +2809,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
 
         snapshot_path = (
-            "gs://qsl-runtime-logs-shared/strategy-artifacts/hk_equity/"
+            "gs://<bucket>/strategy-artifacts/hk_equity/"
             "hk_low_vol_dividend_quality_snapshot_staging/"
             "hk_low_vol_dividend_quality_snapshot_factor_snapshot_latest.csv"
         )

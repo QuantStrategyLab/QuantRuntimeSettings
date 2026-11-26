@@ -18,6 +18,13 @@ spec.loader.exec_module(probe)
 
 
 class DigestStorePermissionCheckTests(unittest.TestCase):
+    def setUp(self):
+        self._orig_bucket = probe.BUCKET
+        self._orig_api = probe.API
+        probe.BUCKET = "example-digest-store"
+        probe.API = "https://storage.googleapis.com/storage/v1/b/example-digest-store"
+        self.addCleanup(lambda: (setattr(probe, "BUCKET", self._orig_bucket), setattr(probe, "API", self._orig_api)))
+
     def run_probe(self, code=200, listing=None):
         replies = [
             (200, {"permissions": ["storage.objects.get", "storage.objects.list"]}),

@@ -24,7 +24,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-BUCKET = os.environ.get("DIGEST_STORE_BUCKET", "qsl-runtime-logs-shared")
+BUCKET = os.environ.get("DIGEST_STORE_BUCKET", "").strip()
 PREFIX = os.environ.get("DIGEST_STORE_PREFIX", "digest-candidates/")
 PERMS = (
     "storage.objects.create",
@@ -34,7 +34,7 @@ PERMS = (
     "storage.buckets.get",
     "storage.buckets.getIamPolicy",
 )
-API = "https://storage.googleapis.com/storage/v1/b/" + urllib.parse.quote(BUCKET, safe="")
+API = ("https://storage.googleapis.com/storage/v1/b/" + urllib.parse.quote(BUCKET, safe="")) if BUCKET else ""
 
 
 def _get(url: str, token: str | None) -> tuple[int, dict]:
@@ -51,6 +51,8 @@ def _get(url: str, token: str | None) -> tuple[int, dict]:
 
 
 def main() -> int:
+    if not BUCKET or not API:
+        raise SystemExit("DIGEST_STORE_BUCKET is required")
     token = subprocess.run(
         ["gcloud", "auth", "print-access-token"], check=True, capture_output=True, text=True
     ).stdout.strip()
