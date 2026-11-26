@@ -1,6 +1,6 @@
 # Phase 2 YARDSTICK — Experiment Ledger (Q4-3)
 
-**Status date:** 2026-11-17
+**Status date:** 2026-11-27 (exploratory post-`Y3` runs appended)
 **Phase:** 2 (`YARDSTICK`, batch `Y3`) — documents only. Seeding the ledger authorizes no code edits, data reads, deployments, paper orders, live orders, or new trials.
 **Ledger owner:** `coordinator` (`Q4-3`, apparatus; the ledger is not adopted or rejected on merit)
 **Related documents:** [frozen-baselines.md](frozen-baselines.md) | [pilot-preregistration.md](pilot-preregistration.md) | [definitions-contract.md](definitions-contract.md) | [cost-model.md](cost-model.md) | [rebase-register.md](rebase-register.md) | [decisions-rebase.md](decisions-rebase.md) | [sizing-unit.md](sizing-unit.md)
@@ -62,11 +62,13 @@ The per-file entry references are `Y2-DATA-1/F1` to `Y2-DATA-1/F8`, in byte orde
 
 ## 5. Going-forward trials
 
-No going-forward trial exists yet. Slots planned for `PILOT` are registered in [pilot-preregistration.md](pilot-preregistration.md) §9 and enter this ledger as `REGISTERED` rows with their own `ID` before any run. The next free `ID` is `L-024`. The next `K_trials` value after the first started `PILOT` trial is `24`.
+Slots planned for `PILOT` are registered in [pilot-preregistration.md](pilot-preregistration.md) §9 and enter this ledger as `REGISTERED` rows with their own `ID` before any run. The exploratory runs below (`L-024`–`L-026`) occurred outside the planned `PILOT` grid and are entered here per §1 so they count toward `K_trials`; they **cannot** be used for `PILOT` adoption or tier-sizing decisions. No `PILOT` slot has started (`0` `PILOT` trials started). The next free `ID` is `L-027`. The next `K_trials` value after the first started `PILOT` trial is `42`.
 
 | ID | Hypothesis / parameter set | Date | Data version | Pre-registered standard | Outcome | Added | `K_trials` |
 | --- | --- | --- | --- | --- | --- | ---: | ---: |
-| (none) | | | | | | | `23` |
+| `L-024` | `EXPL-RUN-609`: 3x vs 1x small-account cost comparison (`live_tqqq_dual_drive_45_45_proxy` and `live_soxl_soxx_trend_57_proxy`, each 3x and 1x twin × spread stress `×1/×2/×3`, 12 registry entries). **Exploratory, outside the PILOT grid** (cannot be used for `PILOT` decisions). | `2026-11-26` (workflow run `EXPL-RUN-609`, UTC) | Public daily closes (`non-Y2` ad-hoc sample; not benchmarked against `Y2-DATA-1`) | Research mandate in `UsEquitySnapshotPipelines` (`small-account-cost-comparison`); outside `PILOT` pre-registration | `NOT_MET` (**exploratory, outside the PILOT grid**; 3x proxies exceeded `30%` DD threshold) | `12` | `35` |
+| `L-025` | `EXPL-RUN-610`: full `soxl_soxx_trend_income` strict replay (strict x1/x2/x3 spread stress on public daily closes). **Exploratory, outside the PILOT grid** (cannot be used for `PILOT` decisions). | `2026-11-26` (workflow run `EXPL-RUN-610`, UTC) | Public daily closes (`non-Y2` ad-hoc sample) | Research mandate in `UsEquitySnapshotPipelines` (`soxl-strict-replay`); outside `PILOT` pre-registration | `NOT_MET` (**exploratory, outside the PILOT grid**; strict DD beyond balanced budget) | `3` | `38` |
+| `L-026` | `EXPL-RUN-611`: full `tqqq_growth_income` strict replay (strict x1/x2/x3 spread stress on public daily closes; executed prior to Section 13 freeze on unplanned runs; formal TQQQ evaluation remains governed by `PILOT`). **Exploratory, outside the PILOT grid** (cannot be used for `PILOT` decisions). | `2026-11-26` (workflow run `EXPL-RUN-611`, UTC) | Public daily closes (`non-Y2` ad-hoc sample) | Research mandate in `UsEquitySnapshotPipelines` (`tqqq-strict-replay`); outside `PILOT` pre-registration | `NOT_MET` (**exploratory, outside the PILOT grid**; strict DD beyond balanced budget) | `3` | `41` |
 
 ## 6. What is and is not a trial
 

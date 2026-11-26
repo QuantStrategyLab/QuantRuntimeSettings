@@ -1,11 +1,12 @@
 # Phase 2 YARDSTICK — PILOT Pre-Registration (Policy v0 Research Study)
 
-**Status date:** 2026-11-17
+**Status date:** 2026-11-27
 **Pre-registration date:** 2026-11-17 (no `PILOT` run, `PILOT` output or `PILOT` data pull exists at this date; the `PILOT` prerequisites `FUSE` batch 1 and `SHADOW` stage `N` have not run)
-**SHA-256 (self-excluding):** `PREREG-R3` (opaque public revision reference, dated 2026-11-17; the digest, exact bytes and prior-version chain are held in the protected record)
+**SHA-256 (self-excluding):** `PREREG-R4` (opaque public revision reference, dated 2026-11-27; the digest, exact bytes and prior-version chain are held in the protected record)
 **Amendment (2026-11-17, before any `PILOT` run):** document links to the published Y2 records [dataset.md](dataset.md) and [validation.md](validation.md) added, and the baseline-reproduction caveat in the residuals reworded; no constant, threshold, window or `[P]` value changed. Earlier revision reference of the first version: `PREREG-R0`.
 **Amendment (2026-11-17, owner waiver, before any `PILOT` run):** records the owner's waiver of the replay-acceptance requirement for both selected baselines (PR #1188, comment `6930818496`); the performance targets stay unverified, and the waiver covers `Y3` documents acceptance only, with `PILOT` permission separate and not granted; no constant, threshold, window or `[P]` value changed. Earlier revision reference, before this amendment: `PREREG-R1`.
 **Amendment (2026-11-17, bot-thread conformance, before any `PILOT` run):** literal source, dataset and registration digests are replaced by opaque references that resolve in the protected identity manifest (§2 rewritten accordingly), and three pre-run blockers are recorded (the `P-D` confidence bound, simulated breaker re-arming, research execution costs; §§4, 5, 8, 9, 10); no constant, threshold, window, `[P]` value, trial count or planned slot changed, and no trial is started. Earlier revision reference, before this amendment: `PREREG-R2`.
+**Amendment (2026-11-27, owner pre-`PILOT` scope update, before any `PILOT` run):** adds a minimum-account viability test at `US$1,500` comparing whole shares vs fractional shares execution (§§3.1, 5) and changes the `PAPER` broker venue from Longbridge to `IBKR` (§3.1; [sizing-unit.md](sizing-unit.md)); tax assumptions remain configurable model parameters rather than hardcoded personal residency. Pre-`PILOT` exploratory runs `L-024`–`L-026` are logged in [experiment-ledger.md](experiment-ledger.md) §5 (`K_trials` floor updated in §§9–10); the 22 planned `PILOT` grid slots, tier constants, and §10 pre-run blockers are unchanged, and no `PILOT` trial is started. Earlier revision reference, before this amendment: `PREREG-R3`.
 **Phase:** 2 (`YARDSTICK`, batch `Y3`) — documents only. Pre-registering a study authorizes no code edits, data reads, deployments, paper orders, live orders, or `PILOT` runs; `PILOT` has its own owner approval.
 **Registration owner:** `coordinator`
 **Related documents:** [frozen-baselines.md](frozen-baselines.md) | [experiment-ledger.md](experiment-ledger.md) | [definitions-contract.md](definitions-contract.md) | [cost-model.md](cost-model.md) | [dataset.md](dataset.md) | [validation.md](validation.md) | [sizing-unit.md](sizing-unit.md) | [rebase-register.md](rebase-register.md) | [decisions-rebase.md](decisions-rebase.md)
@@ -44,6 +45,8 @@ Every constant below carries one mark:
 | Constant | Value | Mark | Source |
 | --- | --- | --- | --- |
 | Notional bankroll `B_0` | `US$50,000` | `[S]` | Owner, decided `2026-11-15` (delegated; changeable by her word) |
+| Minimum-account test bankroll | `US$1,500` (whole shares vs fractional shares execution test alongside `B_0`) | `[S]` | Owner amendment `PREREG-R4`, `2026-11-27` |
+| `PAPER` broker venue | `IBKR` (amended from Longbridge so `PAPER` matches planned `LIVE-GATE` broker; [sizing-unit.md](sizing-unit.md)) | `[S]` | Owner amendment `PREREG-R4`, `2026-11-27` |
 | External committed reserve `H` | `0` (undeclared); maximum `3 × E*` if ever declared | `[S]` | Owner decision; [definitions-contract.md](definitions-contract.md) §3.3 |
 | Loss budgets `D` | `15%` / `30%` / `50%` | `[S]` | `PART-C.md` §4.3 line 4 |
 | Kelly fractions `k` | `1/8` / `1/4` / `1/2` | `[S]` | Line 1; never above one half |
@@ -114,7 +117,7 @@ Bars follow `PART-B.md` §2.4. Numeric values are `[S]` where `PART-C.md` §4.5 
 
 **End states.** Each `PILOT` item ends as one of: recommend-adopt, reject, insufficient with named missing data. Nothing is switched on. Each adoption recommendation needs its own owner card and admits the item to the next shadow policy version only.
 
-**Reporting rule.** Every result table reports net log growth, maximum drawdown and time to recover, with ranges, in two separate buckets: the modelled synthetic history and real-fund history ([definitions-contract.md](definitions-contract.md) §2.4–2.5). The probability of breaching `D` within ten years is stated by simulation, with its horizon. The smallest workable bankroll per tier is stated as the bankroll at which annual fixed trading costs are below one tenth of the tier's expected excess growth in dollars `[S]`.
+**Reporting rule.** Every result table reports net log growth, maximum drawdown and time to recover, with ranges, in two separate buckets: the modelled synthetic history and real-fund history ([definitions-contract.md](definitions-contract.md) §2.4–2.5). The probability of breaching `D` within ten years is stated by simulation, with its horizon. The smallest workable bankroll per tier is stated as the bankroll at which annual fixed trading costs are below one tenth of the tier's expected excess growth in dollars `[S]`. Alongside `B_0 = US$50,000`, `PILOT` reports a minimum-account viability comparison at `US$1,500` contrasting whole-share execution against fractional-share execution (with all research execution-cost parameters governed by §10).
 
 ## 6. Stress scenario set
 
@@ -193,7 +196,7 @@ Each slot is entered in [experiment-ledger.md](experiment-ledger.md) as `REGISTE
 | `P-D` | `Q3-1(a)` diversification credit | one test: credit only if the upper bound of the semiconductor-index tail correlation with the Nasdaq-100 is below `0.7`; otherwise refused. **Blocked pending the confidence-bound amendment in §10; no diversification credit is available from this unexecuted slot.** | — | `1` |
 | | **Total planned** | | | **`22`** |
 
-Not counted as trials, per [experiment-ledger.md](experiment-ledger.md) §6: the Kelly ceiling reports (`Q2-3`), the stress-window rule outputs, the measurement of `β_fall` and tail correlation as descriptive inputs, and determinism or reproduction checks. If every slot is started, `K_trials` goes from `23` to `45`.
+Not counted as trials, per [experiment-ledger.md](experiment-ledger.md) §6: the Kelly ceiling reports (`Q2-3`), the stress-window rule outputs, the measurement of `β_fall` and tail correlation as descriptive inputs, and determinism or reproduction checks. Counting exploratory entries `L-024`–`L-026` (`K_trials = 41` floor before `PILOT`), starting every planned `PILOT` slot moves `K_trials` from `41` to `63`.
 
 ## 10. Limits and open items
 
@@ -203,12 +206,12 @@ Not counted as trials, per [experiment-ledger.md](experiment-ledger.md) §6: the
 - The class-K net-growth comparisons, P-C no-trade-band cost comparisons, smallest-workable-bankroll calculation, and any stress or sizing trial dependent on execution costs must not start until a dated, versioned pre-run amendment binds a deterministic research execution-cost parameter set to the registration. It must specify minimum/per-share commissions, applicable fixed and regulatory fees, per-instrument half-spreads, impact coefficients and stress multipliers with units and applicability; use the same declared model for paired comparisons. Unsourced inputs remain unresolved, not zero. Historical 5 bps baseline replays and the context-only 5/10/15 bps grid are not PILOT assumptions. Coordinator confirmation under §1 and separate PILOT permission are both required. OI-COST-3 venue verification and the FUSE control collar remain at their existing gates.
 - The baselines' recorded performance targets were **not** reproduced in `Y3` ([frozen-baselines.md](frozen-baselines.md) §5.4). The acceptance statement that replay reproduces recorded targets is met for allocation targets only. On `2026-11-17` the owner waived the replay-acceptance requirement for both baselines: the `Y3` documents are accepted under that exception, the performance targets stay unverified, and `PILOT` permission remains separate and is not granted by this acceptance.
 - The Y2 dataset carries the qualifications recorded in [experiment-ledger.md](experiment-ledger.md) §4 and in [dataset.md](dataset.md) and [validation.md](validation.md); the in-sample calibration and failed holdout checks recorded there are not restated as passes. In particular, the `3×` series are models, the `SOXL` series is a market-close proxy with an unverified NAV criterion, and nothing here treats the synthetic history as real fund history.
-- `K_trials = 23` is a floor (see [experiment-ledger.md](experiment-ledger.md) §7); related trial records in the strategy repository are not counted.
+- `K_trials = 41` (`23` Y3 seed + `18` pre-`PILOT` exploratory entries `L-024`–`L-026`) is a floor (see [experiment-ledger.md](experiment-ledger.md) §7); related trial records in the strategy repository are not counted.
 - Nothing in this file is a verdict on `TQQQ`, `SOXL` or any tier.
 
 ## 11. Amendment record
 
-Revision references resolve to exact bytes and digests in the protected registration record (§2). Dates and order are public; no revision changes a constant, threshold, window or `[P]` value.
+Revision references resolve to exact bytes and digests in the protected registration record (§2). Dates and order are public; pre-`R4` revisions kept constants unchanged while `PREREG-R4` amends `§3.1`/`§5` (`US$1,500` whole-vs-fractional account test and `IBKR` `PAPER` venue) and updates `K_trials` references in `§§9–10`.
 
 | Revision | Date | Change |
 | --- | --- | --- |
@@ -216,6 +219,7 @@ Revision references resolve to exact bytes and digests in the protected registra
 | `PREREG-R1` | 2026-11-17 | Links to the published Y2 records added; baseline-reproduction caveat in the residuals reworded. |
 | `PREREG-R2` | 2026-11-17 | Owner waiver of the replay-acceptance requirement recorded (PR #1188, comment `6930818496`). |
 | `PREREG-R3` | 2026-11-17 | Literal digests replaced by opaque protected references (§2 rewritten); pre-run blockers recorded for the `P-D` confidence bound (§§9, 10), simulated breaker re-arming (§§5, 8) and research execution costs (§§4, 10). |
+| `PREREG-R4` | 2026-11-27 | Added `US$1,500` whole-share vs fractional-share minimum-account viability test (§§3.1, 5), changed `PAPER` broker venue from Longbridge to `IBKR` (§3.1; [sizing-unit.md](sizing-unit.md)), and updated `K_trials` floor to `41` after logging exploratory runs `L-024`–`L-026` in [experiment-ledger.md](experiment-ledger.md). |
 
 ## Sources
 
