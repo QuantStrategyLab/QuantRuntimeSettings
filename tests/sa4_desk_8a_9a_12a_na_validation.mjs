@@ -316,6 +316,34 @@ async function runSaA16(validator) {
   assert.equal(rbPaperLiveMatch.comparisons.platform_vs_observed.status, "match");
   assert.equal(rbPaperLiveMatch.comparisons.saved_vs_observed.status, "match");
   assert.ok(rbPaperLiveMatch.comparisons.saved_vs_observed.skipped_non_mutual_fields.includes("broker_environment"));
+
+  // P2 regression: stored readbacks re-check deployment evidence TTL at read time.
+  const rbObservedDriftFresh = readbackMod.buildReadback({
+    target: { ...fullTarget, config: { ...baseSaved.config, broker_environment: "paper", default_execution_mode: "live" } },
+    observed: { ...baseSaved, config: { ...baseSaved.config, broker_environment: "paper", default_execution_mode: "live" } },
+    platform: { ...basePlatform.effective, broker_environment: "paper", execution_mode: "live" },
+    now: nowMs,
+    platformMeta: basePlatform,
+    deployment: { ...matrix.cases[0].deployment, execution_mode: "paper" },
+  });
+  assert.equal(rbObservedDriftFresh.comparisons.platform_vs_observed.status, "drift");
+  const ttlConfig = { ok: true, value: { revision: 7, options: { ibkr: [{ key: "syn_tqqq", target_name: "syn_tqqq", account_selector: "DU0000001" }] } } };
+  const rollupAt = (at, readback) => accountsMod.accountsProjection({
+    config: ttlConfig, facts: { ok: false }, credential: { ok: false }, now: at,
+    readbacks9a: { "ibkr/syn_tqqq": readback },
+  }).brokers.value[0].readback_9a;
+  const deploymentObservedMs = Date.parse(matrix.cases[0].deployment.observed_at);
+  const ttlMs = matrix.cases[0].deployment.ttl_seconds * 1000;
+  const freshRollup = rollupAt(deploymentObservedMs + ttlMs, rbObservedDriftFresh);
+  assert.equal(freshRollup.status, "drift", "observed drift counts while deployment evidence is within TTL");
+  assert.equal(freshRollup.layers_available.observed_deployment, true);
+  const expiredRollup = rollupAt(deploymentObservedMs + ttlMs + 1, rbObservedDriftFresh);
+  assert.notEqual(expiredRollup.status, "drift", "expired deployment evidence cannot report observed drift");
+  assert.notEqual(expiredRollup.status, "match", "expired deployment evidence cannot report a match");
+  assert.equal(expiredRollup.layers_available.observed_deployment, false, "expired deployment layer is not available");
+  const expiredMatch = rollupAt(deploymentObservedMs + 2 * 3600_000, rbPaperLiveMatch);
+  assert.notEqual(expiredMatch.status, "match", "a 24 h snapshot past its deployment TTL never rolls up to match");
+  assert.equal(expiredMatch.layers_available.observed_deployment, false);
   const rbExecModeDrift = readbackMod.buildReadback({
     target: { ...fullTarget, config: { ...baseSaved.config, broker_environment: "live", default_execution_mode: "dry_run" } },
     observed: { ...baseSaved, config: { ...baseSaved.config, broker_environment: "live", default_execution_mode: "dry_run" } },

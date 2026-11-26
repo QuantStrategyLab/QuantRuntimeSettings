@@ -87,9 +87,42 @@ function layerHasReadableField(readback, side) {
   return Array.isArray(comparison?.compared_fields) && comparison.compared_fields.length > 0;
 }
 
-function brokerReadback9a(ownTargets, readbacks9a) {
+// Stored readbacks live for up to 24 h, longer than their deployment evidence.
+// Re-check that evidence at read time: expired or undatable observations are
+// stale, and the comparisons built on them are no longer trusted.
+function withCurrentDeploymentEvidence(readback, now) {
+  const observed = readback?.observed_deployment;
+  if (observed?.data_status !== "ready") return readback;
+  const nowMs = typeof now === "number" ? now : Date.parse(now);
+  const observedMs = Date.parse(observed.observed_at ?? "");
+  const ttl = observed.ttl_seconds;
+  const current = Number.isFinite(nowMs) && Number.isFinite(observedMs) && Number.isSafeInteger(ttl) && ttl >= 0
+    && nowMs <= observedMs + ttl * 1000;
+  if (current) return readback;
+  const reason = "runtime_observation_expired";
+  const expire = (comparison) => comparison && ({
+    ...comparison,
+    status: "unknown",
+    compared_fields: [],
+    mismatched_fields: [],
+    skipped_non_mutual_fields: [...new Set([...(comparison.skipped_non_mutual_fields || []), ...(comparison.compared_fields || [])])],
+    reason,
+  });
+  return {
+    ...readback,
+    observed_deployment: { ...observed, data_status: "stale", reason },
+    comparisons: {
+      ...readback.comparisons,
+      platform_vs_observed: expire(readback.comparisons?.platform_vs_observed),
+      saved_vs_observed: expire(readback.comparisons?.saved_vs_observed),
+    },
+  };
+}
+
+function brokerReadback9a(ownTargets, readbacks9a, now) {
   if (!readbacks9a || typeof readbacks9a !== "object") return undefined;
-  const matched = ownTargets.map(t => readbacks9a[t.id]).filter(Boolean);
+  const matched = ownTargets.map(t => readbacks9a[t.id]).filter(Boolean)
+    .map(readback => withCurrentDeploymentEvidence(readback, now));
   if (!matched.length) return undefined;
   const targetHasDrift = (r) => r.overall === "drift"
     || r.comparisons?.saved_vs_platform?.status === "drift"
@@ -128,7 +161,7 @@ export function accountsProjection({ config, facts, credential, now, readbacks9a
   const brokers = platforms.map(platform => {
     const own = targets.filter(target => target.platform === platform);
     const label = platformLabel(platform);
-    const readback9a = brokerReadback9a(own, readbacks9a);
+    const readback9a = brokerReadback9a(own, readbacks9a, now);
     return {
       platform,
       label,
