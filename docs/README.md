@@ -75,6 +75,7 @@ The current package retains configuration and compatibility ownership. Broker cr
 | --- | --- |
 | [PILOT pre-registration (`PREREG-R5`)](quant/pilot-preregistration.md) | Pre-registered `28`-slot `PILOT` protocol, stress windows, research cost model, and simulated re-arming rules (`live=OFF`). |
 | [PILOT results (`Policy v0`)](quant/pilot-results.md) | Deterministic `PREREG-R5` empirical results across unpooled synthetic and real-fund buckets, `US$1,500` viability, and candidate `policy v0`. |
+| [PAPER readiness (Phase 9)](quant/paper-readiness.md) | Phase 9 IBKR `PAPER` entry posture (`policy v0` Option A), whole-share API constraints (`10242/10243`), `OI-COST-3/4` calibration state, and Owner admission gates (`live=OFF`). |
 | [Experiment ledger](quant/experiment-ledger.md) | Append-only `K_trials` registry (`L-001`–`L-054`, `K_trials = 69`). |
 
 The existing complete documents retain their interfaces and risk controls. Index links and English summaries do not authorize deployment or change data/provider rights. See [LICENSE](../LICENSE).
