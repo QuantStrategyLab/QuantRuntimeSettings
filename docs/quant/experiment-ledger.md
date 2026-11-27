@@ -97,6 +97,7 @@ Slots planned for `PILOT` in [pilot-preregistration.md](pilot-preregistration.md
 | `L-052` | `PILOT P-E`: Balanced `US$1,500` fractional-share execution (`§4.1` IBKR costs) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Net `g > 0` & annual cost `< 10%` of excess growth | `NOT_MET` (`real g=3.80% > 2.05%` whole, fee ratio `111.1%`) | `1` | `67` |
 | `L-053` | `PILOT P-E`: Aggressive `US$1,500` whole-share execution (`§4.1` IBKR costs) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Net `g > 0` & annual cost `< 10%` of excess growth | `NOT_MET` (`real g=4.05%`, fee ratio `149.2%`) | `1` | `68` |
 | `L-054` | `PILOT P-E`: Aggressive `US$1,500` fractional-share execution (`§4.1` IBKR costs) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Net `g > 0` & annual cost `< 10%` of excess growth | `NOT_MET` (`real g=5.86% > 4.05%` whole, fee ratio `91.5%`) | `1` | `69` |
+| `L-055` | `BREADTH` empirical screening (`16` sleeves: US sectors, `US_DEF_MN`, ex-US, gold `GLD`, Treasuries `IEF`/`TLT`/`TLT_TREND126`, CTA `DBMF`, commodities `DBC`; `seed=20261128`, `b=5`, `R=1000`, `q_{0.10}`) | `2026-11-28` (`breadth-screening-results.md`) | `2019-11-07`–`2026-11-27` (`1,773`d, `sha256:f72dee...`) | Lower-tail corr + `95%` stationary-bootstrap UCB `< 0.50` vs `QQQ`/`TQQQ`/`SOXL` & `DSR` (`K=16`) | `PARTIAL` (`GLD` & `DBMF` pass tail+DSR; Treasuries & `US_DEF_MN` pass tail only; all 9 long-only US sectors & ex-US equities + `DBC` fail UCB `< 0.50`) | `16` | `85` |
 
 ## 6. What is and is not a trial
 
@@ -114,7 +115,7 @@ The `UsEquityStrategies` repository carries its own trial records. They are **no
 | `docs/research/tqqq-sma-trial-journal.md` | A twelve-slot `SMA`-window and cost journal for a frozen `TQQQ` `SMA` study; the entrypoint is synthetic-only and no historical attempts are backfilled. |
 | `docs/research/soxl-derisk-only-202610-forward-preregistration.md` | A pre-registered `20`-session forward observation, collection not activated; historical backtests ending `2026-08-25` are marked reference only and contaminated. |
 
-Whether these overlap the `Y2` sample, whether they are independent of `L-001` to `L-054`, and whether the Kelly `48` belongs in `K_trials` are open questions for the coordinator and, for the denominator, the owner. Until decided, `K_trials = 69` (`23` historical `Y3` seed entries + `18` exploratory registry entries across `L-024`–`L-026` + `28` `PILOT` entries across `L-027`–`L-054`) is a running floor and any `DSR` computed from it carries that caveat.
+Whether these overlap the `Y2` sample, whether they are independent of `L-001` to `L-055`, and whether the Kelly `48` belongs in `K_trials` are open questions for the coordinator and, for the denominator, the owner. Until decided, `K_trials = 85` (`23` historical `Y3` seed entries + `18` exploratory registry entries across `L-024`–`L-026` + `28` `PILOT` entries across `L-027`–`L-054` + `16` `BREADTH` screening entries in `L-055`) is a running floor and any `DSR` computed from it carries that caveat.
 
 ## Sources
 
