@@ -62,7 +62,7 @@ The per-file entry references are `Y2-DATA-1/F1` to `Y2-DATA-1/F8`, in byte orde
 
 ## 5. Going-forward trials
 
-Slots planned for `PILOT` in [pilot-preregistration.md](pilot-preregistration.md) §9 (`PREREG-R5`) were executed on `2026-11-27` under owner §1 confirmation and launch approval (results summarized in [pilot-results.md](pilot-results.md)). Exploratory runs `L-024`–`L-026` preceded `PILOT` outside the grid (`K_trials = 41`). Executing all `28` `PILOT` slots (`L-027`–`L-054`) advances running **`K_trials` to `69`**. The next free `ID` is `L-055`.
+Slots planned for `PILOT` in [pilot-preregistration.md](pilot-preregistration.md) §9 (`PREREG-R5`) were executed on `2026-11-27` under owner §1 confirmation and launch approval (results summarized in [pilot-results.md](pilot-results.md)). Exploratory slots `L-024`–`L-026` (`18` registry entries) preceded `PILOT` outside the grid, advancing the `23` historical `Y3` seed entries to `K_trials = 41`. Executing all `28` `PILOT` slots (`L-027`–`L-054`, `1` registry entry each) advances running **`K_trials` to `69`**. The next free `ID` is `L-055`.
 
 | ID | Hypothesis / parameter set | Date | Data version | Pre-registered standard | Outcome | Added | `K_trials` |
 | --- | --- | --- | --- | --- | --- | ---: | ---: |
@@ -114,7 +114,7 @@ The `UsEquityStrategies` repository carries its own trial records. They are **no
 | `docs/research/tqqq-sma-trial-journal.md` | A twelve-slot `SMA`-window and cost journal for a frozen `TQQQ` `SMA` study; the entrypoint is synthetic-only and no historical attempts are backfilled. |
 | `docs/research/soxl-derisk-only-202610-forward-preregistration.md` | A pre-registered `20`-session forward observation, collection not activated; historical backtests ending `2026-08-25` are marked reference only and contaminated. |
 
-Whether these overlap the `Y2` sample, whether they are independent of `L-001` to `L-054`, and whether the Kelly `48` belongs in `K_trials` are open questions for the coordinator and, for the denominator, the owner. Until decided, `K_trials = 69` (`23` historical `Y3` seed + `18` registry entries added across exploratory slots `L-024`–`L-026` + `28` `PILOT` slots `L-027`–`L-054`) is a running floor and any `DSR` computed from it carries that caveat.
+Whether these overlap the `Y2` sample, whether they are independent of `L-001` to `L-054`, and whether the Kelly `48` belongs in `K_trials` are open questions for the coordinator and, for the denominator, the owner. Until decided, `K_trials = 69` (`23` historical `Y3` seed entries + `18` exploratory registry entries across `L-024`–`L-026` + `28` `PILOT` entries across `L-027`–`L-054`) is a running floor and any `DSR` computed from it carries that caveat.
 
 ## Sources
 
