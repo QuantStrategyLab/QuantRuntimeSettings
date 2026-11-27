@@ -18,9 +18,9 @@
 
 ## 2. Stress Scenario Calibration `M(c)` (`§6.1–6.4`)
 
-Simulated `M(c)` on grid step `0.01` replacing the un-de-risked pre-`PILOT` approximation `M_0(c)` (`M_half(D/2)` denotes the calibrated maximum exposure under half the drawdown budget `D/2 = 7.5% / 15% / 25%`, not `M_full / 2`):
+Simulated `M(c)` on grid step `0.01` replacing the un-de-risked pre-`PILOT` approximation `M_0(c)` (`M_half(D/2)` denotes the calibrated maximum exposure under half the drawdown budget `D/2 = 7.5% / 15% / 25%`; because stress loss is non-linear in `M`, `M_half(D/2)` is not simply `M_full / 2`, and `S1_2000_02` is also the binding scenario at `M_half`):
 
-| Tier | `D` | `M_0` (pre-`PILOT`) | Calibrated `M_full(D)` | `M_half(D/2)` | Binding scenario at `M_full` | `S1 (2000–02)` loss | `S2 (2008)` loss | `S3 (2020)` loss | `S4 (2022)` loss | `ES_0.975` (`10k×250d`) |
+| Tier | `D` | `M_0` (pre-`PILOT`) | Calibrated `M_full(D)` | `M_half(D/2)` | Binding scenario (`M_full` & `M_half`) | `S1 (2000–02)` loss | `S2 (2008)` loss | `S3 (2020)` loss | `S4 (2022)` loss | `ES_0.975` (`10k×250d`) |
 | --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
 | Conservative | `15%` | `0.09` | **`0.16`** | `0.11` | `S1_2000_02` | `14.59%` | `9.03%` | `4.52%` | `5.32%` | `9.13%` |
 | Balanced | `30%` | `0.20` | **`0.27`** | `0.16` | `S1_2000_02` | `28.97%` | `16.11%` | `7.64%` | `9.17%` | `15.65%` |
@@ -32,12 +32,12 @@ Simulated `M(c)` on grid step `0.01` replacing the un-de-risked pre-`PILOT` appr
 
 Prior centered on `μ_0 = 5.0%`, `s_0 = 3.0%` (`β_fall(XSOX vs XNDX) = 1.0806`, so `β_SOXL = max(β_fall, 1.5) = 1.50` binds at its signed floor):
 
-| Index | `n` (years) | Sample excess mean | `σ_long` | Shrinkage weight | `s_post` | `μ_shrunk = μ_post - s_post` | `x_K^struct` (`C / B / A`) | `x_K^cond` median (`C / B / A`) | `x_K^struct ± 1 SE` (`Balanced`) |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |
-| `XNDX` | `41.77` | `13.28%/yr` | `25.71%` | `0.3626` | `2.40%` | `5.61%/yr` | `0.106 / 0.212 / 0.424` | `0.106 / 0.212 / 0.424` | `0.122 – 0.303` (`±0.0906`) |
-| `XSOX` | `32.49` | `19.76%/yr` | `38.13%` | `0.1674` | `2.74%` | `4.73%/yr` | `0.041 / 0.081 / 0.163` | `0.041 / 0.081 / 0.163` | `0.034 – 0.128` (`±0.0471`) |
+| Index | `n` (years) | Sample excess mean | `σ_long` | Shrinkage weight | `s_post` | `μ_shrunk = μ_post - s_post` | `x_K^struct` (`C / B / A`) | `x_K^struct ± 1 SE` (`Balanced`) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| `XNDX` | `41.77` | `13.28%/yr` | `25.71%` | `0.3626` | `2.40%` | `5.61%/yr` | `0.106 / 0.212 / 0.424` | `0.122 – 0.303` (`±0.0906`) |
+| `XSOX` | `32.49` | `19.76%/yr` | `38.13%` | `0.1674` | `2.74%` | `4.73%/yr` | `0.041 / 0.081 / 0.163` | `0.034 – 0.128` (`±0.0471`) |
 
-*Notes: `x_K^cond` median coincides with `x_K^struct` because `σ_long` is the conditioning volatility baseline. Class `S` remains **computed-and-recorded-only** (`insufficient` for live sizing without multi-month forward stability).*
+*Notes: `x_K^cond` evaluated at the baseline `σ_long` equals `x_K^struct` by construction (diverging only when conditional rolling volatility differs from `σ_long`), so only `x_K^struct` is tabulated. Class `S` remains **computed-and-recorded-only** (`insufficient` for live sizing without multi-month forward stability).*
 
 ---
 
@@ -76,7 +76,7 @@ Prior centered on `μ_0 = 5.0%`, `s_0 = 3.0%` (`β_fall(XSOX vs XNDX) = 1.0806`,
 
 ### 5.2 Group Findings
 
-- **`P-A` & `P-B` (Class `K`, `L-027`–`L-038`):** Every variant reduces synthetic `MDD` by `79.5%–96.2%` (`(1 - MDD_var/MDD_base)` from `13.00% vs 63.45%` on `L-031` to `0.56% vs 14.58%` on `L-028`) across `100%` of walk-forward `252`-session windows and eliminates `D`-breaches (`0%` 10-yr probability vs `25%–30%` baseline) with `0.00` latched trips/yr. However, combined stacking of `Step 3 x_ML(c)` + `Step 5 vol_scale` + `dd_scale` produces synthetic growth cost `gc = (g_base - g_variant) / g_base` of `38.4%–52.6%` (`38.4%` on `L-027` to `52.6%` on `L-030`) relative to the matched baseline, exceeding the strict Line 14 `π_K` ceilings (`20% / 15% / 10%`). Thus **all `P-A`/`P-B` slots record formal Class-`K` `REJECT` on growth cost**; per §2 item 6, proportional cushion + `M(c)` (`x_ML(c)`) captures the budget-preservation goal, while Owner review decides whether `vol_scale` / `dd_scale` stays active as a preference guardrail in `policy v0`.
+- **`P-A` & `P-B` (Class `K`, `L-027`–`L-038`):** Using unrounded run `mdd` values (which causes minor `0.1` percentage-point display differences relative to the 2-decimal rounded table, e.g., `L-033` `92.1%` unrounded vs `92.0%` from `1.16% / 14.58%`), every variant reduces synthetic `MDD` across `100%` of walk-forward `252`-session windows from a minimum of `79.5%` (`L-031`, `13.00% vs 63.45%`) to a maximum of `96.2%` (`L-028`, `0.56% vs 14.58%`), and eliminates `D`-breaches (`0%` 10-yr probability vs `25%–30%` baseline) with `0.00` trips/yr. Note that even the matched baselines (`0.20–0.71` trips/yr) already sit below the Class-`K` `λ_trip ≤ 1 / 2 / 3` per-year ceilings, so the trip-rate leg never binds; combined stacking of `Step 3 x_ML(c)` + `Step 5 vol_scale` + `dd_scale` produces synthetic growth cost `gc = (g_base - g_variant) / g_base` of `38.4%–52.6%` (`38.4%` on `L-027` to `52.6%` on `L-030`) exceeding the strict Line 14 `π_K` ceilings (`20% / 15% / 10%`), which is the binding rejection leg (`TO` also exceeds `200%` on `L-031`/`L-032`). Thus **all `P-A`/`P-B` slots record formal Class-`K` `REJECT` on growth cost**; per §2 item 6, proportional cushion + `M(c)` (`x_ML(c)`) captures the budget-preservation goal, while Owner review decides whether `vol_scale` / `dd_scale` stays active as a preference guardrail in `policy v0`.
 - **`P-C` (`Q2-6` No-Trade Band, `L-039`–`L-047`):**
   - Conservative: **`10%`** adopted (`L-039`, `TO = 36.6%` syn / `44.9%` real `≤ 50%` budget; `20%`/`30%` superseded).
   - Balanced: **`10%`** adopted (`L-042`, `TO = 93.1%` syn / `99.7%` real `≤ 100%` budget; `20%`/`30%` superseded).
@@ -97,7 +97,7 @@ Prior centered on `μ_0 = 5.0%`, `s_0 = 3.0%` (`β_fall(XSOX vs XNDX) = 1.0806`,
 
 - **Key operational findings:**
   1. At `US$1,500`, **IBKR fractional shares consistently outperform whole shares** on net growth across every tier (`+175 bps/yr` Balanced real ETF, `+181 bps/yr` Aggressive real ETF), because integer `~$50–60` ETF shares distort `5–10%` target sleeve weights.
-  2. Under strict stacked exposure caps (`x_ML + vol_scale + dd_scale`), `US$1,500` records `NOT_MET` on the `< 10%` annual-fee-to-excess-growth viability criterion (`B_min = annual_cost / (0.10 × excess_growth)`): for `Balanced` fractional (`$29.98/yr` cost, `3.80% - 2.00% = 1.80%` excess growth), `$29.98 / (0.10 × 0.0180) ≈ US$16,656` (`~US$16.7k` under the throttled stack), or at Balanced baseline excess growth (`9.81% - 2.00% = 7.81%`), `$29.98 / (0.10 × 0.0781) ≈ US$3,839` (`~US$3.8k–$5.0k` before extra scaling drags). **`PAPER` at `US$1,500` should enable IBKR fractional shares** while tracking live slippage/commissions cleanly before scaling capital.
+  2. The table and ledger govern the `NOT_MET` verdict using the `< 10%` fee-ratio criterion at `B_0 = US$1,500`: `fee_ratio = annual_cost_usd / (B_0 × (real_g_ann - 0.02))` (for example, `L-052` Balanced fractional at `real_g_ann = 3.80%` yields `excess = US$27.00/yr` and `$29.98 / $27.00 = 111.0%`, `111.1%` unrounded in the ledger, failing `< 10%`). Solving `fee_ratio < 10%` illustratively for minimum bankroll `B_min = annual_cost_usd / (0.10 × (real_g_ann - 0.02))` yields `$29.98 / (0.10 × 0.0180) ≈ US$16,656` under the throttled stack (vs `~US$3.8k–$5.0k` at baseline excess growth before extra scaling drags); this break-even sizing estimate is informational only and does not alter the `US$1,500` `NOT_MET` verdicts. **`PAPER` at `US$1,500` should enable IBKR fractional shares** while tracking live slippage/commissions cleanly before scaling capital.
 
 ---
 
@@ -109,4 +109,4 @@ Prior centered on `μ_0 = 5.0%`, `s_0 = 3.0%` (`β_fall(XSOX vs XNDX) = 1.0806`,
 | **Balanced (Starter)** | `30%` | `0.27` | `1.50` | `0.0` (rejected) | Proportional cushion `x_ML(c)` + `prop` brake (`15%`) | Off per Class-`K` bar (Owner opt-in `linear` `10%`) | `10%` | Recorded only (`OFF`) | **`IBKR`** (fractional at `$1,500–$5k`) |
 | Aggressive | `50%` | `0.46` | `1.50` | `0.0` (rejected) | Proportional cushion `x_ML(c)` + `prop` brake (`25%`) | Off per Class-`K` bar (Owner opt-in `linear` `19%`) | `20%` | Recorded only (`OFF`) | `IBKR` |
 
-*No live switches are changed by this document. Entering `PAPER` and `SHADOW` promotion remain gated on explicit Owner approvals.*
+*Traceability: No-trade bands trace directly to ledger `ADOPT` rows `L-039` (`10%`), `L-042` (`10%`), and `L-046` (`20%`); `P-D = 0.0` traces to `REJECT` row `L-048`; `vol_scale` / `dd_scale` have no `ADOPT` row (`L-027`–`L-038` `REJECT`) and remain `OFF` by default unless explicitly opted in by the Owner. No live switches are changed by this document; entering `PAPER` and `SHADOW` promotion remain gated on explicit Owner approvals.*
