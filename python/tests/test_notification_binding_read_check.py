@@ -175,8 +175,15 @@ class NotificationBindingReadCheckTests(unittest.TestCase):
         for forbidden in ("id-token:", "google-github-actions", "TELEGRAM", "SYNC_TOKEN", "GH_TOKEN",
                           "send_daily_digest", "gcloud", "curl", "check_credential_maintenance"):
             self.assertNotIn(forbidden, source)
-        self.assertEqual(source.count("secrets."), 1)
-        self.assertIn("secrets.DIGEST_EXPECTED_TARGETS_JSON", source)
+        self.assertEqual(source.count("secrets."), 4)
+        for key in (
+            "DIGEST_EXPECTED_TARGETS_JSON",
+            "DIGEST_CANDIDATES_GCS_URI",
+            "DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT",
+            "DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT",
+        ):
+            self.assertIn(f"secrets.{key}", source)
+        self.assertNotIn("vars.DIGEST_", source)
         self.assertIn("if: ${{ always() }}", source)
 
     def test_checker_has_no_network_process_or_credential_import(self):

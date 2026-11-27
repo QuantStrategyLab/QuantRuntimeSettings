@@ -72,4 +72,12 @@ class PrivateInfrastructureInputsTest(unittest.TestCase):
     def test_digest_provider_has_no_embedded_project_number_fallback(self):
         source = workflow_source("daily-digest-notify")
         self.assertFalse(re.search(r"projects/[0-9]+/", source), "provider must come from private configuration")
-        self.assertIn("vars.DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER", source)
+        for key in (
+            "DIGEST_CANDIDATES_GCS_URI",
+            "DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT",
+            "DIGEST_GCP_PROJECT_ID",
+            "DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER",
+            "DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT",
+        ):
+            self.assertIn(f"secrets.{key}", source)
+            self.assertNotIn(f"vars.{key}", source)
