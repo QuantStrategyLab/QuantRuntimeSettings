@@ -77,6 +77,7 @@ The current package retains configuration and compatibility ownership. Broker cr
 | [PILOT results (`Policy v0`)](quant/pilot-results.md) | Deterministic `PREREG-R5` empirical results across unpooled synthetic and real-fund buckets, `US$1,500` viability, and candidate `policy v0`. |
 | [PAPER readiness (Phase 9)](quant/paper-readiness.md) | Phase 9 IBKR `PAPER` entry posture (`policy v0` Option A), whole-share API constraints (`10242/10243`), `OI-COST-3/4` calibration state, and Owner admission gates (`live=OFF`). |
 | [BREADTH pre-registration (Phase 11)](quant/breadth-preregistration.md) | Research-only Phase 11 cross-asset evaluation bars (`< 0.50` tail correlation, PIT `O1`–`O9`, `OI-COST-*`, `DSR`/`PBO`, `no_admission=True`). |
-| [Experiment ledger](quant/experiment-ledger.md) | Append-only `K_trials` registry (`L-001`–`L-054`, `K_trials = 69`). |
+| [BREADTH screening results (Phase 11)](quant/breadth-screening-results.md) | Empirical `1,773`-session (`2019-11-07`–`2026-11-27`) `< 0.50` lower-tail correlation & `DSR` screening across 16 cross-asset/sector sleeves (`live=OFF`). |
+| [Experiment ledger](quant/experiment-ledger.md) | Append-only `K_trials` registry (`L-001`–`L-055`, `K_trials = 85`). |
 
 The existing complete documents retain their interfaces and risk controls. Index links and English summaries do not authorize deployment or change data/provider rights. See [LICENSE](../LICENSE).
