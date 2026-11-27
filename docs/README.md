@@ -69,4 +69,12 @@ The current package retains configuration and compatibility ownership. Broker cr
 | [Daily digest candidates wiring](digest-candidates-wiring.md) · [中文](digest-candidates-wiring.zh-CN.md) | `qsl.digest_candidates.v1` schema, freshness rules, private store intake, and preflight. |
 | [Daily digest route diagnosis](digest-route-identity.md) · [中文](digest-route-identity.zh-CN.md) | Read-only `digest-bot-identity.yml` token/chat resolution checks and public projection. |
 
+## Quant YARDSTICK & PILOT
+
+| Document | Scope |
+| --- | --- |
+| [PILOT pre-registration (`PREREG-R5`)](quant/pilot-preregistration.md) | Pre-registered `28`-slot `PILOT` protocol, stress windows, research cost model, and simulated re-arming rules (`live=OFF`). |
+| [PILOT results (`Policy v0`)](quant/pilot-results.md) | Deterministic `PREREG-R5` empirical results across unpooled synthetic and real-fund buckets, `US$1,500` viability, and candidate `policy v0`. |
+| [Experiment ledger](quant/experiment-ledger.md) | Append-only `K_trials` registry (`L-001`–`L-054`, `K_trials = 69`). |
+
 The existing complete documents retain their interfaces and risk controls. Index links and English summaries do not authorize deployment or change data/provider rights. See [LICENSE](../LICENSE).
