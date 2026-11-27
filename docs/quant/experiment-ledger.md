@@ -1,9 +1,9 @@
 # Phase 2 YARDSTICK — Experiment Ledger (Q4-3)
 
-**Status date:** 2026-11-27 (exploratory post-`Y3` runs appended)
-**Phase:** 2 (`YARDSTICK`, batch `Y3`) — documents only. Seeding the ledger authorizes no code edits, data reads, deployments, paper orders, live orders, or new trials.
-**Ledger owner:** `coordinator` (`Q4-3`, apparatus; the ledger is not adopted or rejected on merit)
-**Related documents:** [frozen-baselines.md](frozen-baselines.md) | [pilot-preregistration.md](pilot-preregistration.md) | [definitions-contract.md](definitions-contract.md) | [cost-model.md](cost-model.md) | [rebase-register.md](rebase-register.md) | [decisions-rebase.md](decisions-rebase.md) | [sizing-unit.md](sizing-unit.md)
+**Status date:** 2026-11-27 (`PREREG-R5` `PILOT` 28-slot study recorded)
+**Phase:** 2 (`YARDSTICK`, batch `Y3` / `PILOT`) — documents and empirical ledger record only (`live=OFF`, `kelly=OFF`, `stop_loss_return=OFF`).
+**Ledger owner:** `coordinator` (`Q4-3`, apparatus; outcomes reflect pre-registered bars verbatim)
+**Related documents:** [frozen-baselines.md](frozen-baselines.md) | [pilot-preregistration.md](pilot-preregistration.md) | [pilot-results.md](pilot-results.md) | [definitions-contract.md](definitions-contract.md) | [cost-model.md](cost-model.md) | [rebase-register.md](rebase-register.md) | [decisions-rebase.md](decisions-rebase.md) | [sizing-unit.md](sizing-unit.md)
 
 ## Authorization state
 
@@ -62,13 +62,41 @@ The per-file entry references are `Y2-DATA-1/F1` to `Y2-DATA-1/F8`, in byte orde
 
 ## 5. Going-forward trials
 
-Slots planned for `PILOT` are registered in [pilot-preregistration.md](pilot-preregistration.md) §9 and enter this ledger as `REGISTERED` rows with their own `ID` before any run. The exploratory runs below (`L-024`–`L-026`) occurred outside the planned `PILOT` grid and are entered here per §1 so they count toward `K_trials`; they **cannot** be used for `PILOT` adoption or tier-sizing decisions. No `PILOT` slot has started (`0` `PILOT` trials started). The next free `ID` is `L-027`. The next `K_trials` value after the first started `PILOT` trial is `42`.
+Slots planned for `PILOT` in [pilot-preregistration.md](pilot-preregistration.md) §9 (`PREREG-R5`) were executed on `2026-11-27` under owner §1 confirmation and launch approval (results summarized in [pilot-results.md](pilot-results.md)). Exploratory slots `L-024`–`L-026` (`18` registry entries) preceded `PILOT` outside the grid, advancing the `23` historical `Y3` seed entries to `K_trials = 41`. Executing all `28` `PILOT` slots (`L-027`–`L-054`, `1` registry entry each) advances running **`K_trials` to `69`**. The next free `ID` is `L-055`.
 
 | ID | Hypothesis / parameter set | Date | Data version | Pre-registered standard | Outcome | Added | `K_trials` |
 | --- | --- | --- | --- | --- | --- | ---: | ---: |
 | `L-024` | `EXPL-RUN-609`: 3x vs 1x small-account cost comparison (`live_tqqq_dual_drive_45_45_proxy` and `live_soxl_soxx_trend_57_proxy`, each 3x and 1x twin × spread stress `×1/×2/×3`, 12 registry entries). **Exploratory, outside the PILOT grid** (cannot be used for `PILOT` decisions). | `2026-11-26` (workflow run `EXPL-RUN-609`, UTC) | Public daily closes (`non-Y2` ad-hoc sample; not benchmarked against `Y2-DATA-1`) | Research mandate in `UsEquitySnapshotPipelines` (`small-account-cost-comparison`); outside `PILOT` pre-registration | `NOT_MET` (**exploratory, outside the PILOT grid**; 3x proxies exceeded `30%` DD threshold) | `12` | `35` |
 | `L-025` | `EXPL-RUN-610`: full `soxl_soxx_trend_income` strict replay (strict x1/x2/x3 spread stress on public daily closes). **Exploratory, outside the PILOT grid** (cannot be used for `PILOT` decisions). | `2026-11-26` (workflow run `EXPL-RUN-610`, UTC) | Public daily closes (`non-Y2` ad-hoc sample) | Research mandate in `UsEquitySnapshotPipelines` (`soxl-strict-replay`); outside `PILOT` pre-registration | `NOT_MET` (**exploratory, outside the PILOT grid**; strict DD beyond balanced budget) | `3` | `38` |
 | `L-026` | `EXPL-RUN-611`: full `tqqq_growth_income` strict replay (strict x1/x2/x3 spread stress on public daily closes; executed prior to Section 13 freeze on unplanned runs; formal TQQQ evaluation remains governed by `PILOT`). **Exploratory, outside the PILOT grid** (cannot be used for `PILOT` decisions). | `2026-11-26` (workflow run `EXPL-RUN-611`, UTC) | Public daily closes (`non-Y2` ad-hoc sample) | Research mandate in `UsEquitySnapshotPipelines` (`tqqq-strict-replay`); outside `PILOT` pre-registration | `NOT_MET` (**exploratory, outside the PILOT grid**; strict DD beyond balanced budget) | `3` | `41` |
+| `L-027` | `PILOT P-A`: Conservative `vol_scalar=linear` (`B_0=50,000`, `20%` band) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `K`: `≥10%` stress/WF reduction, `π_K ≤ 20%`, `λ_trip ≤ 1/yr`, `TO ≤ 50%` | `REJECT` (`gc=(g_base-g_var)/g_base=38.4% > 20%`, `λ_trip=0.00`) | `1` | `42` |
+| `L-028` | `PILOT P-A`: Conservative `vol_scalar=squared` (`B_0=50,000`, `20%` band) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `K` Conservative bar | `REJECT` (`gc=45.3% > 20%`) | `1` | `43` |
+| `L-029` | `PILOT P-A`: Balanced `vol_scalar=linear` (`B_0=50,000`, `20%` band) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `K`: `≥10%` stress/WF reduction, `π_K ≤ 15%`, `λ_trip ≤ 2/yr`, `TO ≤ 100%` | `REJECT` (`gc=44.4% > 15%`) | `1` | `44` |
+| `L-030` | `PILOT P-A`: Balanced `vol_scalar=squared` (`B_0=50,000`, `20%` band) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `K` Balanced bar | `REJECT` (`gc=52.6% > 15%`) | `1` | `45` |
+| `L-031` | `PILOT P-A`: Aggressive `vol_scalar=linear` (`B_0=50,000`, `20%` band) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `K`: `≥10%` stress/WF reduction, `π_K ≤ 10%`, `λ_trip ≤ 3/yr`, `TO ≤ 200%` | `REJECT` (`gc=50.3% > 10%`, `TO=216.8% > 200%`) | `1` | `46` |
+| `L-032` | `PILOT P-A`: Aggressive `vol_scalar=squared` (`B_0=50,000`, `20%` band) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `K` Aggressive bar | `REJECT` (`gc=50.4% > 10%`, `TO=202.5% > 200%`) | `1` | `47` |
+| `L-033` | `PILOT P-B`: Conservative `dd_rule=prop` + `vol=linear` (`B_0=50,000`) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `K` Conservative bar (unrounded `MDD` reduction `92.1%`) | `REJECT` (`gc=38.6% > 20%`) | `1` | `48` |
+| `L-034` | `PILOT P-B`: Conservative `dd_rule=step` (`ENVELOPE-V1-DOC`) + `vol=linear` | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `K` Conservative bar (unrounded `MDD` reduction `91.2%`) | `REJECT` (`gc=38.4% > 20%`) | `1` | `49` |
+| `L-035` | `PILOT P-B`: Balanced `dd_rule=prop` + `vol=linear` (`B_0=50,000`) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `K` Balanced bar (unrounded `MDD` reduction `90.0%`) | `REJECT` (`gc=45.2% > 15%`) | `1` | `50` |
+| `L-036` | `PILOT P-B`: Balanced `dd_rule=step` (`ENVELOPE-V1-DOC` + `§8.1` 20d `HWM_PB` re-entry) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `K` Balanced bar (unrounded `MDD` reduction `88.9%`) | `REJECT` (`gc=44.4% > 15%`) | `1` | `51` |
+| `L-037` | `PILOT P-B`: Aggressive `dd_rule=prop` + `vol=linear` (`B_0=50,000`) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `K` Aggressive bar (unrounded `MDD` reduction `83.7%`) | `REJECT` (`gc=51.7% > 10%`) | `1` | `52` |
+| `L-038` | `PILOT P-B`: Aggressive `dd_rule=step` (`ENVELOPE-V1-DOC` + `§8.1` 20d `HWM_PB` re-entry) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `K` Aggressive bar (unrounded `MDD` reduction `80.0%`) | `REJECT` (`gc=50.5% > 10%`) | `1` | `53` |
+| `L-039` | `PILOT P-C`: Conservative `no_trade_band=10%` (`B_0=50,000`, `§4.1` IBKR costs) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `P`: narrowest band with annual `TO ≤ 50%` | `ADOPT` (`TO=36.6% syn / 44.9% real`) | `1` | `54` |
+| `L-040` | `PILOT P-C`: Conservative `no_trade_band=20%` | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `P` Conservative (`TO ≤ 50%`) | `SUPERSEDED` (`TO=33.1% syn / 41.9% real ≤ 50%`; wider than `L-039`) | `1` | `55` |
+| `L-041` | `PILOT P-C`: Conservative `no_trade_band=30%` | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `P` Conservative (`TO ≤ 50%`) | `SUPERSEDED` (`TO=31.1% syn / 38.2% real ≤ 50%`; wider than `L-039`) | `1` | `56` |
+| `L-042` | `PILOT P-C`: Balanced `no_trade_band=10%` (`B_0=50,000`, `§4.1` IBKR costs) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `P`: narrowest band with annual `TO ≤ 100%` | `ADOPT` (`TO=93.1% syn / 99.7% real`) | `1` | `57` |
+| `L-043` | `PILOT P-C`: Balanced `no_trade_band=20%` | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `P` Balanced (`TO ≤ 100%`) | `SUPERSEDED` (`TO=85.8% syn / 92.6% real ≤ 100%`; wider than `L-042`) | `1` | `58` |
+| `L-044` | `PILOT P-C`: Balanced `no_trade_band=30%` | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `P` Balanced (`TO ≤ 100%`) | `SUPERSEDED` (`TO=81.0% syn / 87.7% real ≤ 100%`; wider than `L-042`) | `1` | `59` |
+| `L-045` | `PILOT P-C`: Aggressive `no_trade_band=10%` (`B_0=50,000`, `§4.1` IBKR costs) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `P` Aggressive (`TO ≤ 200%`) | `REJECT` (`TO=202.6% syn / 207.7% real > 200%`) | `1` | `60` |
+| `L-046` | `PILOT P-C`: Aggressive `no_trade_band=20%` (`B_0=50,000`, `§4.1` IBKR costs) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `P`: narrowest band with annual `TO ≤ 200%` | `ADOPT` (`TO=193.4% syn / 196.0% real`) | `1` | `61` |
+| `L-047` | `PILOT P-C`: Aggressive `no_trade_band=30%` | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Class `P` Aggressive (`TO ≤ 200%`) | `SUPERSEDED` (`TO=190.0% syn / 192.5% real ≤ 200%`; wider than `L-046`) | `1` | `62` |
+| `L-048` | `PILOT P-D`: `XSOX–XNDX` lower-tail (`q_{0.10}`) correlation & `95%` stationary-bootstrap UCB (`b=20`, `10,000` reps, `PCG64` seed `20261127`) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Both index `95%` UCB `< 0.70` and unpooled real ETF point `< 0.70` | `REJECT` (`syn UCB=0.6385`, `real ETF pt=0.7162 ≥ 0.70`; credit `= 0`) | `1` | `63` |
+| `L-049` | `PILOT P-E`: Conservative `US$1,500` whole-share execution (`§4.1` IBKR costs) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Net `g > 0` & annual cost `< 10%` of excess growth | `NOT_MET` (`real g=1.62% < 2%` T-bill; fee ratio `n/a`) | `1` | `64` |
+| `L-050` | `PILOT P-E`: Conservative `US$1,500` fractional-share execution (`§4.1` IBKR costs) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Net `g > 0` & annual cost `< 10%` of excess growth | `NOT_MET` (`real fee ratio=249.4%`; `$14.63/yr` cost) | `1` | `65` |
+| `L-051` | `PILOT P-E`: Balanced `US$1,500` whole-share execution (`§4.1` IBKR costs) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Net `g > 0` & annual cost `< 10%` of excess growth | `NOT_MET` (`real g=2.05%`, fee ratio `2478%`) | `1` | `66` |
+| `L-052` | `PILOT P-E`: Balanced `US$1,500` fractional-share execution (`§4.1` IBKR costs) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Net `g > 0` & annual cost `< 10%` of excess growth | `NOT_MET` (`real g=3.80% > 2.05%` whole, fee ratio `111.1%`) | `1` | `67` |
+| `L-053` | `PILOT P-E`: Aggressive `US$1,500` whole-share execution (`§4.1` IBKR costs) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Net `g > 0` & annual cost `< 10%` of excess growth | `NOT_MET` (`real g=4.05%`, fee ratio `149.2%`) | `1` | `68` |
+| `L-054` | `PILOT P-E`: Aggressive `US$1,500` fractional-share execution (`§4.1` IBKR costs) | `2026-11-27` (`PREREG-R5`) | `Y2-DATA-1` | Net `g > 0` & annual cost `< 10%` of excess growth | `NOT_MET` (`real g=5.86% > 4.05%` whole, fee ratio `91.5%`) | `1` | `69` |
 
 ## 6. What is and is not a trial
 
@@ -86,7 +114,7 @@ The `UsEquityStrategies` repository carries its own trial records. They are **no
 | `docs/research/tqqq-sma-trial-journal.md` | A twelve-slot `SMA`-window and cost journal for a frozen `TQQQ` `SMA` study; the entrypoint is synthetic-only and no historical attempts are backfilled. |
 | `docs/research/soxl-derisk-only-202610-forward-preregistration.md` | A pre-registered `20`-session forward observation, collection not activated; historical backtests ending `2026-08-25` are marked reference only and contaminated. |
 
-Whether these overlap the `Y2` sample, whether they are independent of `L-001` to `L-026`, and whether the Kelly `48` belongs in `K_trials` are open questions for the coordinator and, for the denominator, the owner. Until decided, `K_trials = 41` (`23` historical `Y3` seed + `18` pre-`PILOT` exploratory runs `L-024`–`L-026`) is a floor and any `DSR` computed from it carries that caveat.
+Whether these overlap the `Y2` sample, whether they are independent of `L-001` to `L-054`, and whether the Kelly `48` belongs in `K_trials` are open questions for the coordinator and, for the denominator, the owner. Until decided, `K_trials = 69` (`23` historical `Y3` seed entries + `18` exploratory registry entries across `L-024`–`L-026` + `28` `PILOT` entries across `L-027`–`L-054`) is a running floor and any `DSR` computed from it carries that caveat.
 
 ## Sources
 
