@@ -47,8 +47,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/digest-source/python/scripts"
+          cp python/scripts/azure_timer_digest.py "$RUNNER_TEMP/digest-source/azure_timer_digest.py"
           cp python/scripts/account_daily_digest.py python/scripts/account_daily_facts.py \
-            python/scripts/azure_timer_digest.py python/scripts/cloud_run_daily_digest.py \
+            python/scripts/cloud_run_daily_digest.py \
             "$RUNNER_TEMP/digest-source/python/scripts/"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -65,7 +66,7 @@ jobs:
     permissions:
       id-token: write
       actions: read
-    uses: QuantStrategyLab/.github/.github/workflows/deploy-azure-blob.yml@54a3b019c81ad099118d0b2c1566064b3d86e7a5
+    uses: QuantStrategyLab/.github/.github/workflows/deploy-azure-blob.yml@9fdc77ecc83bdfadf520e57c77b7e72c8ef4e251
     with:
       environment: ${{ inputs.target }}
       operation: ${{ inputs.operation }}
