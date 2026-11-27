@@ -50,6 +50,6 @@ Per completed `PREREG-R5` empirical evaluation ([pilot-results.md](pilot-results
 ## 4. Remaining Owner & Pre-Launch Gates Before Switching `PAPER` On
 
 1. **`OA-SH2-2` (`SHADOW` `CLK-01` Clock Unlock):** Authorize/observe first `seq=0` EOD commit on the pinned `ShadowResearch` genesis revision and validate/rotate the trusted genesis digest for the 20-trading-day out-of-sample `SHADOW` run.
-2. **`OI-COST-3` (Account Pricing Plan & Whole-Share Confirmation):** Owner confirms whether the IBKR paper/live account uses **IBKR Pro Tiered** (recommended) or **Fixed**, and confirms starting IBKR `PAPER` with **whole-share API sizing** under `10242/10243`.
+2. **`OI-COST-3` (Account Pricing Plan & Whole-Share Confirmation):** Owner confirmed on `2026-11-27` to use **IBKR Pro Tiered** (`US$0.0035/share`, `US$0.35` minimum per order) and **whole-share API sizing** for IBKR `PAPER` under `10242/10243`. Final `OI-COST-3` closure remains gated on observed IBKR paper-fill commission verification.
 3. **`OI-COST-4` (Realized Spread & `V7` Abnormal-Spread Collar):** Verify observed `TQQQ` / `SOXL` / short-duration T-bill quotes on IBKR paper and calibrate the `V7` live spread collar threshold ([cost-model.md](cost-model.md) §5.2).
 4. **`OA-4/5/6` (IBKR Flex & Security Hygiene Confirmation):** Confirm IBKR Activity Flex Query (`IBKR_FLEX_QUERY_ID`) timezone and `Trades` section via read-only diagnostics, confirm account 2FA, API withdrawal lock, and IP allowlist, then grant explicit Owner sign-off to activate `PAPER` (`live` remains `OFF`).
