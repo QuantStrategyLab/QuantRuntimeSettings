@@ -20,11 +20,11 @@ jobs:
     environment: runtime-strategy-switch
     env:
       P02_CONTROL_SHA: ${{ inputs.control_sha }}
-      DIGEST_CANDIDATES_GCS_URI: ${{ vars.DIGEST_CANDIDATES_GCS_URI }}
+      DIGEST_CANDIDATES_GCS_URI: ${{ secrets.DIGEST_CANDIDATES_GCS_URI }}
       DIGEST_CANDIDATES_READER_WIF_PROVIDER: ${{ vars.DIGEST_CANDIDATES_READER_WIF_PROVIDER }}
-      DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT: ${{ vars.DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT }}
-      DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER }}
-      DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: ${{ vars.DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+      DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT: ${{ secrets.DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT }}
+      DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: ${{ secrets.DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -83,8 +83,8 @@ jobs:
         id: auth
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
-          workload_identity_provider: ${{ vars.DIGEST_CANDIDATES_READER_WIF_PROVIDER || vars.DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT || vars.DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+          workload_identity_provider: ${{ vars.DIGEST_CANDIDATES_READER_WIF_PROVIDER || secrets.DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT || secrets.DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
           token_format: access_token
           create_credentials_file: false
       - name: Capture fixed baseline and verify exact object generation

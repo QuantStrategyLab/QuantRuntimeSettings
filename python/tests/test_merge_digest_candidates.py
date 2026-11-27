@@ -178,7 +178,8 @@ class WorkflowWiringTests(unittest.TestCase):
         live = (root / ".github/workflows/daily-digest-notify.yml").read_text(encoding="utf-8")
         # Documentation is user-owned; test the deployed intake contract here.
         self.assertIn("QRS_UNIFIED_NOTIFICATION_ENABLED || 'false'", live)
-        self.assertIn("DIGEST_CANDIDATES_GCS_URI: ${{ vars.DIGEST_CANDIDATES_GCS_URI || '' }}", live)
+        self.assertIn("DIGEST_CANDIDATES_GCS_URI: ${{ secrets.DIGEST_CANDIDATES_GCS_URI || '' }}", live)
+        self.assertNotIn("vars.DIGEST_CANDIDATES_GCS_URI", live)
         self.assertIn("steps.resend_guard.outputs.proceed == 'true' && env.DIGEST_CANDIDATES_GCS_URI != ''", live)
         self.assertIn("fetch_daily_digest_candidates.py", live)
         helper = (root / "python/scripts/fetch_daily_digest_candidates.py").read_text()
