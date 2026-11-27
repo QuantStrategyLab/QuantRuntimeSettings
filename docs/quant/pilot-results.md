@@ -56,27 +56,29 @@ Prior centered on `μ_0 = 5.0%`, `s_0 = 3.0%` (`β_fall(XSOX vs XNDX) = 1.0806`,
 
 ### 5.1 Matched Frozen Baselines vs. Candidate Stack Variants
 
-| Tier | Configuration | Syn `g_ann` | Syn `SR` | Syn `MDD` | Syn `w20` | Syn `TO/yr` | Syn `λ_trip/yr` | Syn `10y D-breach` | Real `g_ann` | Real `SR` | Real `MDD` | Real `TO/yr` |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Conservative | **Matched Baseline** (`x_cap=0.20`) | `6.06%` | `1.35` | `14.58%` | `4.68%` | `1.45` | `0.20` | `0%` | `5.91%` | `1.29` | `5.50%` | `1.48` |
-| Conservative | `P-A` `vol=linear` (`L-027`) | `3.73%` | `4.09` | `1.28%` | `0.82%` | `0.34` | `0.00` | `0%` | `2.50%` | `2.47` | `1.13%` | `0.44` |
-| Conservative | `P-A` `vol=squared` (`L-028`) | `3.31%` | `8.57` | `0.56%` | `0.33%` | `0.17` | `0.00` | `0%` | `1.89%` | `4.51` | `0.63%` | `0.26` |
-| Conservative | `P-B` `dd=prop+vol=lin` (`L-033`) | `3.72%` | `4.14` | `1.16%` | `0.78%` | `0.33` | `0.00` | `0%` | `2.45%` | `2.49` | `1.12%` | `0.42` |
-| Conservative | `P-B` `dd=step+vol=lin` (`L-034`) | `3.73%` | `4.09` | `1.28%` | `0.82%` | `0.34` | `0.00` | `0%` | `2.50%` | `2.47` | `1.13%` | `0.44` |
-| Balanced | **Matched Baseline** (`x_cap=0.40`) | `8.82%` | `1.00` | **`34.10%`** | `9.16%` | `2.85` | `0.20` | `25%` | `9.81%` | `1.10` | `11.99%` | `2.83` |
-| Balanced | `P-A` `vol=linear` (`L-029`) | `4.91%` | `1.86` | `3.78%` | `2.50%` | `0.90` | `0.00` | `0%` | `4.04%` | `1.47` | `3.57%` | `0.97` |
-| Balanced | `P-A` `vol=squared` (`L-030`) | `4.18%` | `2.32` | `3.02%` | `1.76%` | `0.70` | `0.00` | `0%` | `3.16%` | `1.56` | `3.24%` | `0.85` |
-| Balanced | `P-B` `dd=prop+vol=lin` (`L-035`) | `4.83%` | `1.88` | **`3.40%`** | `2.41%` | `0.86` | `0.00` | `0%` | `3.91%` | `1.46` | `3.24%` | `0.93` |
-| Balanced | `P-B` `dd=step+vol=lin` (`L-036`) | `4.91%` | `1.86` | `3.78%` | `2.50%` | `0.90` | `0.00` | `0%` | `4.04%` | `1.47` | `3.57%` | `0.97` |
-| Aggressive | **Matched Baseline** (`x_cap=0.80`) | `13.55%` | `0.83` | **`63.45%`** | `18.33%` | `5.60` | `0.71` | `30%` | `17.30%` | `1.01` | `24.64%` | `5.46` |
-| Aggressive | `P-A` `vol=linear` (`L-031`) | `6.73%` | `1.17` | `13.00%` | `6.37%` | `2.17` | `0.00` | `0%` | `6.19%` | `1.12` | `9.33%` | `2.16` |
-| Aggressive | `P-A` `vol=squared` (`L-032`) | `6.72%` | `1.23` | `8.77%` | `6.06%` | `2.02` | `0.00` | `0%` | `6.05%` | `1.13` | `8.49%` | `2.11` |
-| Aggressive | `P-B` `dd=prop+vol=lin` (`L-037`) | `6.55%` | `1.19` | **`10.35%`** | `5.87%` | `1.93` | `0.00` | `0%` | `6.07%` | `1.14` | `8.19%` | `1.96` |
-| Aggressive | `P-B` `dd=step+vol=lin` (`L-038`) | `6.71%` | `1.16` | `12.71%` | `6.37%` | `2.16` | `0.00` | `0%` | `6.19%` | `1.12` | `9.33%` | `2.16` |
+| Tier | Configuration | Syn `g_ann` | Syn `SR` | Syn `MDD` | Syn `TTR` (med) | Syn `w20` | Syn `TO/yr` | Syn `λ_trip/yr` | Syn `10y D-breach` | Real `g_ann` | Real `SR` | Real `MDD` | Real `TTR` (med) | Real `TO/yr` |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Conservative | **Matched Baseline** (`x_cap=0.20`) | `6.06%` | `1.35` | `14.58%` | `4.0` | `4.68%` | `1.45` | `0.20` | `0%` | `5.91%` | `1.29` | `5.50%` | `3.0` | `1.48` |
+| Conservative | `P-A` `vol=linear` (`L-027`) | `3.73%` | `4.09` | `1.28%` | `3.0` | `0.82%` | `0.34` | `0.00` | `0%` | `2.50%` | `2.47` | `1.13%` | `3.0` | `0.44` |
+| Conservative | `P-A` `vol=squared` (`L-028`) | `3.31%` | `8.57` | `0.56%` | `2.0` | `0.33%` | `0.17` | `0.00` | `0%` | `1.89%` | `4.51` | `0.63%` | `3.0` | `0.26` |
+| Conservative | `P-B` `dd=prop+vol=lin` (`L-033`) | `3.72%` | `4.14` | `1.16%` | `3.0` | `0.78%` | `0.33` | `0.00` | `0%` | `2.45%` | `2.49` | `1.12%` | `3.0` | `0.42` |
+| Conservative | `P-B` `dd=step+vol=lin` (`L-034`) | `3.73%` | `4.09` | `1.28%` | `3.0` | `0.82%` | `0.34` | `0.00` | `0%` | `2.50%` | `2.47` | `1.13%` | `3.0` | `0.44` |
+| Balanced | **Matched Baseline** (`x_cap=0.40`) | `8.82%` | `1.00` | **`34.10%`** | `4.0` | `9.16%` | `2.85` | `0.20` | `25%` | `9.81%` | `1.10` | `11.99%` | `4.0` | `2.83` |
+| Balanced | `P-A` `vol=linear` (`L-029`) | `4.91%` | `1.86` | `3.78%` | `4.0` | `2.50%` | `0.90` | `0.00` | `0%` | `4.04%` | `1.47` | `3.57%` | `4.0` | `0.97` |
+| Balanced | `P-A` `vol=squared` (`L-030`) | `4.18%` | `2.32` | `3.02%` | `3.0` | `1.76%` | `0.70` | `0.00` | `0%` | `3.16%` | `1.56` | `3.24%` | `3.0` | `0.85` |
+| Balanced | `P-B` `dd=prop+vol=lin` (`L-035`) | `4.83%` | `1.88` | **`3.40%`** | `4.0` | `2.41%` | `0.86` | `0.00` | `0%` | `3.91%` | `1.46` | `3.24%` | `4.0` | `0.93` |
+| Balanced | `P-B` `dd=step+vol=lin` (`L-036`) | `4.91%` | `1.86` | `3.78%` | `4.0` | `2.50%` | `0.90` | `0.00` | `0%` | `4.04%` | `1.47` | `3.57%` | `4.0` | `0.97` |
+| Aggressive | **Matched Baseline** (`x_cap=0.80`) | `13.55%` | `0.83` | **`63.45%`** | `4.0` | `18.33%` | `5.60` | `0.71` | `30%` | `17.30%` | `1.01` | `24.64%` | `4.0` | `5.46` |
+| Aggressive | `P-A` `vol=linear` (`L-031`) | `6.73%` | `1.17` | `13.00%` | `4.0` | `6.37%` | `2.17` | `0.00` | `0%` | `6.19%` | `1.12` | `9.33%` | `4.0` | `2.16` |
+| Aggressive | `P-A` `vol=squared` (`L-032`) | `6.72%` | `1.23` | `8.77%` | `4.0` | `6.06%` | `2.02` | `0.00` | `0%` | `6.05%` | `1.13` | `8.49%` | `4.0` | `2.11` |
+| Aggressive | `P-B` `dd=prop+vol=lin` (`L-037`) | `6.55%` | `1.19` | **`10.35%`** | `4.0` | `5.87%` | `1.93` | `0.00` | `0%` | `6.07%` | `1.14` | `8.19%` | `4.0` | `1.96` |
+| Aggressive | `P-B` `dd=step+vol=lin` (`L-038`) | `6.71%` | `1.16` | `12.71%` | `4.0` | `6.37%` | `2.16` | `0.00` | `0%` | `6.19%` | `1.12` | `9.33%` | `4.0` | `2.16` |
+
+*Recovery note: `TTR (med)` reports median sessions to recovery across closed drawdown episodes; full per-episode recovery ranges and right-censored episode flags ([definitions-contract.md](definitions-contract.md) §2.5) are not tabulated in this summary and remain marked missing pending full distribution export.*
 
 ### 5.2 Group Findings
 
-- **`P-A` & `P-B` (Class `K`, `L-027`–`L-038`):** Using unrounded run metrics (`mdd` and `g_ann`, which causes minor `0.1` percentage-point display differences relative to the 2-decimal rounded table, e.g., `L-033` `92.1%` unrounded vs `92.0%` from `1.16% / 14.58%`), aggregate synthetic `MDD` drops from a minimum of `79.5%` (`L-031`, `13.00% vs 63.45%`) to a maximum of `96.2%` (`L-028`, `0.56% vs 14.58%`), and the `PREREG-R5` run manifest (`out_sha256 = f076b932...`) records `wf_reduction_frac = 1.0` across 252-session walk-forward windows while eliminating `D`-breaches (`0%` 10-yr probability vs `25%–30%` baseline) with `0.00` trips/yr. Note that `λ_trip` never binds (even the matched baselines at `0.20–0.71` trips/yr already sit below the Class-`K` `λ_trip ≤ 1 / 2 / 3` per-year ceilings). Instead, combined stacking of `Step 3 x_ML(c)` + `Step 5 vol_scale` + `dd_scale` produces synthetic growth cost `gc = (g_base - g_variant) / g_base` of `38.4%–52.6%` (`38.4%` on `L-027` to `52.6%` on `L-030`) exceeding the strict Line 14 `π_K` ceilings (`20% / 15% / 10%`), which binds on all 12 `P-A`/`P-B` slots, while annual turnover `TO > 200%` additionally binds on Aggressive slots `L-031` (`216.8%`) and `L-032` (`202.5%`). Thus **all `P-A`/`P-B` slots record formal Class-`K` `REJECT` on growth cost**; per §2 item 6, proportional cushion + `M(c)` (`x_ML(c)`) captures the budget-preservation goal, while Owner review decides whether `vol_scale` / `dd_scale` stays active as a preference guardrail in `policy v0`.
+- **`P-A` & `P-B` (Class `K`, `L-027`–`L-038`):** Using unrounded run metrics (`mdd` and `g_ann`, which causes minor `0.1` percentage-point display differences relative to the 2-decimal rounded table, e.g., `L-033` `92.1%` unrounded vs `92.0%` from `1.16% / 14.58%`), aggregate synthetic `MDD` drops from a minimum of `79.5%` (`L-031`, `13.00% vs 63.45%`) to a maximum of `96.2%` (`L-028`, `0.56% vs 14.58%`), and the protected `PREREG-R5` run manifest (`PILOT-R5-MANIFEST-1`) records `wf_reduction_frac = 1.0` across 252-session walk-forward windows while eliminating `D`-breaches (`0%` 10-yr probability vs `25%–30%` baseline) with `0.00` trips/yr. Note that `λ_trip` never binds (even the matched baselines at `0.20–0.71` trips/yr already sit below the Class-`K` `λ_trip ≤ 1 / 2 / 3` per-year ceilings). Instead, combined stacking of `Step 3 x_ML(c)` + `Step 5 vol_scale` + `dd_scale` produces synthetic growth cost `gc = (g_base - g_variant) / g_base` of `38.4%–52.6%` (`38.4%` on `L-027` to `52.6%` on `L-030`) exceeding the strict Line 14 `π_K` ceilings (`20% / 15% / 10%`), which binds on all 12 `P-A`/`P-B` slots, while annual turnover `TO > 200%` additionally binds on Aggressive slots `L-031` (`216.8%`) and `L-032` (`202.5%`). Thus **all `P-A`/`P-B` slots record formal Class-`K` `REJECT` on growth cost**; per §2 item 6, proportional cushion + `M(c)` (`x_ML(c)`) captures the budget-preservation goal, while Owner review decides whether `vol_scale` / `dd_scale` stays active as a preference guardrail in `policy v0`.
 - **`P-C` (`Q2-6` No-Trade Band, `L-039`–`L-047`):**
   - Conservative: **`10%`** adopted (`L-039`, `TO = 36.6%` syn / `44.9%` real `≤ 50%` budget; `20%`/`30%` superseded).
   - Balanced: **`10%`** adopted (`L-042`, `TO = 93.1%` syn / `99.7%` real `≤ 100%` budget; `20%`/`30%` superseded).
@@ -86,14 +88,16 @@ Prior centered on `μ_0 = 5.0%`, `s_0 = 3.0%` (`β_fall(XSOX vs XNDX) = 1.0806`,
 
 ## 6. `P-E` Minimum-Account Execution Viability (`US$1,500` vs `B_0 = US$50,000`, `L-049`–`L-054`)
 
-| Tier | Mode at `US$1,500` | Syn `g_ann` | Syn `MDD` | Real `g_ann` | Real `MDD` | Real annual cost | Annual cost / excess over `2%` bill (real) | Outcome |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| Conservative | Whole shares (`L-049`) | `3.10%` | `0.56%` | `1.62%` | `0.10%` | `$4.67` | `n/a` (`g < 2%` bill) | `NOT_MET` |
-| Conservative | Fractional shares (`L-050`) | `3.71%` | `1.12%` | `2.39%` | `1.06%` | `$14.63` | `249.4%` | `NOT_MET` |
-| Balanced | Whole shares (`L-051`) | `4.18%` | `2.65%` | `2.05%` | `2.13%` | `$19.47` | `2478%` | `NOT_MET` |
-| Balanced | Fractional shares (`L-052`) | `4.75%` | `3.46%` | **`3.80%`** | `3.20%` | `$29.98` | `111.1%` | `NOT_MET` |
-| Aggressive | Whole shares (`L-053`) | `5.93%` | `7.77%` | `4.05%` | `6.60%` | `$45.97` | `149.2%` | `NOT_MET` |
-| Aggressive | Fractional shares (`L-054`) | `6.52%` | `9.28%` | **`5.86%`** | `7.98%` | `$52.96` | `91.5%` | `NOT_MET` |
+| Tier | Mode at `US$1,500` | Syn `g_ann` | Syn `MDD` | Syn `TTR` (med) | Real `g_ann` | Real `MDD` | Real `TTR` (med) | Real annual cost | Annual cost / excess over `2%` bill (real) | Outcome |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Conservative | Whole shares (`L-049`) | `3.10%` | `0.56%` | `3.0` | `1.62%` | `0.10%` | `3.0` | `$4.67` | `n/a` (`g < 2%` bill) | `NOT_MET` |
+| Conservative | Fractional shares (`L-050`) | `3.71%` | `1.12%` | `3.0` | `2.39%` | `1.06%` | `3.0` | `$14.63` | `249.4%` | `NOT_MET` |
+| Balanced | Whole shares (`L-051`) | `4.18%` | `2.65%` | `4.0` | `2.05%` | `2.13%` | `3.5` | `$19.47` | `2478%` | `NOT_MET` |
+| Balanced | Fractional shares (`L-052`) | `4.75%` | `3.46%` | `4.0` | **`3.80%`** | `3.20%` | `4.0` | `$29.98` | `111.1%` | `NOT_MET` |
+| Aggressive | Whole shares (`L-053`) | `5.93%` | `7.77%` | `4.0` | `4.05%` | `6.60%` | `3.5` | `$45.97` | `149.2%` | `NOT_MET` |
+| Aggressive | Fractional shares (`L-054`) | `6.52%` | `9.28%` | `4.0` | **`5.86%`** | `7.98%` | `3.0` | `$52.96` | `91.5%` | `NOT_MET` |
+
+*Recovery note: `TTR (med)` shows median sessions to recovery; per-episode recovery ranges and right-censored episode flags remain omitted from this summary.*
 
 - **Key operational findings:**
   1. At `US$1,500`, **IBKR fractional shares consistently outperform whole shares** on net growth across every tier (`+175 bps/yr` Balanced real ETF, `+181 bps/yr` Aggressive real ETF), because integer `~$50–60` ETF shares distort `5–10%` target sleeve weights.
