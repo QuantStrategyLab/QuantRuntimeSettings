@@ -49,7 +49,7 @@ Evaluated using the offline `QuantPlatformKit` evaluator (`lower_tail_correlatio
 
 ## 4. Robustness Diagnostics: CSCV PBO, Rebalance Sensitivity & Crisis Stress (`2026-11-28`)
 
-Evaluated on the same `1,773`-session aligned `BREADTH-DATA-20261128` matrix (`2019-11-07`–`2026-11-27`) under **`live=OFF`, `paper=OFF`, `no_admission=True`** (`Core` = `50% TQQQ + 50% SOXL`, fixed target sleeves `GLD` and `DBMF`; **descriptive diagnostics per [experiment-ledger.md](experiment-ledger.md) §6, zero new strategy parameters tuned**):
+Evaluated on the same `1,773`-session aligned `BREADTH-DATA-20261128` matrix (`2019-11-07`–`2026-11-27`) under **`live=OFF`, `paper=OFF`, `no_admission=True`** (`Core` = `50% TQQQ + 50% SOXL`, fixed target sleeves `GLD` and `DBMF`). The `12` allocation/rebalance schedule variants below are logged in [experiment-ledger.md](experiment-ledger.md) (`L-056`, advancing running `K_trials` from `85` to `97`), while the fixed-date crisis stress windows remain §6 descriptive checks:
 
 1. **CSCV Probability of Backtest Overfitting (`PBO`):** Selecting across all `16` unfiltered candidates yields `PBO = 0.873`, whereas restricting selection to sleeves passing the `< 0.50` lower-tail correlation bar cuts `PBO` to `0.079` (`6` eligible sleeves).
 2. **Rebalance Frequency & Drift-Band Sensitivity (`3x` cost = `15 bps` one-way / `30 bps` two-way per unit turnover):**
