@@ -78,6 +78,7 @@ The current package retains configuration and compatibility ownership. Broker cr
 | [PAPER readiness (Phase 9)](quant/paper-readiness.md) | Phase 9 IBKR `PAPER` entry posture (`policy v0` Option A), whole-share API constraints (`10242/10243`), `OI-COST-3/4` calibration state, and Owner admission gates (`live=OFF`). |
 | [BREADTH pre-registration (Phase 11)](quant/breadth-preregistration.md) | Research-only Phase 11 cross-asset evaluation bars (`< 0.50` tail correlation, PIT `O1`–`O9`, `OI-COST-*`, `DSR`/`PBO`, `no_admission=True`). |
 | [BREADTH screening results (Phase 11)](quant/breadth-screening-results.md) | Empirical `1,773`-session (`2019-11-07`–`2026-11-27`) `< 0.50` lower-tail correlation & `DSR` screening across 16 cross-asset/sector sleeves (`live=OFF`). |
-| [Experiment ledger](quant/experiment-ledger.md) | Append-only `K_trials` registry (`L-001`–`L-055`, `K_trials = 85`). |
+| [V2 regime & compounding results](quant/v2-regime-compounding-results.md) | Zero-`3x` `V2` DCA benchmark, `20y` real-ETF / `27y` Dot-Com stress, `12`-cell `SMA × hysteresis` plateau (`PBO`/`DSR`), Half-Kelly & `2,000`-path bootstrap (`live=OFF`). |
+| [Experiment ledger](quant/experiment-ledger.md) | Append-only `K_trials` registry (`L-001`–`L-058`, `K_trials = 127`). |
 
 The existing complete documents retain their interfaces and risk controls. Index links and English summaries do not authorize deployment or change data/provider rights. See [LICENSE](../LICENSE).
