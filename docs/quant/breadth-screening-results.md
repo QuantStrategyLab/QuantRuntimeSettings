@@ -44,3 +44,37 @@ Evaluated using the offline `QuantPlatformKit` evaluator (`lower_tail_correlatio
 1. **Long-only US sectors and broad non-US equities fail tail diversification:** Every unhedged long-only equity sleeve (`XLV`, `XLP`, `XLU`, `XLE`, `XLF`, `XLI`, `VXUS`, `EWJ`, `EWH`) exhibits `0.58–0.79` lower-tail correlation (`0.68–0.87` 95% UCB) against `QQQ` and `TQQQ` drawdowns.
 2. **True orthogonal anchors verified on tail correlation:** Only **Physical Gold (`GLD`)**, **Managed Futures CTA (`DBMF`)**, **US Treasuries (`IEF`/`TLT`/`TLT_TREND126`)**, and **Market-Neutral Defensive Equity (`US_DEF_MN`)** satisfy the `< 0.50` lower-tail point + `95%` UCB bar across `QQQ`, `TQQQ`, and `SOXL` (while broad commodities `DBC` fails on `95%` UCB `>= 0.50`).
 3. **Standalone vs admission requirements:** `GLD` and `DBMF` show positive standalone Sharpe (`0.755` / `0.717`) alongside tail diversification, whereas static short-QQQ (`US_DEF_MN`) and 2022-era Treasuries require conditional/regime gating. None of these sleeves is admitted here: cumulative `K_trials = 85` DSR (with registered effective-independence accounting), `PBO`, and full `OI-COST-*` checks remain mandatory before any future admission proposal.
+
+---
+
+## 4. Robustness Diagnostics: CSCV PBO, Rebalance Sensitivity & Crisis Stress (`2026-11-28`)
+
+Evaluated on the same `1,773`-session aligned `BREADTH-DATA-20261128` matrix (`2019-11-07`–`2026-11-27`) under **`live=OFF`, `paper=OFF`, `no_admission=True`** (`Core` = `50% TQQQ + 50% SOXL`, fixed target sleeves `GLD` and `DBMF`). The `12` allocation/rebalance schedule variants below are logged in [experiment-ledger.md](experiment-ledger.md) (`L-056`, advancing running `K_trials` from `85` to `97`), while the fixed-date crisis stress windows remain §6 descriptive checks:
+
+1. **CSCV Probability of Backtest Overfitting (`PBO`):** Selecting across all `16` unfiltered candidates yields `PBO = 0.873`, whereas restricting selection to sleeves passing the `< 0.50` lower-tail correlation bar cuts `PBO` to `0.079` (`6` eligible sleeves).
+2. **Rebalance Frequency & Drift-Band Sensitivity (`3x` cost = `15 bps` one-way / `30 bps` two-way per unit turnover):**
+
+| Portfolio | Schedule / Band | Rebalances | Ann. Turnover | `1x` Net CAGR | `3x` Net CAGR | `3x` Sharpe | Max Drawdown |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `Core_100` (`50/50 TQQQ/SOXL`) | `monthly` | `84` | `39.0%` | `+27.02%` | `+26.92%` | `0.724` | `-85.64%` |
+| `Core_100` (`50/50 TQQQ/SOXL`) | `quarterly` | `28` | `22.0%` | `+28.49%` | `+28.43%` | `0.737` | `-85.90%` |
+| `Core_100` (`50/50 TQQQ/SOXL`) | `band_5pct` | `52` | `42.9%` | `+27.31%` | `+27.20%` | `0.728` | `-85.70%` |
+| `Core_100` (`50/50 TQQQ/SOXL`) | `band_10pct` | `13` | `20.9%` | `+27.16%` | `+27.11%` | `0.727` | `-85.54%` |
+| `Blend_70_15_15` (`70% Core + 15% GLD + 15% DBMF`) | `monthly` | `84` | `56.8%` | `+31.36%` | `+31.21%` | `0.746` | `-70.12%` |
+| `Blend_70_15_15` (`70% Core + 15% GLD + 15% DBMF`) | `quarterly` | `28` | `35.3%` | `+35.76%` | `+35.67%` | `0.798` | `-69.40%` |
+| `Blend_70_15_15` (`70% Core + 15% GLD + 15% DBMF`) | `band_5pct` | `72` | `65.0%` | `+31.90%` | `+31.72%` | `0.749` | `-70.73%` |
+| `Blend_70_15_15` (`70% Core + 15% GLD + 15% DBMF`) | `band_10pct` | `22` | `37.5%` | `+33.12%` | `+33.02%` | `0.764` | `-68.64%` |
+| `Blend_50_25_25` (`50% Core + 25% GLD + 25% DBMF`) | `monthly` | `84` | `58.9%` | `+29.66%` | `+29.51%` | `0.791` | `-54.30%` |
+| `Blend_50_25_25` (`50% Core + 25% GLD + 25% DBMF`) | `quarterly` | `28` | `37.4%` | `+34.48%` | `+34.38%` | `0.859` | `-53.40%` |
+| `Blend_50_25_25` (`50% Core + 25% GLD + 25% DBMF`) | `band_5pct` | `72` | `69.6%` | `+30.76%` | `+30.58%` | `0.794` | `-54.68%` |
+| `Blend_50_25_25` (`50% Core + 25% GLD + 25% DBMF`) | `band_10pct` | `18` | `34.2%` | `+31.05%` | `+30.96%` | `0.802` | `-54.31%` |
+
+3. **Crisis Stress Windows (`monthly` rebalance, `3x` cost):**
+
+| Stress Window | `Core_100` Return (`Window MaxDD`) | `Blend_70_15_15` Return (`Window MaxDD`) | `Blend_50_25_25` Return (`Window MaxDD`) |
+| --- | ---: | ---: | ---: |
+| `COVID_2020` (`2020-02-19`..`2020-04-30`) | `-50.73%` (`-75.25%`) | `-35.82%` (`-59.64%`) | `-25.56%` (`-47.27%`) |
+| `RateHike_2022` (`2022-01-03`..`2022-12-30`) | `-82.69%` (`-85.46%`) | `-65.25%` (`-69.86%`) | `-48.60%` (`-54.05%`) |
+| `Tariff_2025` (`2025-02-19`..`2025-05-15`) | `-31.37%` (`-65.97%`) | `-20.29%` (`-51.50%`) | `-13.17%` (`-39.88%`) |
+
+4. **Diagnostic takeaway:** Quarterly and `10%` drift-band rebalancing cut turnover by ~36–42% relative to monthly rebalancing while improving `3x`-cost CAGR and Sharpe across both blends, and orthogonal `GLD` + `DBMF` ballast materially compresses crisis drawdowns (`-14.5` to `-31.4` percentage points across all three stress windows) without requiring admission before `PAPER` stabilizes.
